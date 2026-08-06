@@ -1,0 +1,142 @@
+/* ====================================================================
+   云界论坛 · 设计令牌（Design Tokens）
+   亮色模式默认值；暗色模式由 dark.css 通过 [data-theme="dark"] 覆盖。
+   本文件在 style.css 之后引入，会覆盖旧变量，使旧组件立即采用新品牌色。
+   ==================================================================== */
+
+:root {
+    /* ---------- 品牌色（靛蓝 indigo）---------- */
+    --brand: #6366f1;            /* 主品牌色 */
+    --brand-hover: #4f46e5;      /* 悬浮 */
+    --brand-active: #4338ca;     /* 按下 */
+    --brand-soft: #eef2ff;      /* 浅底 */
+    --brand-soft-2: #e0e7ff;    /* 稍深浅底 */
+    --brand-glow: rgba(99, 102, 241, 0.18);
+    --brand-contrast: #ffffff;   /* 品牌色上的文字 */
+
+    /* ---------- 兼容旧变量：映射到新品牌色 ---------- */
+    --primary: var(--brand);
+    --primary-dark: var(--brand-hover);
+    --primary-darker: var(--brand-active);
+    --primary-light: var(--brand-soft);
+    --primary-lighter: var(--brand-soft-2);
+    --primary-glow: var(--brand-glow);
+    --secondary: #71717a;
+
+    /* ---------- 语义色 ---------- */
+    --success: #10b981;
+    --success-light: #d1fae5;
+    --warning: #2563eb;
+    --warning-light: #dbeafe;
+    --error: #ef4444;
+    --error-light: #fee2e2;
+    --danger: var(--error);
+    --danger-light: var(--error-light);
+    --info: #0ea5e9;
+    --info-light: #e0f2fe;
+
+    /* ---------- 中性色（zinc 冷灰）---------- */
+    --bg: #fafafa;
+    --bg-soft: #f4f4f5;
+    --surface: #ffffff;
+    --surface-2: #f4f4f5;
+    --surface-3: #e4e4e7;
+    --surface-hover: #f4f4f5;
+
+    --text: #18181b;
+    --text-2: #3f3f46;
+    --text-3: #71717a;
+    --text-4: #a1a1aa;
+    --text-muted: var(--text-3);
+    --text-secondary: var(--text-2);
+
+    --border: #e4e4e7;
+    --border-strong: #d4d4d8;
+    --border-soft: #f4f4f5;
+    --ring: var(--brand-glow);
+
+    /* ---------- 阴影（极简化）---------- */
+    --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.03);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.03);
+    --shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.07);
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.09);
+    --shadow-xl: 0 16px 40px rgba(0, 0, 0, 0.12);
+    --shadow-glow: 0 0 0 3px var(--brand-glow);
+
+    /* ---------- 圆角 ---------- */
+    --radius-xs: 6px;
+    --radius-sm: 8px;
+    --radius: 10px;
+    --radius-md: 12px;
+    --radius-lg: 14px;
+    --radius-xl: 20px;
+    --radius-2xl: 24px;
+    --radius-full: 999px;
+
+    /* ---------- 过渡 ---------- */
+    --transition: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-slow: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    --ease: cubic-bezier(0.4, 0, 0.2, 1);
+
+    /* ---------- 字体 ---------- */
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+        "Helvetica Neue", Arial, "Noto Sans SC", "PingFang SC",
+        "Microsoft YaHei", sans-serif;
+    --font-mono: "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo,
+        Consolas, "Liberation Mono", monospace;
+
+    /* ---------- 字号阶梯 ---------- */
+    --text-xs: 12px;
+    --text-sm: 13px;
+    --text-base: 14px;
+    --text-md: 15px;
+    --text-lg: 16px;
+    --text-xl: 18px;
+    --text-2xl: 22px;
+    --text-3xl: 28px;
+    --text-4xl: 34px;
+
+    /* ---------- 间距阶梯 ---------- */
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 20px;
+    --space-6: 24px;
+    --space-8: 32px;
+    --space-10: 40px;
+    --space-12: 48px;
+    --space-16: 64px;
+
+    /* ---------- 布局 ---------- */
+    --header-height: 60px;
+    --container-width: 1200px;
+    --container-narrow: 760px;
+
+    /* ---------- z-index 层级表（统一管理，杜绝层叠混乱）---------- */
+    --z-base: 0;
+    --z-sticky: 10;
+    --z-card: 20;
+    --z-header: 40;
+    --z-dropdown: 50;
+    --z-drawer: 60;
+    --z-modal-backdrop: 1000;
+    --z-modal: 1001;
+    --z-toast: 1100;
+
+    /* ---------- 控件尺寸 ---------- */
+    --control-sm: 30px;
+    --control-md: 36px;
+    --control-lg: 42px;
+
+    color-scheme: light;
+}
+
+/* 减少动画偏好 */
+@media (prefers-reduced-motion: reduce) {
+    :root {
+        --transition: 0.01s;
+        --transition-slow: 0.01s;
+    }
+}

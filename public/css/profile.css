@@ -1,0 +1,329 @@
+/* ====================================================================
+   云界论坛 · 个人中心样式（v2 现代极简版，去橙色）
+   ==================================================================== */
+
+/* ---------- 个人中心头部卡片 ---------- */
+.profile-hero {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-sm);
+    overflow: hidden;
+    margin: 0 0 var(--space-6);
+}
+
+.profile-hero-top {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-6);
+    padding: var(--space-6);
+}
+
+.profile-avatar-wrap {
+    position: relative;
+    flex-shrink: 0;
+}
+
+.profile-avatar {
+    width: 96px;
+    height: 96px;
+    border-radius: var(--radius-full);
+    object-fit: cover;
+    background: var(--surface-2);
+    border: 3px solid var(--surface);
+    box-shadow: var(--shadow);
+}
+
+.profile-level-badge {
+    position: absolute;
+    bottom: -4px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border-radius: var(--radius-full);
+    font-size: var(--text-xs);
+    font-weight: 700;
+    color: #fff;
+    white-space: nowrap;
+    box-shadow: var(--shadow-sm);
+    border: 2px solid var(--surface);
+}
+
+.profile-level-badge svg {
+    width: 12px;
+    height: 12px;
+}
+
+.profile-meta {
+    flex: 1;
+    min-width: 0;
+}
+
+.profile-name-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    margin-bottom: var(--space-2);
+}
+
+.profile-name {
+    font-size: var(--text-2xl);
+    font-weight: 800;
+    color: var(--text);
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+}
+
+.profile-uid {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: var(--text-xs);
+    color: var(--text-muted);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.profile-group-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border-radius: var(--radius-full);
+    font-size: var(--text-xs);
+    font-weight: 700;
+    color: #fff;
+    background: var(--brand);
+}
+
+.profile-group-badge svg {
+    width: 12px;
+    height: 12px;
+}
+
+.profile-signature {
+    color: var(--text-3);
+    font-size: var(--text-sm);
+    margin: 0 0 var(--space-3);
+    line-height: 1.5;
+}
+
+.profile-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    align-items: center;
+}
+
+.profile-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    border-radius: var(--radius-sm);
+    font-size: var(--text-xs);
+    font-weight: 600;
+    background: var(--surface-2);
+    color: var(--text-2);
+    border: 1px solid var(--border);
+}
+
+.profile-tag svg {
+    width: 12px;
+    height: 12px;
+}
+
+.profile-tag-admin {
+    background: var(--danger-light);
+    color: var(--danger);
+    border-color: transparent;
+}
+
+.profile-medal {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    border-radius: var(--radius-sm);
+    font-size: var(--text-xs);
+    font-weight: 600;
+    border: 1px solid currentColor;
+}
+
+.profile-actions {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+/* ---------- 统计条 ---------- */
+.profile-stats-bar {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    border-top: 1px solid var(--border);
+    background: var(--surface-2);
+}
+
+.profile-stat {
+    padding: var(--space-4) var(--space-2);
+    text-align: center;
+    border-right: 1px solid var(--border);
+}
+
+.profile-stat:last-child {
+    border-right: none;
+}
+
+.profile-stat-value {
+    font-size: var(--text-xl);
+    font-weight: 800;
+    color: var(--text);
+    line-height: 1.2;
+}
+
+.profile-stat-label {
+    font-size: var(--text-xs);
+    color: var(--text-3);
+    margin-top: 4px;
+}
+
+/* ---------- 标签页 ---------- */
+.profile-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+    margin-bottom: var(--space-5);
+    padding: var(--space-1);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+}
+
+.profile-tab {
+    display: inline-flex;
+    align-items: center;
+    padding: var(--space-2) var(--space-4);
+    border-radius: var(--radius);
+    font-size: var(--text-sm);
+    font-weight: 500;
+    color: var(--text-2);
+    transition: all var(--transition);
+    border: 1px solid transparent;
+}
+
+.profile-tab:hover {
+    background: var(--surface-2);
+    color: var(--text);
+}
+
+.profile-tab.active {
+    background: var(--surface);
+    color: var(--brand);
+    font-weight: 600;
+    border-color: var(--border);
+    box-shadow: var(--shadow-sm);
+}
+
+/* ---------- 卡片内容区 ---------- */
+.profile-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-sm);
+    padding: var(--space-6);
+    margin-bottom: var(--space-5);
+}
+
+.profile-card-title {
+    font-size: var(--text-lg);
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: var(--space-1);
+}
+
+.profile-card-subtitle {
+    font-size: var(--text-sm);
+    color: var(--text-3);
+    margin-bottom: var(--space-5);
+}
+
+/* ---------- 响应式 ---------- */
+@media (max-width: 768px) {
+    .profile-hero-top {
+        flex-direction: column;
+        text-align: center;
+        gap: var(--space-4);
+    }
+
+    .profile-meta {
+        width: 100%;
+        min-width: 0;
+    }
+
+    .profile-name-row {
+        justify-content: center;
+    }
+
+    .profile-name {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 100%;
+    }
+
+    .profile-tags {
+        justify-content: center;
+    }
+
+    .profile-actions {
+        width: 100%;
+        flex-direction: row;
+        justify-content: center;
+    }
+
+    .profile-stats-bar {
+        grid-template-columns: repeat(3, 1fr);
+    }
+
+    .profile-stat:nth-child(3) {
+        border-right: none;
+    }
+
+    .profile-stat:nth-child(4),
+    .profile-stat:nth-child(5) {
+        border-top: 1px solid var(--border);
+    }
+
+    .profile-stat:nth-child(4) {
+        border-right: 1px solid var(--border);
+    }
+}
+
+@media (max-width: 480px) {
+    .profile-avatar {
+        width: 80px;
+        height: 80px;
+    }
+
+    .profile-name {
+        font-size: var(--text-xl);
+    }
+
+    .profile-tabs {
+        gap: var(--space-1);
+    }
+
+    .profile-tab {
+        padding: var(--space-2) var(--space-3);
+        font-size: var(--text-xs);
+    }
+}

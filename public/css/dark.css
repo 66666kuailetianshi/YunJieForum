@@ -1,0 +1,117 @@
+/* ====================================================================
+   云界论坛 · 深色模式覆盖
+   通过 <html data-theme="dark"> 触发；同时响应 prefers-color-scheme
+   （但 data-theme 手动设置时优先级更高，见 main.js 中的逻辑）。
+   仅覆盖与亮色不同的变量值。
+   ==================================================================== */
+
+/* 系统跟随（用户未手动设置时生效）*/
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        color-scheme: dark;
+        --brand: #818cf8;
+        --brand-hover: #a5b4fc;
+        --brand-active: #c7d2fe;
+        --brand-soft: rgba(99, 102, 241, 0.14);
+        --brand-soft-2: rgba(99, 102, 241, 0.22);
+        --brand-glow: rgba(129, 140, 248, 0.24);
+        --brand-contrast: #0b0b14;
+
+        --primary: var(--brand);
+        --primary-dark: var(--brand-hover);
+        --primary-darker: var(--brand-active);
+        --primary-light: var(--brand-soft);
+        --primary-lighter: var(--brand-soft-2);
+        --primary-glow: var(--brand-glow);
+
+        --bg: #09090b;
+        --bg-soft: #18181b;
+        --surface: #18181b;
+        --surface-2: #27272a;
+        --surface-3: #3f3f46;
+        --surface-hover: #27272a;
+
+        --text: #fafafa;
+        --text-2: #d4d4d8;
+        --text-3: #a1a1aa;
+        --text-4: #71717a;
+        --text-muted: var(--text-3);
+        --text-secondary: var(--text-2);
+
+        --border: #27272a;
+        --border-strong: #3f3f46;
+        --border-soft: #1f1f23;
+
+        --success-light: rgba(16, 185, 129, 0.16);
+        --warning-light: rgba(37, 99, 235, 0.16);
+        --error-light: rgba(239, 68, 68, 0.16);
+        --info-light: rgba(14, 165, 233, 0.16);
+
+        --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
+        --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);
+        --shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+        --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
+        --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.55);
+        --shadow-xl: 0 16px 40px rgba(0, 0, 0, 0.65);
+        --shadow-glow: 0 0 0 3px var(--brand-glow);
+
+        --ring: var(--brand-glow);
+    }
+}
+
+/* 手动深色：data-theme="dark" 显式覆盖（优先级高于系统媒体查询）*/
+[data-theme="dark"] {
+    color-scheme: dark;
+    --brand: #818cf8;
+    --brand-hover: #a5b4fc;
+    --brand-active: #c7d2fe;
+    --brand-soft: rgba(99, 102, 241, 0.14);
+    --brand-soft-2: rgba(99, 102, 241, 0.22);
+    --brand-glow: rgba(129, 140, 248, 0.24);
+    --brand-contrast: #0b0b14;
+
+    --primary: var(--brand);
+    --primary-dark: var(--brand-hover);
+    --primary-darker: var(--brand-active);
+    --primary-light: var(--brand-soft);
+    --primary-lighter: var(--brand-soft-2);
+    --primary-glow: var(--brand-glow);
+
+    --bg: #09090b;
+    --bg-soft: #18181b;
+    --surface: #18181b;
+    --surface-2: #27272a;
+    --surface-3: #3f3f46;
+    --surface-hover: #27272a;
+
+    --text: #fafafa;
+    --text-2: #d4d4d8;
+    --text-3: #a1a1aa;
+    --text-4: #71717a;
+    --text-muted: var(--text-3);
+    --text-secondary: var(--text-2);
+
+    --border: #27272a;
+    --border-strong: #3f3f46;
+    --border-soft: #1f1f23;
+
+    --success-light: rgba(16, 185, 129, 0.16);
+    --warning-light: rgba(37, 99, 235, 0.16);
+    --error-light: rgba(239, 68, 68, 0.16);
+    --info-light: rgba(14, 165, 233, 0.16);
+
+    --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);
+    --shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.55);
+    --shadow-xl: 0 16px 40px rgba(0, 0, 0, 0.65);
+    --shadow-glow: 0 0 0 3px var(--brand-glow);
+
+    --ring: var(--brand-glow);
+}
+
+/* 手动浅色：data-theme="light" 显式锁定（覆盖系统深色偏好）*/
+[data-theme="light"] {
+    color-scheme: light;
+}
