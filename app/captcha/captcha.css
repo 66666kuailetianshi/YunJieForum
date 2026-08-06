@@ -1,0 +1,484 @@
+/* ============================================
+   滑块验证码组件（仿 jigsaw-verify Canvas）
+   结构：.sc-box > .sc-stage(.sc-bg/.sc-piece)
+                   > .sc-track(.sc-track-fill/.sc-track-tip/.sc-knob)
+                   > .sc-tools(.sc-refresh)
+   ============================================ */
+.sc-box {
+    width: 300px;
+    max-width: 100%;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.sc-stage {
+    position: relative;
+    width: 300px;
+    max-width: 100%;
+    height: 150px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    overflow: hidden;
+    background: var(--surface-3);
+    box-shadow: var(--shadow-xs);
+}
+
+.sc-bg {
+    display: block;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    touch-action: none;
+}
+
+.sc-piece {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 2;
+    cursor: grab;
+    touch-action: none;
+    will-change: left;
+    filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.3));
+}
+
+.sc-piece.sc-dragging,
+.sc-knob.sc-dragging {
+    cursor: grabbing;
+}
+
+/* 失败后平滑回弹 */
+.sc-piece.sc-back,
+.sc-knob.sc-back,
+.sc-track-fill.sc-back {
+    transition: all 0.5s ease;
+}
+
+/* 拖动轨道 */
+.sc-track {
+    position: relative;
+    margin-top: 12px;
+    height: 44px;
+    border-radius: var(--radius-full);
+    background: linear-gradient(180deg, var(--surface-2), var(--surface-3));
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-xs);
+    overflow: hidden;
+}
+
+.sc-track-fill {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 0;
+    background: linear-gradient(90deg, var(--primary), var(--primary-dark));
+    opacity: 0.35;
+    border-radius: var(--radius-full);
+    pointer-events: none;
+}
+
+.sc-track-tip {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    color: var(--text-muted);
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-select: none;
+    background: linear-gradient(90deg, var(--text-muted) 0%, var(--text-muted) 35%, #fff 50%, var(--text-muted) 65%, var(--text-muted) 100%);
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: scTipSlide 3s ease-in-out infinite;
+}
+@keyframes scTipSlide {
+    0%   { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+}
+
+.sc-knob {
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 42px;
+    height: 42px;
+    border-radius: var(--radius-full);
+    background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: grab;
+    touch-action: none;
+    box-shadow: var(--shadow-md);
+    z-index: 3;
+    transition: background 0.2s ease, box-shadow 0.2s ease;
+}
+.sc-knob:hover {
+    box-shadow: var(--shadow-lg);
+}
+.sc-knob-icon {
+    font-size: 18px;
+    line-height: 1;
+    pointer-events: none;
+}
+
+/* 工具行（换一张） */
+.sc-tools {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 6px;
+}
+.sc-refresh {
+    background: none;
+    border: none;
+    padding: 2px 4px;
+    font-size: 13px;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+    transition: color 0.2s ease;
+}
+.sc-refresh:hover {
+    color: var(--primary);
+}
+
+/* 加载中 */
+.sc-loading {
+    opacity: 0.6;
+    pointer-events: none;
+}
+.sc-loading .sc-track {
+    background: linear-gradient(90deg, var(--surface-3), var(--surface-2), var(--surface-3));
+    background-size: 200% 100%;
+    animation: scShimmer 1.2s ease infinite;
+}
+@keyframes scShimmer {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+/* 校验成功 */
+.sc-box.sc-success .sc-knob {
+    background: var(--success);
+    box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.18);
+}
+.sc-box.sc-success .sc-track-fill {
+    background: var(--success);
+    opacity: 0.45;
+}
+.sc-box.sc-success .sc-track-tip {
+    color: var(--success);
+    -webkit-text-fill-color: var(--success);
+    background: none;
+    background-clip: unset;
+    -webkit-background-clip: unset;
+    animation: none;
+}
+.sc-box.sc-success .sc-piece {
+    opacity: 0;
+    transition: opacity 0.4s ease 0.25s;
+}
+
+/* 校验失败：红色提示 + 抖动 */
+.sc-box.sc-error .sc-knob {
+    background: var(--error);
+    box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.18);
+}
+.sc-box.sc-error .sc-track-tip {
+    color: var(--error);
+}
+.sc-box.sc-error {
+    animation: scShake 0.4s ease;
+}
+@keyframes scShake {
+    0%, 100% { transform: translateX(0); }
+    25%      { transform: translateX(-5px); }
+    75%      { transform: translateX(5px); }
+}
+
+@media (max-width: 360px) {
+    .sc-box { width: 100%; }
+    .sc-stage { width: 100%; }
+}
+
+/* ============================================
+   人机验证组件（仿 Cloudflare Turnstile 复选框）
+   结构：.cap-widget > .cap-check(.cap-box/.cap-info)
+                    > .cap-body（滑块兜底挑战）
+                    > .cap-brand
+   ============================================ */
+.cap-widget {
+    width: 300px;
+    max-width: 100%;
+    border: 1px solid #e5e7eb;
+    border-radius: 4px;
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+    overflow: hidden;
+    font-family: inherit;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.cap-widget:focus-within {
+    border-color: #c7d2fe;
+    box-shadow: 0 0 0 2px rgba(99,102,241,0.10);
+}
+
+.cap-check {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    cursor: pointer;
+    outline: none;
+}
+
+.cap-box {
+    flex: none;
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    border: 1px solid #d1d5db;
+    background: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s ease, border-color 0.2s ease;
+}
+.cap-tick {
+    color: #fff;
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1;
+    opacity: 0;
+}
+.cap-spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid #6366f1;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: capSpin 0.7s linear infinite;
+}
+@keyframes capSpin {
+    to { transform: rotate(360deg); }
+}
+
+.cap-info {
+    min-width: 0;
+}
+.cap-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #111827;
+    line-height: 1.3;
+}
+.cap-sub {
+    font-size: 12px;
+    color: #6b7280;
+    margin-top: 2px;
+}
+
+.cap-body {
+    padding: 0 12px 10px;
+}
+.cap-body:empty {
+    display: none;
+}
+
+.cap-brand {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    padding: 7px 12px;
+    border-top: 1px dashed #e5e7eb;
+}
+.cap-brand-logo {
+    flex: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #6366f1, #4f46e5);
+    color: #fff;
+    font-size: 9px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.cap-brand-text {
+    font-size: 11px;
+    color: #9ca3af;
+    letter-spacing: 0.02em;
+}
+
+/* 校验中 */
+.cap-widget.cap-checking .cap-box {
+    border-color: #6366f1;
+}
+
+/* 验证成功 */
+.cap-widget.cap-success .cap-box {
+    background: #16a34a;
+    border-color: #16a34a;
+}
+.cap-widget.cap-success .cap-tick { opacity: 1; }
+.cap-widget.cap-success .cap-title { color: #16a34a; }
+.cap-widget.cap-success .cap-brand { border-top-color: #e5e7eb; }
+
+/* 验证失败 */
+.cap-widget.cap-error .cap-box {
+    background: #ef4444;
+    border-color: #ef4444;
+}
+.cap-widget.cap-error .cap-tick { opacity: 1; }
+.cap-widget.cap-error .cap-title { color: #ef4444; }
+.cap-widget.cap-error { animation: capShake 0.4s ease; }
+@keyframes capShake {
+    0%, 100% { transform: translateX(0); }
+    25%      { transform: translateX(-4px); }
+    75%      { transform: translateX(4px); }
+}
+
+/* ============================================
+   点文字验证组件（仿网易易盾「点选文字」）
+   结构：.cc-box > .cc-prompt > .cc-scene(.cc-bg/.cc-piece) > .cc-tools
+   ============================================ */
+.cc-box {
+    width: 300px;
+    max-width: 100%;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.cc-prompt {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 10px 4px 10px;
+    font-size: 13px;
+    color: #374151;
+    background: #f3f4f6;
+    border: 1px solid #e5e7eb;
+    border-radius: 4px;
+    margin-bottom: 8px;
+}
+.cc-prompt-label {
+    flex: none;
+    color: #6b7280;
+}
+.cc-prompt-word {
+    font-size: 15px;
+    font-weight: 700;
+    color: #111827;
+    letter-spacing: 0.15em;
+}
+
+.cc-scene {
+    position: relative;
+    width: 300px;
+    height: 150px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    overflow: hidden;
+    background: var(--surface-3);
+    box-shadow: var(--shadow-xs);
+}
+
+.cc-bg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    pointer-events: none;
+    user-select: none;
+}
+
+.cc-piece {
+    position: absolute;
+    min-width: 36px;
+    min-height: 36px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-shadow: 0 1px 2px rgba(255, 255, 255, 0.9), 0 0 2px rgba(0, 0, 0, 0.3);
+    transition: transform 0.15s ease, filter 0.15s ease;
+    z-index: 2;
+}
+.cc-piece:hover {
+    transform: translate(-50%, -50%) scale(1.15) !important;
+    filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.8));
+    z-index: 3;
+}
+.cc-piece.cc-selected {
+    color: #fff !important;
+    background: rgba(99, 102, 241, 0.85);
+    border-radius: 50%;
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25);
+    text-shadow: none;
+}
+.cc-piece.cc-selected::after {
+    content: attr(data-index);
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    width: 16px;
+    height: 16px;
+    background: #6366f1;
+    color: #fff;
+    font-size: 10px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.cc-piece.cc-wrong {
+    background: rgba(239, 68, 68, 0.85) !important;
+    border-radius: 50%;
+    animation: capShake 0.4s ease;
+}
+.cc-piece.cc-disabled {
+    opacity: 0.35;
+    pointer-events: none;
+}
+
+.cc-tools {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 10px;
+}
+.cc-reset,
+.cc-refresh {
+    background: none;
+    border: none;
+    padding: 2px 4px;
+    font-size: 13px;
+    color: #6b7280;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: color 0.2s ease;
+}
+.cc-reset:hover,
+.cc-refresh:hover {
+    color: #6366f1;
+}
+.cc-reset-ic {
+    display: inline-block;
+    margin-right: 2px;
+}

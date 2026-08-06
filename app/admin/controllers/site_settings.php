@@ -17,6 +17,10 @@ $siteSlogan = defined('SITE_SLOGAN') ? SITE_SLOGAN : '';
 $smtpEnabled = defined('SMTP_ENABLED') ? SMTP_ENABLED : false;
 $smtpFrom    = defined('SMTP_FROM') ? SMTP_FROM : '';
 
+$sliderCaptchaEnabled = get_site_setting('captcha_enabled', get_site_setting('slider_captcha_enabled', '0')) === '1';
+$captchaStyle   = get_site_setting('captcha_style', 'slider');
+$captchaDebug   = get_site_setting('captcha_debug', '0') === '1';
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && validate_csrf()) {
     $newName   = trim($_POST['site_name'] ?? '');
     $newSlogan = trim($_POST['site_slogan'] ?? '');
@@ -78,6 +82,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && validate_csrf()) {
             // 全站语言写入数据库（前台/后台所有页面同步生效，不依赖文件缓存；
             // 所有用户语言统一由站点设置决定，无需写 Cookie）
             set_site_setting('site_lang', $newLang);
+            // 人机验证开关（注册/登录/找回密码页），同时写旧键以兼容历史版本
+            $captchaEnabled = !empty($_POST['captcha_enabled']) ? '1' : '0';
+            set_site_setting('captcha_enabled', $captchaEnabled);
+            set_site_setting('slider_captcha_enabled', $captchaEnabled);
+            // 验证方式：拼图 / 点文字 / 智能混合
+            $captchaStyle = $_POST['captcha_style'] ?? 'slider';
+            if (!in_array($captchaStyle, ['slider', 'click', 'auto'], true)) {
+                $captchaStyle = 'slider';
+            }
+            set_site_setting('captcha_style', $captchaStyle);
+            // 调试模式：开启后前台跳过验证
+            $captchaDebug = !empty($_POST['captcha_debug']) ? '1' : '0';
+            set_site_setting('captcha_debug', $captchaDebug);
             set_flash(t('settings_save_success', '站点设置已保存。'), 'success');
             redirect('/admin/site_settings');
         } else {
@@ -145,6 +162,26 @@ if ($flash): ?>
                 <?php endforeach; ?>
             </select>
             <p class="form-hint"><?php echo e(t('settings_language_hint', '切换后管理员后台和前台界面的语言将同步变更。')); ?></p>
+        </div>
+
+        <div class="form-group">
+            <label class="flex items-center gap-1" style="cursor: pointer;">
+                <input type="checkbox" id="captcha_enabled" name="captcha_enabled" value="1" <?php echo $sliderCaptchaEnabled ? 'checked' : ''; ?>>
+                <span><?php echo e(t('settings_slider_captcha', '启用验证码（人机验证）')); ?></span>
+            </label>
+            <p class="form-hint"><?php echo e(t('settings_slider_captcha_hint', '开启后，注册、登录、找回密码页面将显示「我是人类」验证框：正常用户点击即可通过，可疑行为会展开挑战，可有效防止机器人注册与撞库攻击。')); ?></p>
+            <label class="form-label" for="captcha_style" style="margin-top: 0.75rem;"><?php echo e(t('settings_captcha_style', '验证方式')); ?></label>
+            <select class="form-control" id="captcha_style" name="captcha_style">
+                <option value="slider" <?php echo $captchaStyle === 'slider' ? 'selected' : ''; ?>><?php echo e(t('settings_captcha_slider', '拼图验证（拖拽滑块对齐缺口）')); ?></option>
+                <option value="click" <?php echo $captchaStyle === 'click' ? 'selected' : ''; ?>><?php echo e(t('settings_captcha_click', '点文字验证（按顺序点击文字）')); ?></option>
+                <option value="auto" <?php echo $captchaStyle === 'auto' ? 'selected' : ''; ?>><?php echo e(t('settings_captcha_auto', '智能混合（随机切换两种）')); ?></option>
+            </select>
+            <p class="form-hint"><?php echo e(t('settings_captcha_style_hint', '拼图验证：拖动拼图块与缺口对齐；点文字验证：按提示词顺序依次点击候选字。智能混合会在两者间随机切换，安全性与体验的平衡更好。')); ?></p>
+            <label class="flex items-center gap-1" style="margin-top: 0.75rem; cursor: pointer;">
+                <input type="checkbox" id="captcha_debug" name="captcha_debug" value="1" <?php echo $captchaDebug ? 'checked' : ''; ?>>
+                <span style="font-weight:600;"><?php echo e(t('settings_captcha_debug', '调试模式（前台绕过验证）')); ?></span>
+            </label>
+            <p class="form-hint"><?php echo e(t('settings_captcha_debug_hint', '开启后登录/注册/找回密码页将跳过人机验证（token 任意值均通过），方便开发调试。验证码组件仍正常渲染，可在「验证码调试」页面进行完整测试。生产环境请关闭。')); ?></p>
         </div>
 
         <button type="submit" class="btn btn-primary"><?php echo e(t('settings_save', '保存设置')); ?></button>

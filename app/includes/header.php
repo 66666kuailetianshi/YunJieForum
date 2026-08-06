@@ -102,6 +102,7 @@ if (is_logged_in() && $currentUser) {
         })();
     </script>
     <link rel="stylesheet" href="/public/css/style.css?v=<?php echo e(APP_VERSION); ?>-ui2">
+    <link rel="stylesheet" href="/index.php?route=captcha/assets&file=captcha.css&v=<?php echo e(APP_VERSION); ?>-ui2">
     <link rel="stylesheet" href="/public/css/tokens.css?v=<?php echo e(APP_VERSION); ?>-ui2">
     <link rel="stylesheet" href="/public/css/base.css?v=<?php echo e(APP_VERSION); ?>-ui2">
     <link rel="stylesheet" href="/public/css/utilities.css?v=<?php echo e(APP_VERSION); ?>-ui2">

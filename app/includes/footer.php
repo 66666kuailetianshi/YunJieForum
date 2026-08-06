@@ -23,6 +23,7 @@
 
     <script src="/public/js/main.js?v=<?php echo e(APP_VERSION); ?>-ui2" defer></script>
     <script src="/public/js/lightbox.js?v=<?php echo e(APP_VERSION); ?>-ui2" defer></script>
+    <script src="/index.php?route=captcha/assets&file=captcha.js&v=<?php echo e(APP_VERSION); ?>-ui2" defer></script>
 <?php
 // 仅对已登录用户注入封禁状态轮询：管理员封禁后立即踢下线并跳转封禁页
 if (is_logged_in() && !is_admin()):

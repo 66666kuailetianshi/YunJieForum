@@ -49,6 +49,13 @@ if ($route === 'favicon.ico') {
 
 // ==================== 路由分发 ====================
 
+// --- 人机验证静态资源 (/index.php?route=captcha/assets&file=xxx) ---
+// 由 app/captcha/serve.php 白名单安全输出 captcha.js / captcha.css
+if ($requestRoute === 'captcha/assets') {
+    require APP_ROOT . 'app' . DIRECTORY_SEPARATOR . 'captcha' . DIRECTORY_SEPARATOR . 'serve.php';
+    exit;
+}
+
 // --- 管理后台路由 (/admin/xxx) ---
 if (strpos($requestRoute, 'admin') === 0) {
     $adminRoute = trim(substr($requestRoute, 5), '/');
@@ -113,7 +120,12 @@ if (strpos($requestRoute, 'api/') === 0) {
     $apiRoute = basename($apiRoute);
     // 去掉 .php 后缀，避免拼接时重复（URL 已含 .php）
     $apiRoute = preg_replace('/\.php$/i', '', $apiRoute);
-    $apiFile = APP_ROOT . 'public' . DIRECTORY_SEPARATOR . 'api' . DIRECTORY_SEPARATOR . $apiRoute . '.php';
+    // 人机验证接口已独立到 app/captcha/ 模块
+    if ($apiRoute === 'captcha') {
+        $apiFile = APP_ROOT . 'app' . DIRECTORY_SEPARATOR . 'captcha' . DIRECTORY_SEPARATOR . 'api.php';
+    } else {
+        $apiFile = APP_ROOT . 'public' . DIRECTORY_SEPARATOR . 'api' . DIRECTORY_SEPARATOR . $apiRoute . '.php';
+    }
     if (file_exists($apiFile)) {
         require $apiFile;
         exit;

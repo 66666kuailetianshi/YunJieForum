@@ -29,6 +29,7 @@ $menuItems = [
     'mail_center'             => ['icon' => 'mail',           'label' => t('menu_mail_center', '邮件中心'),     'url' => '/admin/mail_center'],
     'backup'                  => ['icon' => 'backup',         'label' => t('menu_backup', '数据备份'),     'url' => '/admin/backup'],
     'settings'                => ['icon' => 'settings',       'label' => t('menu_settings', '站点设置'),     'url' => '/admin/site_settings'],
+    'captcha_debug'           => ['icon' => 'shield',         'label' => t('menu_captcha_debug', '验证码调试'),   'url' => '/admin/captcha_debug'],
     'site_pages'              => ['icon' => 'document',       'label' => t('menu_site_pages', '协议页面管理'), 'url' => '/admin/site_pages'],
 ];
 
@@ -38,7 +39,7 @@ $menuGroups = [
     'users'     => [t('menu_group_users', '用户管理'),     ['users', 'user_groups', 'roles', 'medals']],
     'content'   => [t('menu_group_content', '内容管理'),     ['posts', 'replies', 'reports', 'ban_appeals', 'password_reset_requests', 'forums', 'announcements', 'sensitive_words']],
     'mail'      => [t('menu_group_mail', '邮件中心'),     ['mail_center']],
-    'settings'  => [t('menu_group_settings', '系统设置'),     ['backup', 'settings', 'site_pages']],
+    'settings'  => [t('menu_group_settings', '系统设置'),     ['backup', 'settings', 'captcha_debug', 'site_pages']],
 ];
 
 /**

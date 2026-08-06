@@ -5,6 +5,7 @@
 
 require_once APP_ROOT . 'app/includes/functions.php';
 require_once APP_ROOT . 'app/includes/db.php';
+require_once APP_ROOT . 'app/captcha/core.php';
 require_once APP_ROOT . 'app/components/sensitive_filter/helper.php';
 
 if (file_exists(INSTALLED_FILE) === false) {
@@ -61,6 +62,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } elseif (!validate_email_verification_code($email, $verificationCode)) {
                 $errors[] = t('register_code_invalid', '邮箱验证码错误或已过期。');
             }
+        }
+
+        if (captcha_enabled() && !captcha_passed($_POST['captcha_token'] ?? '')) {
+            $errors[] = t('slider_captcha_fail', '请先完成人机验证。');
         }
 
         if (empty($errors)) {
@@ -174,6 +179,12 @@ include APP_ROOT . 'app/includes/header.php';
                 </label>
                 <div id="agree-terms-error" class="form-error" style="display: none; margin-top: 0.25rem; color: var(--error); font-size: 0.875rem;"><?php echo e(t('register_agree_error', '请阅读并同意用户协议与隐私政策。')); ?></div>
             </div>
+            <?php if (captcha_enabled()): ?>
+                <div class="form-group">
+                    <div id="captcha" data-api="<?php echo site_url('api/captcha'); ?>"></div>
+                    <input type="hidden" name="captcha_token" id="captcha_token" value="">
+                </div>
+            <?php endif; ?>
             <button type="submit" class="btn btn-primary btn-block"><?php echo e(t('register_submit', '注册')); ?></button>
         </form>
 
@@ -229,7 +240,7 @@ include APP_ROOT . 'app/includes/header.php';
                         btn.textContent = <?php echo json_encode(t('register_get_code', '获取验证码')); ?>;
                         hint.textContent = <?php echo json_encode(t('register_code_hint_initial', '点击按钮发送验证码到邮箱。')); ?>;
                     } else {
-                        btn.textContent = seconds + <?php echo addslashes(t('register_21c325',' 秒后重试')); ?>;
+                        btn.textContent = seconds + <?php echo json_encode(t('register_21c325',' 秒后重试')); ?>;
                     }
                 }, 1000);
             }
@@ -244,7 +255,7 @@ include APP_ROOT . 'app/includes/header.php';
                 if (btn.disabled) return;
                 btn.disabled = true;
                 hint.style.color = '';
-                hint.textContent = <?php echo addslashes(t('register_a822c0','正在发送…')); ?>;
+                hint.textContent = <?php echo json_encode(t('register_a822c0','正在发送…')); ?>;
 
                 var formData = new FormData();
                 formData.append('email', email);

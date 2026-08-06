@@ -5,6 +5,7 @@
 
 require_once APP_ROOT . 'app/includes/functions.php';
 require_once APP_ROOT . 'app/includes/db.php';
+require_once APP_ROOT . 'app/captcha/core.php';
 
 if (file_exists(INSTALLED_FILE) === false) {
     redirect('/install');
@@ -21,6 +22,8 @@ $credKey = get_remember_credentials_key();
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!validate_csrf()) {
         $errors[] = t('login_security_verify_fail', '安全验证失败，请刷新页面重试。');
+    } elseif (captcha_enabled() && !captcha_passed($_POST['captcha_token'] ?? '')) {
+        $errors[] = t('slider_captcha_fail', '请先完成人机验证。');
     } else {
         $account = trim($_POST['account'] ?? '');
         $password = $_POST['password'] ?? '';
@@ -147,6 +150,12 @@ include APP_ROOT . 'app/includes/header.php';
                 </label>
                 <div id="agree-terms-error" class="form-error" style="display: none; margin-top: 0.25rem; color: var(--error); font-size: 0.875rem;"><?php echo e(t('login_agree_error', '请阅读并同意用户协议与隐私政策。')); ?></div>
             </div>
+            <?php if (captcha_enabled()): ?>
+                <div class="form-group">
+                    <div id="captcha" data-api="<?php echo site_url('api/captcha'); ?>"></div>
+                    <input type="hidden" name="captcha_token" id="captcha_token" value="">
+                </div>
+            <?php endif; ?>
             <button type="submit" class="btn btn-primary btn-block"><?php echo e(t('login_submit', '登录')); ?></button>
         </form>
 

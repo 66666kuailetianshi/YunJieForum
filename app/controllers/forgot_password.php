@@ -10,6 +10,7 @@
 
 require_once APP_ROOT . 'app/includes/functions.php';
 require_once APP_ROOT . 'app/includes/db.php';
+require_once APP_ROOT . 'app/captcha/core.php';
 
 if (file_exists(INSTALLED_FILE) === false) {
     redirect('/install');
@@ -53,6 +54,8 @@ if ($step === 'security' && $pendingEmail !== '') {
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!validate_csrf()) {
         $errors[] = t('forgot_security_verify_fail', '安全验证失败，请刷新页面重试。');
+    } elseif (captcha_enabled() && !captcha_passed($_POST['captcha_token'] ?? '')) {
+        $errors[] = t('slider_captcha_fail', '请先完成人机验证。');
     } elseif ($step === 'email') {
         $email = trim($_POST['email'] ?? '');
         if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
@@ -193,6 +196,12 @@ include APP_ROOT . 'app/includes/header.php';
                     <input type="text" class="form-control" id="security_answer" name="security_answer" required>
                     <p class="form-hint"><?php echo e(t('forgot_security_hint', '答案区分大小写。若忘记答案，请联系管理员。')); ?></p>
                 </div>
+                <?php if (captcha_enabled()): ?>
+                    <div class="form-group">
+                        <div id="captcha" data-api="<?php echo site_url('api/captcha'); ?>"></div>
+                        <input type="hidden" name="captcha_token" id="captcha_token" value="">
+                    </div>
+                <?php endif; ?>
                 <button type="submit" class="btn btn-primary btn-block"><?php echo e(t('forgot_submit_request', '提交申请')); ?></button>
                 <a href="<?php echo site_url('forgot_password', ['cancel' => 1]); ?>" class="btn btn-secondary btn-block mt-1"><?php echo e(t('forgot_back', '返回')); ?></a>
             </form>
@@ -209,6 +218,12 @@ include APP_ROOT . 'app/includes/header.php';
                     <label class="form-label" for="email"><?php echo e(t('forgot_label_email', '注册邮箱')); ?></label>
                     <input type="email" class="form-control" id="email" name="email" value="<?php echo e($email); ?>" required>
                 </div>
+                <?php if (captcha_enabled()): ?>
+                    <div class="form-group">
+                        <div id="captcha" data-api="<?php echo site_url('api/captcha'); ?>"></div>
+                        <input type="hidden" name="captcha_token" id="captcha_token" value="">
+                    </div>
+                <?php endif; ?>
                 <button type="submit" class="btn btn-primary btn-block">
                     <?php echo $smtpEnabled ? e(t('forgot_btn_smtp', '发送重置链接')) : e(t('forgot_btn_manual', '提交重置申请')); ?>
                 </button>
