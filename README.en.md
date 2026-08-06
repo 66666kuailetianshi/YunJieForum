@@ -252,7 +252,7 @@ If the site is not installed yet, visiting the frontend automatically redirects 
 
 ## 8. Database Design
 
-Core tables (SQLite dialect; PostgreSQL/MySQL are translated by the installer). Tables marked with `*` are created by `init_db()` during first installation; the rest are created on demand at runtime by `ensure_*_table()` (for upgrade compatibility).
+Core tables (SQLite dialect; PostgreSQL/MySQL are translated by the installer). Core tables are created by `init_db()` during first installation; the rest are created on demand at runtime by `ensure_*_table()` (for upgrade compatibility).
 
 | Table | Purpose |
 | --- | --- |
@@ -269,6 +269,7 @@ Core tables (SQLite dialect; PostgreSQL/MySQL are translated by the installer). 
 | `medals` / `user_medals` | Medals and user medal records |
 | `announcements` | Announcements |
 | `site_pages` | Site pages (privacy/terms/disclaimer/service, editable in admin) |
+| `site_settings` | Site settings key-value pairs (editable in admin) |
 | `pm_conversations` / `pm_messages` | PM conversations and messages |
 | `notifications` | System notifications |
 | `reports` | Content reports |
@@ -323,7 +324,7 @@ Many admin operations are handled through `app/admin/api/*_ajax.php`, returning 
 | `check_ban_status.php` | Current user's ban/mute status |
 | `upload_image.php` | Image upload |
 
-**Admin endpoints** (`app/admin/api/`, `*_ajax.php`): backup, ban_appeals, bounce, diag_auth, mail_notify, mail_stats, pending_counts, posts, replies, reports, sensitive_logs, sensitive_words, system_status, traffic, user_risk_detail, users.
+**Admin endpoints** (`app/admin/api/`, `*_ajax.php`): backup, ban_appeals, bounce, diag_auth, mail_notify, mail_stats, pending_counts, posts, replies, reports, sensitive_logs, sensitive_words, system_status, traffic, user_detail, user_risk_detail, users, users_bulk, users_export_csv.
 
 > Endpoints generally use `realtime_cache($key, $ttl, $callback)` for short caching, avoiding high-frequency polling from overwhelming the database.
 

@@ -252,7 +252,7 @@ location ~ \.php$ {
 
 ## 8. 資料庫設計
 
-核心表（SQLite 方言，PostgreSQL/MySQL 由安裝器翻譯）。帶 `*` 的表在首次安裝時由 `init_db()` 創建，其餘由運行期 `ensure_*_table()` 按需補全（保證升級兼容）。
+核心表（SQLite 方言，PostgreSQL/MySQL 由安裝器翻譯）。首次安裝時由 `init_db()` 創建核心表，其餘由運行期 `ensure_*_table()` 按需補全（保證升級兼容）。
 
 | 表 | 作用 |
 | --- | --- |
@@ -269,6 +269,7 @@ location ~ \.php$ {
 | `medals` / `user_medals` | 勳章與用戶獲得記錄 |
 | `announcements` | 公告 |
 | `site_pages` | 站點頁面（隱私/條款/免責/服務條款等，可後臺編輯） |
+| `site_settings` | 站點設置鍵值對（後臺可編輯） |
 | `pm_conversations` / `pm_messages` | 私信會話與消息 |
 | `notifications` | 系統通知 |
 | `reports` | 內容舉報 |
@@ -323,7 +324,7 @@ location ~ \.php$ {
 | `check_ban_status.php` | 當前用戶封禁/禁言狀態 |
 | `upload_image.php` | 圖片上傳 |
 
-**後臺接口**（`app/admin/api/`，`*_ajax.php`）：backup、ban_appeals、bounce、diag_auth、mail_notify、mail_stats、pending_counts、posts、replies、reports、sensitive_logs、sensitive_words、system_status、traffic、user_risk_detail、users。
+**後臺接口**（`app/admin/api/`，`*_ajax.php`）：backup、ban_appeals、bounce、diag_auth、mail_notify、mail_stats、pending_counts、posts、replies、reports、sensitive_logs、sensitive_words、system_status、traffic、user_detail、user_risk_detail、users、users_bulk、users_export_csv。
 
 > 接口普遍使用 `realtime_cache($key, $ttl, $callback)` 做短緩存，避免高頻輪詢壓垮資料庫。
 
