@@ -652,7 +652,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
         <div class="sw-toolbar">
             <form method="GET" action="<?php echo site_url('admin/sensitive_words'); ?>" class="admin-search-form">
                 <input type="hidden" name="action" value="words">
-                <input type="text" name="search" class="form-control" placeholder="<?php echo e(t('admin_sensitive_search_ph', '搜索敏感词…\"')); ?> value="<?php echo e($search); ?>">
+                <input type="text" name="search" class="form-control" placeholder="<?php echo e(t('admin_sensitive_search_ph', '搜索敏感词…')); ?>" value="<?php echo e($search); ?>">
                 <button type="submit" class="btn btn-primary"><?php echo e(t('admin_sensitive_search', '搜索')); ?></button>
                 <?php if ($search !== '' || $categoryFilter !== '' || $levelFilter > 0): ?>
                     <a href="<?php echo site_url('admin/sensitive_words', ['action' => 'words']); ?>" class="btn btn-secondary"><?php echo e(t('admin_sensitive_clear', '清除')); ?></a>
@@ -708,7 +708,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
                 <table class="sw-table">
                     <thead>
                         <tr>
-                            <th style="width: 40px;"><input type="checkbox" id="sw-check-all" aria-label="<?php echo e(t('admin_sensitive_check_all', '全选\"')); ?>></th>
+                            <th style="width: 40px;"><input type="checkbox" id="sw-check-all" aria-label="<?php echo e(t('admin_sensitive_check_all', '全选')); ?>"></th>
                             <th class="sortable" data-sort="word"><?php echo e(t('admin_sensitive_th_word', '敏感词')); ?> <span class="sort-ind"></span></th>
                             <th class="sortable" data-sort="category" style="width: 140px;"><?php echo e(t('admin_sensitive_th_category', '分类')); ?> <span class="sort-ind"></span></th>
                             <th class="sortable" data-sort="level" style="width: 90px;"><?php echo e(t('admin_sensitive_th_level', '等级')); ?> <span class="sort-ind"></span></th>
@@ -722,7 +722,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
                         $levelLabels = [1 => t('admin_sensitive_level_short_1', '替换'), 2 => t('admin_sensitive_level_short_2', '拦截'), 3 => t('admin_sensitive_level_short_3', '审核')];
                         foreach ($words as $w): $lv = (int)$w['level']; $mode = $w['match_mode']; $catColor = $catColors[$w['category']] ?? '#71717a'; $isEditing = $editWord && $editWord['id'] == $w['id']; ?>
                         <tr class="sw-row<?php echo $w['enabled'] ? '' : ' disabled'; ?><?php echo $isEditing ? ' selected' : ''; ?>" data-id="<?php echo (int)$w['id']; ?>" data-word="<?php echo e($w['word']); ?>" data-category="<?php echo e($w['category']); ?>" data-level="<?php echo $lv; ?>" data-mode="<?php echo e($mode); ?>" data-replacement="<?php echo e($w['replacement']); ?>" data-enabled="<?php echo (int)$w['enabled']; ?>">
-                            <td><input type="checkbox" name="ids[]" value="<?php echo $w['id']; ?>" class="sw-check" aria-label="<?php echo e(t('admin_sensitive_select_row', '选择此行\"')); ?>></td>
+                            <td><input type="checkbox" name="ids[]" value="<?php echo $w['id']; ?>" class="sw-check" aria-label="<?php echo e(t('admin_sensitive_select_row', '选择此行')); ?>"></td>
                             <td class="sw-cell-word">
                                 <span class="sw-cell-word-text"><?php echo e($w['word']); ?></span>
                                 <span class="sw-mode-badge mode-<?php echo e($mode); ?>" title="<?php echo $mode === 'exact' ? e(t('admin_sensitive_mode_title_exact', '精确匹配（子串）')) : ($mode === 'word' ? e(t('admin_sensitive_mode_title_word', '整词匹配')) : e(t('admin_sensitive_mode_title_regex', '正则表达式'))); ?>"><?php echo e($modeLabels[$mode] ?? '?'); ?></span>
@@ -741,7 +741,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
                                 </span>
                             </td>
                             <td>
-                                <button type="button" class="sw-level-pill lv-<?php echo $lv; ?>" data-id="<?php echo $w['id']; ?>" data-level="<?php echo $lv; ?>" title="<?php echo e(t('admin_sensitive_click_to_toggle_level', '点击切换等级\"')); ?>><?php echo e($levelLabels[$lv] ?? 'L' . $lv); ?></button>
+                                <button type="button" class="sw-level-pill lv-<?php echo $lv; ?>" data-id="<?php echo $w['id']; ?>" data-level="<?php echo $lv; ?>" title="<?php echo e(t('admin_sensitive_click_to_toggle_level', '点击切换等级')); ?>"><?php echo e($levelLabels[$lv] ?? 'L' . $lv); ?></button>
                             </td>
                             <td>
                                 <label class="sw-switch" title="<?php echo $w['enabled'] ? e(t('admin_sensitive_click_to_disable', '点击禁用')) : e(t('admin_sensitive_click_to_enable', '点击启用')); ?>">
@@ -750,13 +750,13 @@ require_once dirname(__DIR__) . '/layout/header.php';
                                 </label>
                             </td>
                             <td class="sw-cell-actions">
-                                <a href="<?php echo site_url('admin/sensitive_words', ['action' => 'edit_word', 'id' => (int)$w['id']]); ?>" class="sw-icon-btn btn-edit" title="<?php echo e(t('admin_sensitive_action_edit', '编辑\"')); ?> aria-label="<?php echo e(t('admin_sensitive_action_edit', '编辑\"')); ?>>
+                                <a href="<?php echo site_url('admin/sensitive_words', ['action' => 'edit_word', 'id' => (int)$w['id']]); ?>" class="sw-icon-btn btn-edit" title="<?php echo e(t('admin_sensitive_action_edit', '编辑')); ?>" aria-label="<?php echo e(t('admin_sensitive_action_edit', '编辑')); ?>">
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                                         <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
                                         <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
                                     </svg>
                                 </a>
-                                <button type="button" class="sw-icon-btn btn-delete sw-delete-btn" data-id="<?php echo $w['id']; ?>" title="<?php echo e(t('admin_sensitive_action_delete', '删除\"')); ?> aria-label="<?php echo e(t('admin_sensitive_action_delete', '删除\"')); ?>>
+                                <button type="button" class="sw-icon-btn btn-delete sw-delete-btn" data-id="<?php echo $w['id']; ?>" title="<?php echo e(t('admin_sensitive_action_delete', '删除')); ?>" aria-label="<?php echo e(t('admin_sensitive_action_delete', '删除')); ?>">
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                                         <polyline points="3 6 5 6 21 6"/>
                                         <path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/>
@@ -803,7 +803,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
                     ID #<?php echo $editWord ? (int)$editWord['id'] : ''; ?>
                 </span>
             </h3>
-            <button type="button" class="sw-detail-close" id="swDetailClose" aria-label="<?php echo e(t('admin_sensitive_close', '关闭\"')); ?>>
+            <button type="button" class="sw-detail-close" id="swDetailClose" aria-label="<?php echo e(t('admin_sensitive_close', '关闭')); ?>">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
         </div>
@@ -905,7 +905,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
 <div class="sw-detail-backdrop" id="swDetailBackdrop"></div>
 
 <!-- 浮动批量操作栏（选中后从底部滑出） -->
-<div class="sw-floating-bar" id="swFloatingBar" role="region" aria-label="<?php echo e(t('admin_sensitive_batch_action_aria', '批量操作\"')); ?>>
+<div class="sw-floating-bar" id="swFloatingBar" role="region" aria-label="<?php echo e(t('admin_sensitive_batch_action_aria', '批量操作')); ?>">
     <span class="sw-fb-count"><?php echo e(t('admin_sensitive_selected_prefix', '已选')); ?> <strong id="swFbCount">0</strong> <?php echo e(t('admin_sensitive_selected_suffix', '项')); ?></span>
     <span class="sw-fb-divider"></span>
     <button type="button" class="sw-fb-btn" data-batch="enable"><?php echo e(t('admin_sensitive_action_enable', '启用')); ?></button>
@@ -913,7 +913,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
     <button type="button" class="sw-fb-btn danger" data-batch="delete"><?php echo e(t('admin_sensitive_action_delete', '删除')); ?></button>
     <span class="sw-fb-divider"></span>
     <button type="button" class="sw-fb-btn" id="swFbSelectAll"><?php echo e(t('admin_sensitive_select_all_page', '全选本页')); ?></button>
-    <button type="button" class="sw-fb-close" id="swFbClose" aria-label="<?php echo e(t('admin_sensitive_cancel_selection', '取消选择\"')); ?>>
+    <button type="button" class="sw-fb-close" id="swFbClose" aria-label="<?php echo e(t('admin_sensitive_cancel_selection', '取消选择')); ?>">
         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
     </button>
 </div>
@@ -927,7 +927,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
             <input type="hidden" name="csrf_token" value="<?php echo csrf_token(); ?>">
             <div class="form-group">
                 <label class="form-label"><?php echo e(t('admin_sensitive_label_white_word', '白名单词汇 / 短语')); ?></label>
-                <input type="text" name="white_word" class="form-control" placeholder="<?php echo e(t('admin_sensitive_white_word_ph', '例如：法轮寺\"')); ?> required>
+                <input type="text" name="white_word" class="form-control" placeholder="<?php echo e(t('admin_sensitive_white_word_ph', '例如：法轮寺')); ?>" required>
                 <p class="form-hint"><?php echo e(t('admin_sensitive_white_hint', '当白名单短语包含某个敏感词时，该敏感词不会被命中。')); ?></p>
             </div>
             <button type="submit" name="save_whitelist" class="btn btn-primary"><?php echo e(t('admin_sensitive_add', '添加')); ?></button>
@@ -946,7 +946,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
             <?php foreach ($whitelist as $w): ?>
                 <span class="swl-chip<?php echo $w['enabled'] ? '' : ' disabled'; ?>">
                     <?php echo e($w['word']); ?>
-                    <a href="<?php echo site_url('admin/sensitive_words', ['action' => 'delete_whitelist', 'id' => (int)$w['id'], 'csrf_token' => csrf_token()]); ?>" class="swl-chip-del" data-confirm="<?php echo e(t('admin_sensitive_confirm_delete', '确定删除吗？\"')); ?>>&times;</a>
+                    <a href="<?php echo site_url('admin/sensitive_words', ['action' => 'delete_whitelist', 'id' => (int)$w['id'], 'csrf_token' => csrf_token()]); ?>" class="swl-chip-del" data-confirm="<?php echo e(t('admin_sensitive_confirm_delete', '确定删除吗？')); ?>">&times;</a>
                 </span>
             <?php endforeach; ?>
         </div>
@@ -961,7 +961,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
         <input type="hidden" name="csrf_token" value="<?php echo csrf_token(); ?>">
         <div class="form-group">
             <label class="form-label"><?php echo e(t('admin_sensitive_label_test_text', '待检测文本')); ?></label>
-            <textarea name="test_text" class="form-control" rows="5" placeholder="<?php echo e(t('admin_sensitive_test_text_ph', '输入要测试的文本\"')); ?>><?php echo e($_POST['test_text'] ?? ''); ?></textarea>
+            <textarea name="test_text" class="form-control" rows="5" placeholder="<?php echo e(t('admin_sensitive_test_text_ph', '输入要测试的文本')); ?>"><?php echo e($_POST['test_text'] ?? ''); ?></textarea>
         </div>
         <button type="submit" class="btn btn-primary"><?php echo e(t('admin_sensitive_test_btn', '检测')); ?></button>
     </form>

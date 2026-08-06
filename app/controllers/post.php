@@ -354,7 +354,7 @@ $pageTitle = strip_bbcode($post['title']);
 include APP_ROOT . 'app/includes/header.php';
 ?>
 
-<nav class="breadcrumb" aria-label="<?php echo e(t('post_breadcrumb', '面包屑导航\"')); ?>>
+<nav class="breadcrumb" aria-label="<?php echo e(t('post_breadcrumb', '面包屑导航')); ?>">
     <a href="/"><?php echo e(t('post_home', '首页')); ?></a>
     <?php if ($forum): ?>
         <span class="breadcrumb-separator">/</span>
@@ -397,7 +397,7 @@ include APP_ROOT . 'app/includes/header.php';
             <?php else: ?>
                 <a href="<?php echo site_url('post', ['id' => $postId, 'action' => 'lock', 'csrf_token' => csrf_token()]); ?>" class="btn btn-sm btn-secondary"><?php echo e(t('post_lock', '锁定')); ?></a>
             <?php endif; ?>
-            <a href="<?php echo site_url('post', ['id' => $postId, 'action' => 'delete', 'csrf_token' => csrf_token()]); ?>" class="btn btn-sm btn-danger" data-confirm="<?php echo e(t('post_delete_confirm', '确定删除该帖子吗？此操作不可撤销。\"')); ?>><?php echo e(t('post_delete', '删除')); ?></a>
+            <a href="<?php echo site_url('post', ['id' => $postId, 'action' => 'delete', 'csrf_token' => csrf_token()]); ?>" class="btn btn-sm btn-danger" data-confirm="<?php echo e(t('post_delete_confirm', '确定删除该帖子吗？此操作不可撤销。')); ?>"><?php echo e(t('post_delete', '删除')); ?></a>
         <?php endif; ?>
     </div>
 </div>
@@ -420,8 +420,8 @@ include APP_ROOT . 'app/includes/header.php';
         <div class="floor-body">
             <div class="floor-header">
                 <div class="floor-header-meta">
-                    <span class="floor-header-stat" title="<?php echo e(t('post_views_title', '浏览次数\"')); ?>><?php echo ui_icon('eye', 14); ?> <?php echo (int)$post['views']; ?></span>
-                    <span class="floor-header-stat" title="<?php echo e(t('post_replies_title', '回复数量\"')); ?>><?php echo ui_icon('message-circle', 14); ?> <?php echo (int)$post['replies_count']; ?></span>
+                    <span class="floor-header-stat" title="<?php echo e(t('post_views_title', '浏览次数')); ?>"><?php echo ui_icon('eye', 14); ?> <?php echo (int)$post['views']; ?></span>
+                    <span class="floor-header-stat" title="<?php echo e(t('post_replies_title', '回复数量')); ?>"><?php echo ui_icon('message-circle', 14); ?> <?php echo (int)$post['replies_count']; ?></span>
                     <span><?php echo e(t('post_posted_at', '发表于')); ?> <?php echo e(date('Y-m-d H:i', db_time($post['created_at']))); ?></span>
                     <a href="<?php echo site_url('post', ['id' => $postId, 'author' => (int)$post['user_id']]); ?>" class="floor-header-link"><?php echo e(t('post_only_author', '只看该作者')); ?></a>
                 </div>
@@ -596,40 +596,40 @@ include APP_ROOT . 'app/includes/header.php';
 
             <!-- 富文本编辑器工具栏 -->
             <div class="editor-toolbar" id="editor-toolbar">
-                <button type="button" class="toolbar-btn" title="<?php echo e(t('post_tool_bold', '粗体 (Ctrl+B)\"')); ?> onclick="formatText('b')">
+                <button type="button" class="toolbar-btn" title="<?php echo e(t('post_tool_bold', '粗体 (Ctrl+B)')); ?>" onclick="formatText('b')">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4h8a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"/><path d="M6 12h9a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"/></svg>
                 </button>
-                <button type="button" class="toolbar-btn" title="<?php echo e(t('post_tool_italic', '斜体 (Ctrl+I)\"')); ?> onclick="formatText('i')">
+                <button type="button" class="toolbar-btn" title="<?php echo e(t('post_tool_italic', '斜体 (Ctrl+I)')); ?>" onclick="formatText('i')">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="4" x2="10" y2="4"/><line x1="14" y1="20" x2="5" y2="20"/><line x1="15" y1="4" x2="9" y2="20"/></svg>
                 </button>
-                <button type="button" class="toolbar-btn" title="<?php echo e(t('post_tool_underline', '下划线 (Ctrl+U)\"')); ?> onclick="formatText('u')">
+                <button type="button" class="toolbar-btn" title="<?php echo e(t('post_tool_underline', '下划线 (Ctrl+U)')); ?>" onclick="formatText('u')">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v7a6 6 0 0 0 6 6 6 6 0 0 0 6-6V3"/><line x1="4" y1="21" x2="20" y2="21"/></svg>
                 </button>
-                <button type="button" class="toolbar-btn" title="<?php echo e(t('post_tool_strike', '删除线\"')); ?> onclick="formatText('s')">
+                <button type="button" class="toolbar-btn" title="<?php echo e(t('post_tool_strike', '删除线')); ?>" onclick="formatText('s')">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.3 19c.68-1.06 1-2.25 1-3.5a6 6 0 0 0-6-6 6 6 0 0 0-6 6c0 1.25.32 2.44 1 3.5"/><path d="M12 12v9"/><path d="M4 7h16"/></svg>
                 </button>
                 <span class="toolbar-divider"></span>
-                <button type="button" class="toolbar-btn" title="<?php echo e(t('post_tool_link', '插入链接\"')); ?> onclick="insertLink()">
+                <button type="button" class="toolbar-btn" title="<?php echo e(t('post_tool_link', '插入链接')); ?>" onclick="insertLink()">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
                 </button>
-                <button type="button" class="toolbar-btn" title="<?php echo e(t('post_tool_image', '插入图片链接\"')); ?> onclick="insertImage()">
+                <button type="button" class="toolbar-btn" title="<?php echo e(t('post_tool_image', '插入图片链接')); ?>" onclick="insertImage()">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
                 </button>
-                <button type="button" class="toolbar-btn" title="<?php echo e(t('post_tool_upload', '上传本地图片\"')); ?> onclick="EditorUpload.uploadLocalImage('reply-content', '<?php echo csrf_token(); ?>')">
+                <button type="button" class="toolbar-btn" title="<?php echo e(t('post_tool_upload', '上传本地图片')); ?>" onclick="EditorUpload.uploadLocalImage('reply-content', '<?php echo csrf_token(); ?>')">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2" ry="2"/><circle cx="8.5" cy="10.5" r="1.5"/><polyline points="21 17 16 12 12 16 9 13 3 19"/><path d="M12 5V2M9 5l3-3 3 3"/></svg>
                 </button>
-                <button type="button" class="toolbar-btn" title="<?php echo e(t('post_tool_code', '代码\"')); ?> onclick="insertCode()">
+                <button type="button" class="toolbar-btn" title="<?php echo e(t('post_tool_code', '代码')); ?>" onclick="insertCode()">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
                 </button>
                 <span class="toolbar-divider"></span>
-                <button type="button" class="toolbar-btn" title="<?php echo e(t('post_tool_emoji', '插入表情\"')); ?> id="emoji-btn" onclick="toggleEmojiPanel(event)">
+                <button type="button" class="toolbar-btn" title="<?php echo e(t('post_tool_emoji', '插入表情')); ?>" id="emoji-btn" onclick="toggleEmojiPanel(event)">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
                 </button>
-                <button type="button" class="toolbar-btn" title="<?php echo e(t('post_tool_at', '@用户\"')); ?> onclick="insertAt()">
+                <button type="button" class="toolbar-btn" title="<?php echo e(t('post_tool_at', '@用户')); ?>" onclick="insertAt()">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-3.92 7.94"/></svg>
                 </button>
                 <div class="toolbar-spacer"></div>
-                <button type="button" class="toolbar-btn toolbar-btn-text" title="<?php echo e(t('post_tool_toggle_height', '切换编辑器高度\"')); ?> id="advanced-mode-toggle" onclick="toggleAdvancedMode()">
+                <button type="button" class="toolbar-btn toolbar-btn-text" title="<?php echo e(t('post_tool_toggle_height', '切换编辑器高度')); ?>" id="advanced-mode-toggle" onclick="toggleAdvancedMode()">
                     <?php echo e(t('post_advanced_mode', '高级模式')); ?>
                 </button>
             </div>
@@ -649,7 +649,7 @@ include APP_ROOT . 'app/includes/header.php';
             <div class="emoji-panel" id="emoji-panel" style="display: none;">
                 <div class="emoji-panel-header">
                     <span class="emoji-panel-title"><?php echo e(t('post_emoji_title', '选择表情')); ?></span>
-                    <button type="button" class="emoji-panel-close" onclick="toggleEmojiPanel(event)" aria-label="<?php echo e(t('post_close', '关闭\"')); ?>>&times;</button>
+                    <button type="button" class="emoji-panel-close" onclick="toggleEmojiPanel(event)" aria-label="<?php echo e(t('post_close', '关闭')); ?>">&times;</button>
                 </div>
                 <div class="emoji-grid">
                     <?php foreach (get_emoji_list() as $emoji): ?>
@@ -661,7 +661,7 @@ include APP_ROOT . 'app/includes/header.php';
             </div>
 
             <div class="form-group editor-textarea-wrap">
-                <textarea class="form-control" id="reply-content" name="content" rows="5" placeholder="<?php echo e(t('post_reply_placeholder', '写下你的回复... 支持 BBCode 语法\"')); ?> required></textarea>
+                <textarea class="form-control" id="reply-content" name="content" rows="5" placeholder="<?php echo e(t('post_reply_placeholder', '写下你的回复... 支持 BBCode 语法')); ?>" required></textarea>
             </div>
 
             <div class="reply-form-footer">
@@ -685,7 +685,7 @@ include APP_ROOT . 'app/includes/header.php';
     <div class="modal-dialog modal-sm">
         <div class="modal-header">
             <h4 class="modal-title" id="report-modal-title"><?php echo e(t('post_report_modal_title', '举报内容')); ?></h4>
-            <button type="button" class="modal-close" onclick="closeReportModal()" aria-label="<?php echo e(t('post_close', '关闭\"')); ?>>&times;</button>
+            <button type="button" class="modal-close" onclick="closeReportModal()" aria-label="<?php echo e(t('post_close', '关闭')); ?>">&times;</button>
         </div>
         <form method="POST" action="<?php echo site_url('report'); ?>">
             <input type="hidden" name="csrf_token" value="<?php echo csrf_token(); ?>">
@@ -704,7 +704,7 @@ include APP_ROOT . 'app/includes/header.php';
                 </div>
                 <div class="form-group">
                     <label class="form-label" for="report-reason"><?php echo e(t('post_report_note', '补充说明')); ?></label>
-                    <textarea class="form-control" id="report-reason" name="reason" rows="3" placeholder="<?php echo e(t('post_report_note_placeholder', '请简要描述举报原因（选填）\"')); ?>></textarea>
+                    <textarea class="form-control" id="report-reason" name="reason" rows="3" placeholder="<?php echo e(t('post_report_note_placeholder', '请简要描述举报原因（选填）')); ?>"></textarea>
                 </div>
             </div>
             <div class="modal-footer">

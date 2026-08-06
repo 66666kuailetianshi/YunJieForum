@@ -14,7 +14,7 @@ $pageData = get_site_page('privacy');
 include APP_ROOT . 'app/includes/header.php';
 ?>
 
-<nav class="breadcrumb" aria-label="<?php echo e(t('privacy_breadcrumb_aria', '面包屑导航\"')); ?>>
+<nav class="breadcrumb" aria-label="<?php echo e(t('privacy_breadcrumb_aria', '面包屑导航')); ?>">
     <a href="/"><?php echo e(t('privacy_breadcrumb_home', '首页')); ?></a>
     <span class="breadcrumb-separator">/</span>
     <span class="breadcrumb-current"><?php echo e(t('privacy_page_title', '隐私政策')); ?></span>

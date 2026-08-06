@@ -156,12 +156,12 @@ require_once dirname(__DIR__) . '/layout/header.php';
             <div class="form-row">
                 <div class="form-group form-group-half">
                     <label class="form-label"><?php echo e(t('admin_ugroups_label_name', '用户组标识')); ?></label>
-                    <input type="text" class="form-control" name="name" value="<?php echo e($group['name'] ?? ''); ?>" required placeholder="<?php echo e(t('admin_ugroups_placeholder_name', '例如：senior\"')); ?>>
+                    <input type="text" class="form-control" name="name" value="<?php echo e($group['name'] ?? ''); ?>" required placeholder="<?php echo e(t('admin_ugroups_placeholder_name', '例如：senior')); ?>">
                     <p class="form-hint"><?php echo e(t('admin_ugroups_hint_name', '仅小写字母、数字、下划线，创建后不建议修改。')); ?></p>
                 </div>
                 <div class="form-group form-group-half">
                     <label class="form-label"><?php echo e(t('admin_ugroups_label_display_name', '显示名称')); ?></label>
-                    <input type="text" class="form-control" name="display_name" value="<?php echo e($group['display_name'] ?? ''); ?>" required placeholder="<?php echo e(t('admin_ugroups_placeholder_display_name', '例如：中级会员\"')); ?>>
+                    <input type="text" class="form-control" name="display_name" value="<?php echo e($group['display_name'] ?? ''); ?>" required placeholder="<?php echo e(t('admin_ugroups_placeholder_display_name', '例如：中级会员')); ?>">
                 </div>
             </div>
             <div class="form-row">
@@ -171,7 +171,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
                 </div>
                 <div class="form-group form-group-half">
                     <label class="form-label"><?php echo e(t('admin_ugroups_label_max_points', '积分上限（留空表示无上限）')); ?></label>
-                    <input type="number" class="form-control" name="max_points" value="<?php echo $group && $group['max_points'] !== null ? (int)$group['max_points'] : ''; ?>" min="0" placeholder="<?php echo e(t('admin_ugroups_placeholder_unlimited', '不限制\"')); ?>>
+                    <input type="number" class="form-control" name="max_points" value="<?php echo $group && $group['max_points'] !== null ? (int)$group['max_points'] : ''; ?>" min="0" placeholder="<?php echo e(t('admin_ugroups_placeholder_unlimited', '不限制')); ?>">
                 </div>
             </div>
             <div class="form-row">
@@ -238,7 +238,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
                             <td><?php echo ui_icon($g['icon'], 18); ?> <?php echo e($iconOptions[$g['icon']] ?? $g['icon']); ?></td>
                             <td>
                                 <a href="<?php echo site_url('admin/user_groups', ['action' => 'edit', 'group_id' => (int)$g['id']]); ?>" class="btn btn-sm btn-secondary"><?php echo e(t('admin_ugroups_action_edit', '编辑')); ?></a>
-                                <a href="<?php echo site_url('admin/user_groups', ['action' => 'delete', 'group_id' => (int)$g['id'], 'csrf_token' => csrf_token()]); ?>" class="btn btn-sm btn-danger" data-confirm="<?php echo e(t('admin_ugroups_confirm_delete', '确定删除该用户组吗？\"&#10;<?php echo e(t(\'admin_ugroups_confirm_delete_note\', \'已归属该等级的用户将按剩余等级重新计算。\')); ?>')); ?>><?php echo e(t('admin_ugroups_action_delete', '删除')); ?></a>
+                                <a href="<?php echo site_url('admin/user_groups', ['action' => 'delete', 'group_id' => (int)$g['id'], 'csrf_token' => csrf_token()]); ?>" class="btn btn-sm btn-danger" data-confirm="<?php echo e(t('admin_ugroups_confirm_delete', "确定删除该用户组吗？\n已归属该等级的用户将按剩余等级重新计算。")); ?>"><?php echo e(t('admin_ugroups_action_delete', '删除')); ?></a>
                             </td>
                         </tr>
                     <?php endforeach; ?>

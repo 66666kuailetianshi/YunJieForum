@@ -200,11 +200,11 @@ require_once dirname(__DIR__) . '/layout/header.php';
                             <td>
                                 <?php if ($report['status'] === 'pending'): ?>
                                     <form method="POST" action="<?php echo site_url('admin/reports', ['action' => 'resolve', 'report_id' => (int)$report['id'], 'csrf_token' => csrf_token()]); ?>" style="display:inline-block;margin-bottom:0.25rem;">
-                                        <select name="handle_action" class="form-control form-control-sm" style="width:150px;display:inline-block;margin-right:0.25rem;" title="<?php echo e(t('admin_reports_handle_action', '处理动作\"')); ?>>
+                                        <select name="handle_action" class="form-control form-control-sm" style="width:150px;display:inline-block;margin-right:0.25rem;" title="<?php echo e(t('admin_reports_handle_action', '处理动作')); ?>">
                                             <option value="none"><?php echo e(t('admin_reports_handle_mark_only', '仅标记已处理')); ?></option>
                                             <option value="delete"><?php echo e(t('admin_reports_handle_delete_content', '删除被举报内容')); ?></option>
                                         </select>
-                                        <input type="text" name="admin_note" class="form-control form-control-sm" placeholder="<?php echo e(t('admin_reports_note_placeholder', '处理备注（可选）\"')); ?> style="width:140px;display:inline-block;margin-right:0.25rem;">
+                                        <input type="text" name="admin_note" class="form-control form-control-sm" placeholder="<?php echo e(t('admin_reports_note_placeholder', '处理备注（可选）')); ?>" style="width:140px;display:inline-block;margin-right:0.25rem;">
                                         <button type="submit" class="btn btn-sm btn-success"><?php echo e(t('admin_reports_btn_resolve', '处理')); ?></button>
                                     </form>
                                     <form method="POST" action="<?php echo site_url('admin/reports', ['action' => 'reject', 'report_id' => (int)$report['id'], 'csrf_token' => csrf_token()]); ?>" style="display:inline-block;">
@@ -219,7 +219,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
                                             <div><?php echo e(t('admin_reports_note_prefix', '备注：')); ?><?php echo e($report['admin_note']); ?></div>
                                         <?php endif; ?>
                                     </div>
-                                    <a href="<?php echo site_url('admin/reports', ['action' => 'delete', 'report_id' => (int)$report['id'], 'csrf_token' => csrf_token()]); ?>" class="btn btn-sm btn-danger" data-confirm="<?php echo e(t('admin_reports_confirm_delete', '确定删除该举报记录吗？\"')); ?>><?php echo e(t('admin_reports_btn_delete', '删除')); ?></a>
+                                    <a href="<?php echo site_url('admin/reports', ['action' => 'delete', 'report_id' => (int)$report['id'], 'csrf_token' => csrf_token()]); ?>" class="btn btn-sm btn-danger" data-confirm="<?php echo e(t('admin_reports_confirm_delete', '确定删除该举报记录吗？')); ?>"><?php echo e(t('admin_reports_btn_delete', '删除')); ?></a>
                                 <?php endif; ?>
                             </td>
                         </tr>

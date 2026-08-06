@@ -52,7 +52,7 @@ $pageTitle = $forum['name'];
 include APP_ROOT . 'app/includes/header.php';
 ?>
 
-<nav class="breadcrumb" aria-label="<?php echo e(t('forum_breadcrumb', '面包屑导航\"')); ?>>
+<nav class="breadcrumb" aria-label="<?php echo e(t('forum_breadcrumb', '面包屑导航')); ?>">
     <a href="/"><?php echo e(t('forum_home', '首页')); ?></a>
     <span class="breadcrumb-separator">/</span>
     <span class="breadcrumb-current"><?php echo e($forum['name']); ?></span>

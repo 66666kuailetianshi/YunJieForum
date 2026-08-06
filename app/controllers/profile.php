@@ -417,12 +417,12 @@ include APP_ROOT . 'app/includes/header.php';
                 </div>
                 <div class="form-group">
                     <label class="form-label" for="avatar"><?php echo e(t('profile_label_avatar_url', '或填写头像 URL')); ?></label>
-                    <input type="url" class="form-control" id="avatar" name="avatar" value="<?php echo e($user['avatar']); ?>" placeholder="<?php echo e(t('profile_avatar_url_placeholder', '留空则使用首字母头像\"')); ?>>
+                    <input type="url" class="form-control" id="avatar" name="avatar" value="<?php echo e($user['avatar']); ?>" placeholder="<?php echo e(t('profile_avatar_url_placeholder', '留空则使用首字母头像')); ?>">
                     <p class="form-hint"><?php echo e(t('profile_avatar_url_hint', '输入图片链接地址；若本地上传了新头像，此地址将被忽略。')); ?></p>
                 </div>
                 <div class="form-group">
                     <label class="form-label" for="signature"><?php echo e(t('profile_label_signature', '个性签名')); ?></label>
-                    <input type="text" class="form-control" id="signature" name="signature" value="<?php echo e($user['signature']); ?>" maxlength="255" placeholder="<?php echo e(t('profile_signature_placeholder', '写点什么...\"')); ?>>
+                    <input type="text" class="form-control" id="signature" name="signature" value="<?php echo e($user['signature']); ?>" maxlength="255" placeholder="<?php echo e(t('profile_signature_placeholder', '写点什么...')); ?>">
                 </div>
                 <button type="submit" class="btn btn-primary"><?php echo e(t('profile_save', '保存修改')); ?></button>
             </form>
@@ -499,7 +499,7 @@ include APP_ROOT . 'app/includes/header.php';
                 <div class="form-group">
                     <label class="form-label" for="pwd_verification_code"><?php echo e(t('profile_label_verification_code', '邮箱验证码')); ?></label>
                     <div style="display: flex; gap: 0.5rem;">
-                        <input type="text" class="form-control" id="pwd_verification_code" name="verification_code" placeholder="<?php echo e(t('profile_code_placeholder', '6 位数字验证码\"')); ?> maxlength="6" pattern="\d{6}" inputmode="numeric" style="flex: 1;">
+                        <input type="text" class="form-control" id="pwd_verification_code" name="verification_code" placeholder="<?php echo e(t('profile_code_placeholder', '6 位数字验证码')); ?>" maxlength="6" pattern="\d{6}" inputmode="numeric" style="flex: 1;">
                         <button type="button" class="btn btn-secondary" id="pwdSendCodeBtn" style="white-space: nowrap;"><?php echo e(t('profile_get_code', '获取验证码')); ?></button>
                     </div>
                     <p class="form-hint" id="pwdCodeHint"><?php echo e(t('profile_code_hint', '验证码将发送至您的绑定邮箱。')); ?></p>
@@ -589,12 +589,12 @@ include APP_ROOT . 'app/includes/header.php';
             <input type="hidden" name="action" value="update_security_question">
             <div class="form-group">
                 <label class="form-label" for="security_question"><?php echo e(t('profile_security_question', '密保问题')); ?></label>
-                <input type="text" class="form-control" id="security_question" name="security_question" value="" placeholder="<?php echo e(t('profile_sq_placeholder', '例如：我的小学班主任叫什么名字？\"')); ?> maxlength="255">
+                <input type="text" class="form-control" id="security_question" name="security_question" value="" placeholder="<?php echo e(t('profile_sq_placeholder', '例如：我的小学班主任叫什么名字？')); ?>" maxlength="255">
                 <p class="form-hint"><?php echo e(t('profile_sq_hint', '设置后如需修改，回答新问题即可覆盖旧问题。')); ?></p>
             </div>
             <div class="form-group">
                 <label class="form-label" for="security_answer"><?php echo e(t('profile_sq_answer', '密保答案')); ?></label>
-                <input type="text" class="form-control" id="security_answer" name="security_answer" value="" placeholder="<?php echo e(t('profile_sq_answer_placeholder', '请输入答案\"')); ?> maxlength="255">
+                <input type="text" class="form-control" id="security_answer" name="security_answer" value="" placeholder="<?php echo e(t('profile_sq_answer_placeholder', '请输入答案')); ?>" maxlength="255">
                 <p class="form-hint"><?php echo e(t('profile_sq_answer_hint', '答案区分大小写，请牢记。')); ?></p>
             </div>
             <div class="form-group">
@@ -604,7 +604,7 @@ include APP_ROOT . 'app/includes/header.php';
             <div class="flex gap-1 flex-wrap">
                 <button type="submit" class="btn btn-primary"><?php echo e(empty($user['security_question']) ? t('profile_sq_set', '设置密保') : t('profile_sq_modify', '修改密保')); ?></button>
                 <?php if (!empty($user['security_question'])): ?>
-                    <button type="submit" formaction="<?php echo site_url('profile', ['tab' => 'security']); ?>" formmethod="POST" name="action" value="remove_security_question" class="btn btn-secondary" data-confirm="<?php echo e(t('profile_sq_remove_confirm', '清除后无法通过密保验证重置密码，确定继续吗？\"')); ?>><?php echo e(t('profile_sq_remove', '清除密保')); ?></button>
+                    <button type="submit" formaction="<?php echo site_url('profile', ['tab' => 'security']); ?>" formmethod="POST" name="action" value="remove_security_question" class="btn btn-secondary" data-confirm="<?php echo e(t('profile_sq_remove_confirm', '清除后无法通过密保验证重置密码，确定继续吗？')); ?>"><?php echo e(t('profile_sq_remove', '清除密保')); ?></button>
                 <?php endif; ?>
             </div>
         </form>
@@ -719,7 +719,7 @@ include APP_ROOT . 'app/includes/header.php';
                         <div class="post-meta">
                             <span><?php echo t('profile_fav_author', '作者: {name}', ['name' => e($p['username'])]); ?></span>
                             <span><?php echo time_ago($p['created_at']); ?></span>
-                            <a href="<?php echo site_url('post', ['id' => (int)$p['id'], 'fav_action' => 'remove', 'csrf_token' => csrf_token()]); ?>" class="text-muted" style="font-size: 0.8125rem;" data-confirm="<?php echo e(t('profile_fav_remove_confirm', '确定取消收藏？\"')); ?>><?php echo e(t('profile_fav_remove', '取消收藏')); ?></a>
+                            <a href="<?php echo site_url('post', ['id' => (int)$p['id'], 'fav_action' => 'remove', 'csrf_token' => csrf_token()]); ?>" class="text-muted" style="font-size: 0.8125rem;" data-confirm="<?php echo e(t('profile_fav_remove_confirm', '确定取消收藏？')); ?>"><?php echo e(t('profile_fav_remove', '取消收藏')); ?></a>
                         </div>
                     </div>
                 <?php endforeach; ?>

@@ -83,15 +83,15 @@ require_once dirname(__DIR__) . '/layout/header.php';
             <input type="hidden" name="csrf_token" value="<?php echo csrf_token(); ?>">
             <div class="form-group">
                 <label class="form-label"><?php echo e(t('admin_medals_label_name', '勋章标识')); ?></label>
-                <input type="text" class="form-control" name="name" value="<?php echo e($medal['name'] ?? ''); ?>" required placeholder="<?php echo e(t('admin_medals_ph_name', '例如：early_bird\"')); ?>>
+                <input type="text" class="form-control" name="name" value="<?php echo e($medal['name'] ?? ''); ?>" required placeholder="<?php echo e(t('admin_medals_ph_name', '例如：early_bird')); ?>">
             </div>
             <div class="form-group">
                 <label class="form-label"><?php echo e(t('admin_medals_label_display_name', '显示名称')); ?></label>
-                <input type="text" class="form-control" name="display_name" value="<?php echo e($medal['display_name'] ?? ''); ?>" required placeholder="<?php echo e(t('admin_medals_ph_display_name', '例如：早鸟勋章\"')); ?>>
+                <input type="text" class="form-control" name="display_name" value="<?php echo e($medal['display_name'] ?? ''); ?>" required placeholder="<?php echo e(t('admin_medals_ph_display_name', '例如：早鸟勋章')); ?>">
             </div>
             <div class="form-group">
                 <label class="form-label"><?php echo e(t('admin_medals_label_desc', '描述')); ?></label>
-                <input type="text" class="form-control" name="description" value="<?php echo e($medal['description'] ?? ''); ?>" placeholder="<?php echo e(t('admin_medals_ph_desc', '简短描述...\"')); ?>>
+                <input type="text" class="form-control" name="description" value="<?php echo e($medal['description'] ?? ''); ?>" placeholder="<?php echo e(t('admin_medals_ph_desc', '简短描述...')); ?>">
             </div>
             <div class="form-group">
                 <label class="form-label"><?php echo e(t('admin_medals_label_color', '颜色')); ?></label>

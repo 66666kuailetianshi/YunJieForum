@@ -81,16 +81,16 @@ require_once dirname(__DIR__) . '/layout/header.php';
             <input type="hidden" name="csrf_token" value="<?php echo csrf_token(); ?>">
             <div class="form-group">
                 <label class="form-label"><?php echo e(t('admin_roles_label_name', '权限组标识')); ?></label>
-                <input type="text" class="form-control" name="name" value="<?php echo e($role['name'] ?? ''); ?>" required placeholder="<?php echo e(t('admin_roles_ph_name', '例如：moderator\"')); ?>>
+                <input type="text" class="form-control" name="name" value="<?php echo e($role['name'] ?? ''); ?>" required placeholder="<?php echo e(t('admin_roles_ph_name', '例如：moderator')); ?>">
                 <p class="form-hint"><?php echo e(t('admin_roles_hint_name', '仅小写字母、数字、下划线，创建后不建议修改。')); ?></p>
             </div>
             <div class="form-group">
                 <label class="form-label"><?php echo e(t('admin_roles_label_display_name', '显示名称')); ?></label>
-                <input type="text" class="form-control" name="display_name" value="<?php echo e($role['display_name'] ?? ''); ?>" required placeholder="<?php echo e(t('admin_roles_ph_display_name', '例如：版主\"')); ?>>
+                <input type="text" class="form-control" name="display_name" value="<?php echo e($role['display_name'] ?? ''); ?>" required placeholder="<?php echo e(t('admin_roles_ph_display_name', '例如：版主')); ?>">
             </div>
             <div class="form-group">
                 <label class="form-label"><?php echo e(t('admin_roles_label_permissions', '权限标识（逗号分隔）')); ?></label>
-                <input type="text" class="form-control" name="permissions" value="<?php echo e($role['permissions'] ?? ''); ?>" placeholder="<?php echo e(t('admin_roles_ph_permissions', '例如：manage_posts,manage_replies,manage_users\"')); ?>>
+                <input type="text" class="form-control" name="permissions" value="<?php echo e($role['permissions'] ?? ''); ?>" placeholder="<?php echo e(t('admin_roles_ph_permissions', '例如：manage_posts,manage_replies,manage_users')); ?>">
                 <p class="form-hint"><?php echo e(t('admin_roles_hint_permissions', 'admin_access 可进入管理后台；manage_posts/manage_replies/manage_users 分别管理帖子/回复/用户。')); ?></p>
             </div>
             <button type="submit" class="btn btn-primary"><?php echo e(t('admin_roles_save', '保存')); ?></button>

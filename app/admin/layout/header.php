@@ -128,12 +128,12 @@ function admin_menu_icon(string $key): string {
                 </a>
 
                 <div class="header-tools">
-                    <button class="theme-toggle" id="themeToggle" type="button" aria-label="<?php echo e(t('toggle_theme', '切换深色模式\"')); ?> title="<?php echo e(t('toggle_theme', '切换主题\"')); ?>>
+                    <button class="theme-toggle" id="themeToggle" type="button" aria-label="<?php echo e(t('toggle_theme', '切换深色模式')); ?>" title="<?php echo e(t('toggle_theme', '切换主题')); ?>">
                         <svg class="theme-icon-sun" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
                         <svg class="theme-icon-moon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
                     </button>
                     <a href="/" class="nav-link"><?php echo e(t('back_to_frontend', '返回前台')); ?></a>
-                    <a href="<?php echo site_url('logout', ['csrf_token' => csrf_token()]); ?>" class="nav-link" data-confirm="<?php echo e(t('confirm_logout', '确定要退出登录吗？\"')); ?>><?php echo e(t('logout', '退出')); ?></a>
+                    <a href="<?php echo site_url('logout', ['csrf_token' => csrf_token()]); ?>" class="nav-link" data-confirm="<?php echo e(t('confirm_logout', '确定要退出登录吗？')); ?>"><?php echo e(t('logout', '退出')); ?></a>
                 </div>
             </div>
         </div>

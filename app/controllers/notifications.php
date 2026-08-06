@@ -80,7 +80,7 @@ include APP_ROOT . 'app/includes/header.php';
                             <div class="notification-full-time"><?php echo time_ago($n['created_at']); ?></div>
                         </div>
                         <?php if ((int)$n['is_read'] === 0): ?>
-                            <span class="notification-unread-dot" aria-label="<?php echo e(t('notif_unread', '未读\"')); ?>></span>
+                            <span class="notification-unread-dot" aria-label="<?php echo e(t('notif_unread', '未读')); ?>"></span>
                         <?php endif; ?>
                     </a>
                 </li>

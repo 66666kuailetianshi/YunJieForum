@@ -240,9 +240,9 @@ require_once dirname(__DIR__) . '/layout/header.php';
 
 <!-- 筛选栏 -->
 <form method="get" action="<?php echo site_url('admin/replies'); ?>" class="filter-bar">
-    <input type="search" name="search" value="<?php echo e($search); ?>" placeholder="<?php echo e(t('admin_replies_search_placeholder', '搜索回复内容、作者或 ID...\"')); ?>>
-    <input type="number" name="post_id" value="<?php echo $postFilter > 0 ? $postFilter : ''; ?>" placeholder="<?php echo e(t('admin_replies_post_id_placeholder', '帖子 ID\"')); ?> min="1">
-    <input type="text" name="author" value="<?php echo e($authorFilter); ?>" placeholder="<?php echo e(t('admin_replies_author_placeholder', '作者\"')); ?>>
+    <input type="search" name="search" value="<?php echo e($search); ?>" placeholder="<?php echo e(t('admin_replies_search_placeholder', '搜索回复内容、作者或 ID...')); ?>">
+    <input type="number" name="post_id" value="<?php echo $postFilter > 0 ? $postFilter : ''; ?>" placeholder="<?php echo e(t('admin_replies_post_id_placeholder', '帖子 ID')); ?>" min="1">
+    <input type="text" name="author" value="<?php echo e($authorFilter); ?>" placeholder="<?php echo e(t('admin_replies_author_placeholder', '作者')); ?>">
     <button type="submit" class="btn btn-primary btn-sm"><?php echo e(t('admin_replies_filter', '筛选')); ?></button>
     <?php if ($search || $postFilter || $authorFilter): ?>
         <a href="<?php echo site_url('admin/replies'); ?>" class="btn btn-secondary btn-sm" style="text-decoration:none;"><?php echo e(t('admin_replies_clear', '清除')); ?></a>
@@ -282,7 +282,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
                             <td><code style="font-size:0.8rem;">#<?php echo $reply['id']; ?></code></td>
                             <td><span style="font-weight:600;color:var(--primary);font-size:0.85rem;">#<?php echo (int)$reply['floor']; ?></span></td>
                             <td>
-                                <div class="reply-preview" onclick="viewReplyContent(<?php echo $reply['id']; ?>)" title="<?php echo e(t('admin_replies_click_to_view', '点击查看完整内容\"')); ?>>
+                                <div class="reply-preview" onclick="viewReplyContent(<?php echo $reply['id']; ?>)" title="<?php echo e(t('admin_replies_click_to_view', '点击查看完整内容')); ?>">
                                     <?php echo e($reply['content']); ?>
                                 </div>
                                 <?php if ($reply['reply_to']): ?>
@@ -299,9 +299,9 @@ require_once dirname(__DIR__) . '/layout/header.php';
                             <td style="font-size:0.8rem;color:var(--text-muted);white-space:nowrap;"><?php echo date('Y-m-d H:i', strtotime($reply['created_at'])); ?></td>
                             <td>
                                 <div class="actions">
-                                    <a href="<?php echo site_url('post', ['id' => (int)$reply['post_id']]); ?>#reply-<?php echo (int)$reply['id']; ?>" target="_blank" class="btn-icon" title="<?php echo e(t('admin_replies_action_view_in_post', '在原帖查看\"')); ?>><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></a>
-                                    <button class="btn-icon" onclick="viewReplyContent(<?php echo $reply['id']; ?>)" title="<?php echo e(t('admin_replies_action_preview', '预览内容\"')); ?>><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></button>
-                                    <a href="<?php echo site_url('admin/replies', ['action' => 'delete', 'reply_id' => (int)$reply['id'], 'csrf_token' => csrf_token()]); ?>" class="btn-icon danger" data-confirm="<?php echo e(t('admin_replies_confirm_delete', '确定删除该回复吗？此操作不可撤销。\"')); ?> title="<?php echo e(t('admin_replies_action_delete', '删除\"')); ?>><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></a>
+                                    <a href="<?php echo site_url('post', ['id' => (int)$reply['post_id']]); ?>#reply-<?php echo (int)$reply['id']; ?>" target="_blank" class="btn-icon" title="<?php echo e(t('admin_replies_action_view_in_post', '在原帖查看')); ?>"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></a>
+                                    <button class="btn-icon" onclick="viewReplyContent(<?php echo $reply['id']; ?>)" title="<?php echo e(t('admin_replies_action_preview', '预览内容')); ?>"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></button>
+                                    <a href="<?php echo site_url('admin/replies', ['action' => 'delete', 'reply_id' => (int)$reply['id'], 'csrf_token' => csrf_token()]); ?>" class="btn-icon danger" data-confirm="<?php echo e(t('admin_replies_confirm_delete', '确定删除该回复吗？此操作不可撤销。')); ?>" title="<?php echo e(t('admin_replies_action_delete', '删除')); ?>"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></a>
                                 </div>
                             </td>
                         </tr>

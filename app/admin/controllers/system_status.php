@@ -209,7 +209,7 @@ $dbSize = defined('DB_FILE') && is_file(DB_FILE) ? (int)filesize(DB_FILE) : 0;
 <div class="page-header">
     <h1 class="page-title"><?php echo e(t('admin_sys_title', '运行状态监控')); ?></h1>
     <div class="page-tools">
-        <a href="<?php echo site_url('admin/api/system_status_ajax', ['diag' => '1']); ?>" target="_blank" class="btn btn-sm btn-secondary" title="<?php echo e(t('admin_sys_diag_title', '查看当前环境可用的采集方式（FFI/COM/PowerShell）\"')); ?>><?php echo e(t('admin_sys_diag_btn', '诊断采集通道')); ?></a>
+        <a href="<?php echo site_url('admin/api/system_status_ajax', ['diag' => '1']); ?>" target="_blank" class="btn btn-sm btn-secondary" title="<?php echo e(t('admin_sys_diag_title', '查看当前环境可用的采集方式（FFI/COM/PowerShell）')); ?>"><?php echo e(t('admin_sys_diag_btn', '诊断采集通道')); ?></a>
         <span class="last-update" id="lastUpdate"><?php echo e(t('admin_sys_loading', '正在加载…')); ?></span>
     </div>
 </div>
@@ -794,7 +794,7 @@ $dbSize = defined('DB_FILE') && is_file(DB_FILE) ? (int)filesize(DB_FILE) : 0;
             var gpuHtml = '';
             for (var i = 0; i < gpus.length; i++) {
                 var g = gpus[i];
-                var badge = g.is_integrated ? '<span class="hw-disk-badge hdd<?php echo addslashes(t('admin_system_status_9fe2c4','>\' + <?php echo json_encode(t(\'admin_sys_gpu_integrated\', \'集成\')); ?> + \'</span>\' : \'<span class=')); ?>hw-disk-badge ssd">' + <?php echo json_encode(t('admin_sys_gpu_dedicated', '独显')); ?> + '</span>';
+                var badge = g.is_integrated ? '<span class="hw-disk-badge hdd">' + <?php echo json_encode(t('admin_sys_gpu_integrated', '集成')); ?> + '</span>' : '<span class="hw-disk-badge ssd">' + <?php echo json_encode(t('admin_sys_gpu_dedicated', '独显')); ?> + '</span>';
                 gpuHtml += '<div class="hw-disk-item">' +
                     badge +
                     '<span class="hw-disk-model">' + escapeHtml(g.name) + '</span>' +

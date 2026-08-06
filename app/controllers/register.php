@@ -148,7 +148,7 @@ include APP_ROOT . 'app/includes/header.php';
                 <div class="form-group">
                     <label class="form-label" for="verification_code"><?php echo e(t('register_label_code', '邮箱验证码')); ?></label>
                     <div style="display: flex; gap: 0.5rem;">
-                        <input type="text" class="form-control" id="verification_code" name="verification_code" placeholder="<?php echo e(t('register_code_placeholder', '6 位数字验证码\"')); ?> maxlength="6" pattern="\d{6}" inputmode="numeric" style="flex: 1;">
+                        <input type="text" class="form-control" id="verification_code" name="verification_code" placeholder="<?php echo e(t('register_code_placeholder', '6 位数字验证码')); ?>" maxlength="6" pattern="\d{6}" inputmode="numeric" style="flex: 1;">
                         <button type="button" class="btn btn-secondary" id="sendCodeBtn" style="white-space: nowrap;"><?php echo e(t('register_get_code', '获取验证码')); ?></button>
                     </div>
                     <p class="form-hint" id="codeHint"><?php echo e(t('register_code_hint_initial', '点击按钮发送验证码到邮箱。')); ?></p>

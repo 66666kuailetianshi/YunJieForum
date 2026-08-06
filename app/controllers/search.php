@@ -91,7 +91,7 @@ include APP_ROOT . 'app/includes/header.php';
 
 <div class="card mb-1">
     <form method="GET" action="<?php echo site_url('search'); ?>" class="flex gap-1">
-        <input type="text" class="form-control" name="q" value="<?php echo e($q); ?>" placeholder="<?php echo e(t('search_input_placeholder', '输入关键词搜索帖子...\"')); ?> autocomplete="off">
+        <input type="text" class="form-control" name="q" value="<?php echo e($q); ?>" placeholder="<?php echo e(t('search_input_placeholder', '输入关键词搜索帖子...')); ?>" autocomplete="off">
         <button type="submit" class="btn btn-primary"><?php echo e(t('search_submit', '搜索')); ?></button>
     </form>
 </div>

@@ -313,15 +313,15 @@ if ($flash): ?>
                                 <td class="backup-cell-desc"><?php echo $b['description'] ? e($b['description']) : '<span class="text-muted">—</span>'; ?></td>
                                 <td><?php echo e($b['created_by_name']); ?></td>
                                 <td class="backup-cell-actions">
-                                    <a href="<?php echo site_url('admin/backup', ['action' => 'download', 'filename' => $b['filename'], 'token' => session_id()]); ?>" class="btn btn-secondary btn-sm backup-action-btn" title="<?php echo e(t('admin_backup_btn_download', '下载\"')); ?>>
+                                    <a href="<?php echo site_url('admin/backup', ['action' => 'download', 'filename' => $b['filename'], 'token' => session_id()]); ?>" class="btn btn-secondary btn-sm backup-action-btn" title="<?php echo e(t('admin_backup_btn_download', '下载')); ?>">
                                         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                                         <?php echo e(t('admin_backup_btn_download', '下载')); ?>
                                     </a>
-                                    <button type="button" class="btn btn-secondary btn-sm backup-action-btn backup-restore-btn" data-filename="<?php echo e($b['filename']); ?>" title="<?php echo e(t('admin_backup_btn_restore_title', '恢复此备份\"')); ?>>
+                                    <button type="button" class="btn btn-secondary btn-sm backup-action-btn backup-restore-btn" data-filename="<?php echo e($b['filename']); ?>" title="<?php echo e(t('admin_backup_btn_restore_title', '恢复此备份')); ?>">
                                         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
                                         <?php echo e(t('admin_backup_btn_restore', '恢复')); ?>
                                     </button>
-                                    <button type="button" class="btn btn-secondary btn-sm backup-action-btn backup-delete-btn is-danger" data-filename="<?php echo e($b['filename']); ?>" title="<?php echo e(t('admin_backup_btn_delete', '删除\"')); ?>>
+                                    <button type="button" class="btn btn-secondary btn-sm backup-action-btn backup-delete-btn is-danger" data-filename="<?php echo e($b['filename']); ?>" title="<?php echo e(t('admin_backup_btn_delete', '删除')); ?>">
                                         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
                                         <?php echo e(t('admin_backup_btn_delete', '删除')); ?>
                                     </button>

@@ -61,7 +61,7 @@ $pageTitle = t('fav_page_title', '我的收藏');
 include APP_ROOT . 'app/includes/header.php';
 ?>
 
-<nav class="breadcrumb" aria-label="<?php echo e(t('fav_breadcrumb_aria', '面包屑导航\"')); ?>>
+<nav class="breadcrumb" aria-label="<?php echo e(t('fav_breadcrumb_aria', '面包屑导航')); ?>">
     <a href="/"><?php echo e(t('fav_home', '首页')); ?></a>
     <span class="breadcrumb-separator">/</span>
     <span class="breadcrumb-current"><?php echo e(t('fav_page_title', '我的收藏')); ?></span>
@@ -102,7 +102,7 @@ include APP_ROOT . 'app/includes/header.php';
                     <span class="post-stat"><?php echo ui_icon('message', 14); ?> <?php echo (int)$item['replies_count']; ?></span>
                     <a class="btn btn-sm btn-danger"
                        href="<?php echo site_url('favorites', ['action' => 'remove', 'id' => (int)$item['id'], 'csrf_token' => $csrfToken]); ?>"
-                       data-confirm="<?php echo e(t('fav_remove_confirm', '确定取消收藏这篇帖子吗？\"')); ?>>
+                       data-confirm="<?php echo e(t('fav_remove_confirm', '确定取消收藏这篇帖子吗？')); ?>">
                         <?php echo e(t('fav_remove', '取消收藏')); ?>
                     </a>
                 </div>

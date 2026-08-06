@@ -69,7 +69,7 @@ if (is_logged_in() && $currentUser) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
-    <meta name="description" content=t('common_d68b6d','<?php echo e(SITE_NAME); ?> - <?php echo e(t(\'common_meta_description\', \'一个简洁美观的社区论坛\')); ?>')>
+    <meta name="description" content="<?php echo e(t('common_meta_description', '一个简洁美观的社区论坛') . ' - ' . SITE_NAME); ?>">
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
@@ -129,7 +129,7 @@ if (is_logged_in() && $currentUser) {
                     </div>
                 </a>
 
-                <nav class="main-nav" id="mainNav" aria-label="<?php echo e(t('nav_main', '主导航\"')); ?>>
+                <nav class="main-nav" id="mainNav" aria-label="<?php echo e(t('nav_main', '主导航')); ?>">
                     <ul class="nav-list">
                         <li><a href="/" class="nav-link <?php echo current_route() === 'home' ? 'active' : ''; ?>"><?php echo e(t('nav_home', '首页')); ?></a></li>
                         <?php if (is_logged_in()): ?>
@@ -147,20 +147,20 @@ if (is_logged_in() && $currentUser) {
                 <div class="header-tools">
                     <!-- 搜索框 -->
                     <form action="<?php echo site_url('search'); ?>" method="get" class="header-search" role="search">
-                        <input type="text" name="q" placeholder="<?php echo e(t('search_placeholder', '搜索内容…\"')); ?> class="header-search-input" value="<?php echo e((string)($_GET['q'] ?? '')); ?>" maxlength="100">
-                        <button type="submit" class="header-search-btn" aria-label="<?php echo e(t('common_search_aria', '搜索\"')); ?>>
+                        <input type="text" name="q" placeholder="<?php echo e(t('search_placeholder', '搜索内容…')); ?>" class="header-search-input" value="<?php echo e((string)($_GET['q'] ?? '')); ?>" maxlength="100">
+                        <button type="submit" class="header-search-btn" aria-label="<?php echo e(t('common_search_aria', '搜索')); ?>">
                             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
                         </button>
                     </form>
 
-                    <button class="theme-toggle" id="themeToggle" type="button" aria-label="<?php echo e(t('toggle_theme', '切换深色模式\"')); ?> title="<?php echo e(t('toggle_theme', '切换主题\"')); ?>>
+                    <button class="theme-toggle" id="themeToggle" type="button" aria-label="<?php echo e(t('toggle_theme', '切换深色模式')); ?>" title="<?php echo e(t('toggle_theme', '切换主题')); ?>">
                         <svg class="theme-icon-sun" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
                         <svg class="theme-icon-moon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
                     </button>
 
                     <?php if (is_logged_in() && $currentUser): ?>
                         <div class="notification-dropdown" id="notificationDropdown">
-                            <button type="button" class="notification-trigger" id="notificationTrigger" aria-haspopup="true" aria-expanded="false" aria-label="<?php echo e(t('common_notification_aria', '通知\"')); ?>>
+                            <button type="button" class="notification-trigger" id="notificationTrigger" aria-haspopup="true" aria-expanded="false" aria-label="<?php echo e(t('common_notification_aria', '通知')); ?>">
                                 <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
                                 <?php if ($unreadNotify > 0): ?>
                                     <span class="notification-badge"><?php echo $unreadNotify; ?></span>
@@ -271,7 +271,7 @@ if (is_logged_in() && $currentUser) {
                                     </a>
                                 </div>
 
-                                <a href="<?php echo e(site_url('logout', ['csrf_token' => csrf_token()])); ?>" class="user-dropdown-logout" data-confirm="<?php echo e(t('confirm_logout', '确定要退出登录吗？\"')); ?>>
+                                <a href="<?php echo e(site_url('logout', ['csrf_token' => csrf_token()])); ?>" class="user-dropdown-logout" data-confirm="<?php echo e(t('confirm_logout', '确定要退出登录吗？')); ?>">
                                     <?php echo e(t('logout', '退出登录')); ?>
                                 </a>
                             </div>
@@ -283,7 +283,7 @@ if (is_logged_in() && $currentUser) {
                         </a>
                     <?php endif; ?>
 
-                    <button class="nav-toggle" id="navToggle" aria-label="<?php echo e(t('toggle_nav', '切换导航菜单\"')); ?> aria-expanded="false">
+                    <button class="nav-toggle" id="navToggle" aria-label="<?php echo e(t('toggle_nav', '切换导航菜单')); ?>" aria-expanded="false">
                         <span class="nav-toggle-bar"></span>
                         <span class="nav-toggle-bar"></span>
                         <span class="nav-toggle-bar"></span>
@@ -352,6 +352,6 @@ if (is_logged_in() && $currentUser) {
                         ?>
                     </span>
                     <span class="alert-message"><?php echo e($flash['message']); ?></span>
-                    <button type="button" class="alert-close" aria-label="<?php echo e(t('common_close_aria', '关闭\"')); ?> data-close>&times;</button>
+                    <button type="button" class="alert-close" aria-label="<?php echo e(t('common_close_aria', '关闭')); ?>" data-close>&times;</button>
                 </div>
             <?php endif; ?>

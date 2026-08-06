@@ -501,13 +501,13 @@ if ($flash): ?>
             <div class="form-row">
                 <div class="form-group">
                     <label class="form-label" for="bounce_username"><?php echo t('mail_center_bounce_username', '邮箱账号'); ?> <span style="font-weight:400;color:var(--text-muted);">（<?php echo t('mail_center_bounce_same_as_from', '与 SMTP 发件人相同'); ?>）</span></label>
-                    <input type="text" class="form-control" id="bounce_username" value="<?php echo e(!empty($bounceConfig['username']) ? $bounceConfig['username'] : $smtpFrom); ?>" placeholder="<?php echo e(t('mail_center_bounce_username_ph', '与发件人邮箱一致\"')); ?>>
+                    <input type="text" class="form-control" id="bounce_username" value="<?php echo e(!empty($bounceConfig['username']) ? $bounceConfig['username'] : $smtpFrom); ?>" placeholder="<?php echo e(t('mail_center_bounce_username_ph', '与发件人邮箱一致')); ?>">
                 </div>
                 <div class="form-group">
                     <label class="form-label" for="bounce_password"><?php echo t('mail_center_bounce_password', '密码 / 授权码'); ?> <span style="font-weight:400;color:var(--text-muted);">（<?php echo t('mail_center_bounce_same_as_smtp', '与 SMTP 相同'); ?>）</span></label>
                     <div class="input-pwd-wrap">
-                        <input type="password" class="form-control" id="bounce_password" value="<?php echo e(!empty($bounceConfig['password']) ? $bounceConfig['password'] : $smtpPass); ?>" placeholder="<?php echo e(t('mail_center_bounce_password_ph', '与 SMTP 授权码一致\"')); ?> autocomplete="new-password">
-                        <button type="button" class="input-pwd-toggle" data-target="bounce_password" aria-label="<?php echo e(t('mail_center_show_hide_pwd', '显示或隐藏密码\"')); ?>>
+                        <input type="password" class="form-control" id="bounce_password" value="<?php echo e(!empty($bounceConfig['password']) ? $bounceConfig['password'] : $smtpPass); ?>" placeholder="<?php echo e(t('mail_center_bounce_password_ph', '与 SMTP 授权码一致')); ?>" autocomplete="new-password">
+                        <button type="button" class="input-pwd-toggle" data-target="bounce_password" aria-label="<?php echo e(t('mail_center_show_hide_pwd', '显示或隐藏密码')); ?>">
                             <svg class="pwd-icon-eye" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                             <svg class="pwd-icon-eye-off" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
                         </button>
@@ -637,7 +637,7 @@ if ($flash): ?>
                     </div>
                     <div class="form-group">
                         <label class="form-label" for="smtp_user"><?php echo t('mail_center_smtp_username', '用户名'); ?></label>
-                        <input type="text" class="form-control" id="smtp_user" name="smtp_user" value="<?php echo e($smtpUser); ?>" placeholder="<?php echo e(t('mail_center_smtp_username_ph', '通常与发件人邮箱相同\"')); ?>>
+                        <input type="text" class="form-control" id="smtp_user" name="smtp_user" value="<?php echo e($smtpUser); ?>" placeholder="<?php echo e(t('mail_center_smtp_username_ph', '通常与发件人邮箱相同')); ?>">
                     </div>
                 </div>
 
@@ -645,8 +645,8 @@ if ($flash): ?>
                     <div class="form-group">
                         <label class="form-label" for="smtp_pass"><?php echo t('mail_center_smtp_password', '密码 / 授权码'); ?></label>
                         <div class="input-pwd-wrap">
-                            <input type="password" class="form-control" id="smtp_pass" name="smtp_pass" value="<?php echo e($smtpPass); ?>" placeholder="<?php echo e(t('mail_center_smtp_password_ph', '留空则保留原密码\"')); ?> autocomplete="new-password">
-                            <button type="button" class="input-pwd-toggle" data-target="smtp_pass" aria-label="<?php echo e(t('mail_center_show_hide_pwd', '显示或隐藏密码\"')); ?>>
+                            <input type="password" class="form-control" id="smtp_pass" name="smtp_pass" value="<?php echo e($smtpPass); ?>" placeholder="<?php echo e(t('mail_center_smtp_password_ph', '留空则保留原密码')); ?>" autocomplete="new-password">
+                            <button type="button" class="input-pwd-toggle" data-target="smtp_pass" aria-label="<?php echo e(t('mail_center_show_hide_pwd', '显示或隐藏密码')); ?>">
                                 <svg class="pwd-icon-eye" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                                 <svg class="pwd-icon-eye-off" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
                             </button>
@@ -661,7 +661,7 @@ if ($flash): ?>
 
                 <div class="form-group">
                     <label class="form-label" for="smtp_from_name"><?php echo t('mail_center_smtp_from_name', '发件人名称'); ?></label>
-                    <input type="text" class="form-control" id="smtp_from_name" name="smtp_from_name" value="<?php echo e($smtpFromName); ?>" placeholder="<?php echo e(t('mail_center_smtp_from_name_ph', '留空则使用站点名称\"')); ?>>
+                    <input type="text" class="form-control" id="smtp_from_name" name="smtp_from_name" value="<?php echo e($smtpFromName); ?>" placeholder="<?php echo e(t('mail_center_smtp_from_name_ph', '留空则使用站点名称')); ?>">
                 </div>
 
                 <div class="form-actions">
@@ -700,12 +700,12 @@ if ($flash): ?>
 
             <div class="form-group">
                 <label class="form-label" for="test_subject"><?php echo t('mail_center_test_subject_label', '主题（可选）'); ?></label>
-                <input type="text" class="form-control" id="test_subject" name="test_subject" placeholder="<?php echo e(t('mail_center_test_subject_ph', '留空使用默认主题\"')); ?>>
+                <input type="text" class="form-control" id="test_subject" name="test_subject" placeholder="<?php echo e(t('mail_center_test_subject_ph', '留空使用默认主题')); ?>">
             </div>
 
             <div class="form-group">
                 <label class="form-label" for="test_content"><?php echo t('mail_center_test_content_label', '内容（可选）'); ?></label>
-                <textarea class="form-control" id="test_content" name="test_content" rows="4" placeholder="<?php echo e(t('mail_center_test_content_ph', '留空使用默认内容\"')); ?>></textarea>
+                <textarea class="form-control" id="test_content" name="test_content" rows="4" placeholder="<?php echo e(t('mail_center_test_content_ph', '留空使用默认内容')); ?>"></textarea>
             </div>
 
             <button type="submit" class="btn btn-primary btn-block" <?php echo $smtpEnabled ? '' : 'disabled'; ?>>
@@ -795,12 +795,12 @@ if ($flash): ?>
 
             <div class="form-group">
                 <label class="form-label" for="notify_subject"><?php echo t('mail_center_notify_subject', '邮件主题'); ?> <span class="text-danger">*</span></label>
-                <input type="text" class="form-control" id="notify_subject" placeholder="<?php echo e(t('mail_center_notify_subject_ph', '例如：重要通知：论坛将于本周六进行系统维护\"')); ?> required>
+                <input type="text" class="form-control" id="notify_subject" placeholder="<?php echo e(t('mail_center_notify_subject_ph', '例如：重要通知：论坛将于本周六进行系统维护')); ?>" required>
             </div>
 
             <div class="form-group">
                 <label class="form-label" for="notify_content"><?php echo t('mail_center_notify_content', '邮件内容'); ?> <span class="text-danger">*</span></label>
-                <textarea class="form-control" id="notify_content" rows="8" placeholder="<?php echo e(t('mail_center_notify_content_ph', '请输入通知正文，支持 HTML 格式...\"')); ?> required></textarea>
+                <textarea class="form-control" id="notify_content" rows="8" placeholder="<?php echo e(t('mail_center_notify_content_ph', '请输入通知正文，支持 HTML 格式...')); ?>" required></textarea>
                 <p class="form-hint"><?php echo t('mail_center_notify_content_hint', '支持 HTML 标签，将使用统一的邮件模板包装。'); ?></p>
             </div>
 
@@ -846,7 +846,7 @@ if ($flash): ?>
         <p class="text-muted" style="margin-top:0;"><?php echo t('mail_center_template_hint', '所有发往用户的邮件均使用统一品牌模板，下方为实时预览。'); ?></p>
 
         <div class="mail-preview-wrapper">
-            <iframe id="mail-preview-frame" class="mail-preview-frame" title="<?php echo e(t('mail_center_template_preview', '邮件模板预览\"')); ?> loading="lazy"></iframe>
+            <iframe id="mail-preview-frame" class="mail-preview-frame" title="<?php echo e(t('mail_center_template_preview', '邮件模板预览')); ?>" loading="lazy"></iframe>
         </div>
     </div>
 </div><!-- 关闭 template 面板 -->

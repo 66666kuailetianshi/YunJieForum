@@ -45,7 +45,7 @@ include APP_ROOT . 'app/includes/header.php';
                 <span class="announcement-title"><?php echo e($announcement['title']); ?></span>
                 <span class="announcement-content"><?php echo e($announcement['content']); ?></span>
             </div>
-            <button type="button" class="alert-close" aria-label="<?php echo e(t('home_close', '关闭\"')); ?> data-close>&times;</button>
+            <button type="button" class="alert-close" aria-label="<?php echo e(t('home_close', '关闭')); ?>" data-close>&times;</button>
         </div>
     <?php endforeach; ?>
 <?php endif; ?>
@@ -151,9 +151,9 @@ include APP_ROOT . 'app/includes/header.php';
                     <div class="latest-item">
                         <img src="<?php echo avatar_url($post['avatar'], $post['username']); ?>" alt="" class="avatar avatar-sm">
                         <div class="latest-title">
-                            <?php if ($post['is_pinned']): ?><span class="thread-badge pinned" title="<?php echo e(t('home_badge_pinned_title', '置顶\"')); ?>><?php echo e(t('home_badge_pinned', '顶')); ?></span><?php endif; ?>
-                            <?php if ($post['is_essence']): ?><span class="thread-badge essence" title="<?php echo e(t('home_badge_essence_title', '精华\"')); ?>><?php echo e(t('home_badge_essence', '精')); ?></span><?php endif; ?>
-                            <?php if ($post['is_locked']): ?><span class="thread-badge locked" title="<?php echo e(t('home_badge_locked_title', '锁定\"')); ?>><?php echo e(t('home_badge_locked', '锁')); ?></span><?php endif; ?>
+                            <?php if ($post['is_pinned']): ?><span class="thread-badge pinned" title="<?php echo e(t('home_badge_pinned_title', '置顶')); ?>"><?php echo e(t('home_badge_pinned', '顶')); ?></span><?php endif; ?>
+                            <?php if ($post['is_essence']): ?><span class="thread-badge essence" title="<?php echo e(t('home_badge_essence_title', '精华')); ?>"><?php echo e(t('home_badge_essence', '精')); ?></span><?php endif; ?>
+                            <?php if ($post['is_locked']): ?><span class="thread-badge locked" title="<?php echo e(t('home_badge_locked_title', '锁定')); ?>"><?php echo e(t('home_badge_locked', '锁')); ?></span><?php endif; ?>
                             <a href="<?php echo e(site_url('post', ['id' => (int)$post['id']])); ?>"><?php echo e(format_preview_text($post['title'], 80)); ?></a>
                         </div>
                         <span class="latest-meta"><?php echo e($post['username']); ?> · <?php echo time_ago($post['created_at']); ?></span>

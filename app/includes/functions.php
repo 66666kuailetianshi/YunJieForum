@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 /**
  * 云界论坛 - 公共函数库
  */
@@ -2364,24 +2364,24 @@ function assess_post_risk(string $content, string $title = ''): array {
 
     // 纯数字/符号占比超 70%
     if ($plainLen > 10) {
-        $nonAlphaNum = mb_strlen(preg_replace(<?php echo addslashes(t('common_c9b040','/[a-zA-Z0-9一-龥\\s]/u')); ?>, '', $plainContent));
+        $nonAlphaNum = mb_strlen(preg_replace('/[a-zA-Z0-9一-龥\s]/u', '', $plainContent));
         $ratio = $plainLen > 0 ? $nonAlphaNum / $plainLen : 0;
         if ($ratio > 0.7) {
             $score += 25;
-            $details[] = <?php echo addslashes(t('common_29f4ec','内容中特殊符号占比过高 (')); ?> . round($ratio * 100) . '%)';
+            $details[] = t('common_29f4ec','内容中特殊符号占比过高 (') . round($ratio * 100) . '%)';
         }
     }
 
     // 重复字符（超过 15 个相同连续字符）
     if (preg_match('/(.)\1{14,}/u', $plainContent)) {
         $score += 15;
-        $details[] = <?php echo addslashes(t('common_5baaaf','包含大量重复字符')); ?>;
+        $details[] = t('common_5baaaf','包含大量重复字符');
     }
 
     // 纯数字内容过长（疑似灌水/垃圾信息）
     if ($plainLen > 20 && $digitsLen / $plainLen > 0.7) {
         $score += 10;
-        $details[] = <?php echo addslashes(t('common_ed8506','内容以数字为主，疑似灌水')); ?>;
+        $details[] = t('common_ed8506','内容以数字为主，疑似灌水');
     }
 
     // 4. 标题异常
@@ -2392,30 +2392,30 @@ function assess_post_risk(string $content, string $title = ''): array {
         $alphaLen = mb_strlen(preg_replace('/[^a-zA-Z]/u', '', $title));
         if ($alphaLen > 3 && $alphaLen > 0 && $upperLen / $alphaLen > 0.8) {
             $score += 10;
-            $details[] = <?php echo addslashes(t('common_f5bbcf','标题全大写')); ?>;
+            $details[] = t('common_f5bbcf','标题全大写');
         }
         // 过多感叹号
         $exclCount = mb_substr_count($title, '!') + mb_substr_count($title, '！');
         if ($exclCount >= 3) {
             $score += 8;
-            $details[] = <?php echo addslashes(t('common_dc6dd7','标题包含过多感叹号')); ?>;
+            $details[] = t('common_dc6dd7','标题包含过多感叹号');
         }
         // 标题过短（1-2 字符，疑似无意义标题）
         if ($titleLen <= 2) {
             $score += 5;
-            $details[] = <?php echo addslashes(t('common_0cfb8a','标题过短（≤2字符）')); ?>;
+            $details[] = t('common_0cfb8a','标题过短（≤2字符）');
         }
     }
 
     // 5. 广告特征
     $adPatterns = [
-        '/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/' => <?php echo addslashes(t('common_ac33e1','包含邮箱地址')); ?>,
-        '/1[3-9]\d{9}/' => <?php echo addslashes(t('common_ef48b4','包含手机号')); ?>,
-        '/[Qq]{2}\s*[:：]?\s*\d{5,}/' => <?php echo addslashes(t('common_71031a','包含QQ联系方式')); ?>,
-        '/(微信|WeChat|v信)\s*[:：]?\s*[a-zA-Z0-9_-]{5,}/' => <?php echo addslashes(t('common_26c87e','包含微信号')); ?>,
-        '/[加➕]\s*[我俺]\s*[微vVWw][信xX]/' => <?php echo addslashes(t('common_e71f8f','引导添加微信')); ?>,
-        '/(免费|低价|优惠|折扣|特价|限时|抢购|秒杀).*(点击|购买|下单|咨询)/' => <?php echo addslashes(t('common_b77461','推广文案')); ?>,
-        '/价格\s*[:：]?\s*\d+/' => <?php echo addslashes(t('common_559ef6','包含价格信息')); ?>,
+        '/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/' => t('common_ac33e1','包含邮箱地址'),
+        '/1[3-9]\d{9}/' => t('common_ef48b4','包含手机号'),
+        '/[Qq]{2}\s*[:：]?\s*\d{5,}/' => t('common_71031a','包含QQ联系方式'),
+        '/(微信|WeChat|v信)\s*[:：]?\s*[a-zA-Z0-9_-]{5,}/' => t('common_26c87e','包含微信号'),
+        '/[加➕]\s*[我俺]\s*[微vVWw][信xX]/' => t('common_e71f8f','引导添加微信'),
+        '/(免费|低价|优惠|折扣|特价|限时|抢购|秒杀).*(点击|购买|下单|咨询)/' => t('common_b77461','推广文案'),
+        '/价格\s*[:：]?\s*\d+/' => t('common_559ef6','包含价格信息'),
     ];
     $adCount = 0;
     foreach ($adPatterns as $pattern => $desc) {
@@ -2434,16 +2434,16 @@ function assess_post_risk(string $content, string $title = ''): array {
     // 确定风险等级
     if ($score >= 61) {
         $level = 'high';
-        $label = <?php echo addslashes(t('common_7a83b6','高风险')); ?>;
+        $label = t('common_7a83b6','高风险');
     } elseif ($score >= 31) {
         $level = 'medium';
-        $label = <?php echo addslashes(t('common_83a55f','中风险')); ?>;
+        $label = t('common_83a55f','中风险');
     } elseif ($score >= 10) {
         $level = 'low';
-        $label = <?php echo addslashes(t('common_117a43','低风险')); ?>;
+        $label = t('common_117a43','低风险');
     } else {
         $level = 'safe';
-        $label = <?php echo addslashes(t('common_8e662a','安全')); ?>;
+        $label = t('common_8e662a','安全');
     }
 
     return [
@@ -2467,7 +2467,7 @@ function email_verification_enabled(): bool {
  */
 function send_email_verification_code(string $email): array {
     if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        return ['success' => false, 'error' => <?php echo addslashes(t('common_208e60','邮箱地址无效。')); ?>, 'wait' => 0];
+        return ['success' => false, 'error' => t('common_208e60','邮箱地址无效。'), 'wait' => 0];
     }
 
     $now = time();
@@ -2481,10 +2481,10 @@ function send_email_verification_code(string $email): array {
         $countReset = $now;
     }
     if ($now - $lastSent < 60) {
-        return ['success' => false, 'error' => <?php echo addslashes(t('common_abf833','发送太频繁，请稍后再试。')); ?>, 'wait' => 60 - ($now - $lastSent)];
+        return ['success' => false, 'error' => t('common_abf833','发送太频繁，请稍后再试。'), 'wait' => 60 - ($now - $lastSent)];
     }
     if ($sendCount >= 5) {
-        return ['success' => false, 'error' => <?php echo addslashes(t('common_c452d8','本小时发送次数已达上限，请稍后再试。')); ?>, 'wait' => 0];
+        return ['success' => false, 'error' => t('common_c452d8','本小时发送次数已达上限，请稍后再试。'), 'wait' => 0];
     }
 
     $code = generate_email_code(6);
@@ -2495,19 +2495,19 @@ function send_email_verification_code(string $email): array {
     $_SESSION['email_verify_send_count'] = $sendCount + 1;
     $_SESSION['email_verify_count_reset'] = $countReset;
 
-    $subject = '【' . SITE_NAME . <?php echo addslashes(t('common_224b1b','】注册验证码')); ?>;
-    $body  = <?php echo addslashes(t('common_f11f27','<p>您好，</p>')); ?>;
-    $body .= <?php echo addslashes(t('common_9a388b','<p>您正在注册 <strong>')); ?> . e(SITE_NAME) . <?php echo addslashes(t('common_4a7e71','</strong> 账号，验证码为：</p>')); ?>;
+    $subject = '【' . SITE_NAME . t('common_224b1b','】注册验证码');
+    $body  = t('common_f11f27','<p>您好，</p>');
+    $body .= t('common_9a388b','<p>您正在注册 <strong>') . e(SITE_NAME) . t('common_4a7e71','</strong> 账号，验证码为：</p>');
     $body .= '<p style="margin:16px 0;text-align:center;"><span style="display:inline-block;padding:12px 28px;font-size:30px;font-weight:700;letter-spacing:8px;color:#4f46e5;background:#eef2ff;border-radius:10px;border:1px dashed #c7d2fe;">' . e($code) . '</span></p>';
     $body .= '<p>验证码 <strong>10 分钟</strong>内有效，请勿泄露给他人。</p>';
-    $body .= <?php echo addslashes(t('common_a137d0','<p style="color:#71717a;">如非本人操作，请忽略此邮件。</p>')); ?>;
-    $body = render_email_template(<?php echo addslashes(t('common_40c1e8','注册验证码')); ?>, $body, ['subject' => $subject]);
+    $body .= t('common_a137d0','<p style="color:#71717a;">如非本人操作，请忽略此邮件。</p>');
+    $body = render_email_template(t('common_40c1e8','注册验证码'), $body, ['subject' => $subject]);
 
     $result = send_mail($email, '', $subject, $body, 'verify');
     if (!$result['success']) {
         // 发送失败时清空本次验证码，避免用户输入已不存在的码
         clear_email_verification_code();
-        return ['success' => false, 'error' => <?php echo addslashes(t('common_94dc14','验证码发送失败：')); ?> . $result['error'], 'wait' => 0];
+        return ['success' => false, 'error' => t('common_94dc14','验证码发送失败：') . $result['error'], 'wait' => 0];
     }
     return ['success' => true, 'error' => null, 'wait' => 0];
 }
@@ -2550,7 +2550,7 @@ function clear_email_verification_code(): void {
  */
 function send_password_change_email_code(string $email): array {
     if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        return ['success' => false, 'error' => <?php echo addslashes(t('common_208e60','邮箱地址无效。')); ?>, 'wait' => 0];
+        return ['success' => false, 'error' => t('common_208e60','邮箱地址无效。'), 'wait' => 0];
     }
 
     $now = time();
@@ -2564,10 +2564,10 @@ function send_password_change_email_code(string $email): array {
         $countReset = $now;
     }
     if ($now - $lastSent < 60) {
-        return ['success' => false, 'error' => <?php echo addslashes(t('common_abf833','发送太频繁，请稍后再试。')); ?>, 'wait' => 60 - ($now - $lastSent)];
+        return ['success' => false, 'error' => t('common_abf833','发送太频繁，请稍后再试。'), 'wait' => 60 - ($now - $lastSent)];
     }
     if ($sendCount >= 5) {
-        return ['success' => false, 'error' => <?php echo addslashes(t('common_c452d8','本小时发送次数已达上限，请稍后再试。')); ?>, 'wait' => 0];
+        return ['success' => false, 'error' => t('common_c452d8','本小时发送次数已达上限，请稍后再试。'), 'wait' => 0];
     }
 
     $code = generate_email_code(6);
@@ -2578,18 +2578,18 @@ function send_password_change_email_code(string $email): array {
     $_SESSION['pwd_change_verify_send_count'] = $sendCount + 1;
     $_SESSION['pwd_change_verify_count_reset'] = $countReset;
 
-    $subject = '【' . SITE_NAME . <?php echo addslashes(t('common_dec658','】修改密码验证码')); ?>;
-    $body  = <?php echo addslashes(t('common_f11f27','<p>您好，</p>')); ?>;
-    $body .= <?php echo addslashes(t('common_1934b5','<p>您正在修改 <strong>')); ?> . e(SITE_NAME) . <?php echo addslashes(t('common_bc47e3','</strong> 账号密码，验证码为：</p>')); ?>;
+    $subject = '【' . SITE_NAME . t('common_dec658','】修改密码验证码');
+    $body  = t('common_f11f27','<p>您好，</p>');
+    $body .= t('common_1934b5','<p>您正在修改 <strong>') . e(SITE_NAME) . t('common_bc47e3','</strong> 账号密码，验证码为：</p>');
     $body .= '<p style="margin:16px 0;text-align:center;"><span style="display:inline-block;padding:12px 28px;font-size:30px;font-weight:700;letter-spacing:8px;color:#4f46e5;background:#eef2ff;border-radius:10px;border:1px dashed #c7d2fe;">' . e($code) . '</span></p>';
     $body .= '<p>验证码 <strong>10 分钟</strong>内有效，请勿泄露给他人。</p>';
-    $body .= <?php echo addslashes(t('common_a137d0','<p style="color:#71717a;">如非本人操作，请忽略此邮件。</p>')); ?>;
-    $body = render_email_template(<?php echo addslashes(t('common_f0c8a0','修改密码验证码')); ?>, $body, ['subject' => $subject]);
+    $body .= t('common_a137d0','<p style="color:#71717a;">如非本人操作，请忽略此邮件。</p>');
+    $body = render_email_template(t('common_f0c8a0','修改密码验证码'), $body, ['subject' => $subject]);
 
     $result = send_mail($email, '', $subject, $body, 'verify');
     if (!$result['success']) {
         clear_password_change_email_code();
-        return ['success' => false, 'error' => <?php echo addslashes(t('common_94dc14','验证码发送失败：')); ?> . $result['error'], 'wait' => 0];
+        return ['success' => false, 'error' => t('common_94dc14','验证码发送失败：') . $result['error'], 'wait' => 0];
     }
     return ['success' => true, 'error' => null, 'wait' => 0];
 }
@@ -2632,13 +2632,13 @@ function clear_password_change_email_code(): void {
  */
 function get_report_reason_types(): array {
     return [
-        'spam'        => <?php echo addslashes(t('common_892813','垃圾广告')); ?>,
-        'abuse'       => <?php echo addslashes(t('common_c23103','恶意攻击/人身攻击')); ?>,
-        'porn'        => <?php echo addslashes(t('common_f7f8ea','色情低俗')); ?>,
-        'politics'    => <?php echo addslashes(t('common_4b3c8f','政治敏感')); ?>,
-        'infringement'=> <?php echo addslashes(t('common_edad6c','侵权/抄袭')); ?>,
-        'misinformation'=> <?php echo addslashes(t('common_8df762','虚假信息')); ?>,
-        'other'       => <?php echo addslashes(t('common_b244ea','其他原因')); ?>,
+        'spam'        => t('common_892813','垃圾广告'),
+        'abuse'       => t('common_c23103','恶意攻击/人身攻击'),
+        'porn'        => t('common_f7f8ea','色情低俗'),
+        'politics'    => t('common_4b3c8f','政治敏感'),
+        'infringement'=> t('common_edad6c','侵权/抄袭'),
+        'misinformation'=> t('common_8df762','虚假信息'),
+        'other'       => t('common_b244ea','其他原因'),
     ];
 }
 
@@ -2648,7 +2648,7 @@ function get_report_reason_types(): array {
  */
 function add_report(int $reporterId, string $reasonType, string $reason, ?int $postId = null, ?int $replyId = null): array {
     if ($postId === null && $replyId === null) {
-        return ['success' => false, 'error' => <?php echo addslashes(t('common_379b5b','举报对象不能为空。')); ?>, 'id' => null];
+        return ['success' => false, 'error' => t('common_379b5b','举报对象不能为空。'), 'id' => null];
     }
     $reasonTypes = get_report_reason_types();
     if (!isset($reasonTypes[$reasonType])) {
@@ -2656,7 +2656,7 @@ function add_report(int $reporterId, string $reasonType, string $reason, ?int $p
     }
     $reason = trim($reason);
     if ($reasonType === 'other' && $reason === '') {
-        return ['success' => false, 'error' => <?php echo addslashes(t('common_cad90b','请选择举报原因或填写补充说明。')); ?>, 'id' => null];
+        return ['success' => false, 'error' => t('common_cad90b','请选择举报原因或填写补充说明。'), 'id' => null];
     }
     try {
         $db = get_db();
@@ -2671,7 +2671,7 @@ function add_report(int $reporterId, string $reasonType, string $reason, ?int $p
             $stmt->execute([':rid' => $reporterId, ':post_id' => $postId]);
         }
         if ($stmt->fetch()) {
-            return ['success' => false, 'error' => <?php echo addslashes(t('common_8f4420','您已举报过该内容，管理员正在处理中。')); ?>, 'id' => null];
+            return ['success' => false, 'error' => t('common_8f4420','您已举报过该内容，管理员正在处理中。'), 'id' => null];
         }
         $stmt = $db->prepare("INSERT INTO reports (post_id, reply_id, reporter_id, reason_type, reason, status, created_at) VALUES (:post_id, :reply_id, :reporter_id, :reason_type, :reason, 'pending', CURRENT_TIMESTAMP)");
         $stmt->execute([
@@ -2683,7 +2683,7 @@ function add_report(int $reporterId, string $reasonType, string $reason, ?int $p
         ]);
         return ['success' => true, 'error' => null, 'id' => (int)$db->lastInsertId()];
     } catch (Exception $e) {
-        return ['success' => false, 'error' => <?php echo addslashes(t('common_64a3c5','举报提交失败，请稍后重试。')); ?>, 'id' => null];
+        return ['success' => false, 'error' => t('common_64a3c5','举报提交失败，请稍后重试。'), 'id' => null];
     }
 }
 
@@ -2754,7 +2754,7 @@ function get_pending_ban_appeal_count(): int {
 function compute_user_risk(array $u): array {
     // 管理员账号不参与风险评分（避免后台操作产生的举报/敏感词记录被误判）
     if (in_array(($u['role'] ?? ''), ['admin'], true)) {
-        return ['score' => 0, 'level' => 'admin', 'label' => <?php echo addslashes(t('common_ef84e7','管理员')); ?>, 'color' => '#6366f1', 'detail' => []];
+        return ['score' => 0, 'level' => 'admin', 'label' => t('common_ef84e7','管理员'), 'color' => '#6366f1', 'detail' => []];
     }
 
     // 敏感词拆分：仅"需审核/拦截"计为违规；一级词被"替换"（已自动清洗）不计入风险
@@ -2812,15 +2812,15 @@ function compute_user_risk(array $u): array {
 
     // 等级划分
     if ($score >= 30) {
-        $level = 'critical'; $label = <?php echo addslashes(t('common_c34687','极高')); ?>; $color = '#ef4444';
+        $level = 'critical'; $label = t('common_c34687','极高'); $color = '#ef4444';
     } elseif ($score >= 15) {
-        $level = 'high';     $label = <?php echo addslashes(t('common_b096b3','高')); ?>;   $color = '#f97316';
+        $level = 'high';     $label = t('common_b096b3','高');   $color = '#f97316';
     } elseif ($score >= 7) {
-        $level = 'medium';   $label = <?php echo addslashes(t('common_086907','中')); ?>;   $color = '#f59e0b';
+        $level = 'medium';   $label = t('common_086907','中');   $color = '#f59e0b';
     } elseif ($score > 0) {
-        $level = 'low';      $label = <?php echo addslashes(t('common_b9ee25','低')); ?>;   $color = '#10b981';
+        $level = 'low';      $label = t('common_b9ee25','低');   $color = '#10b981';
     } else {
-        $level = 'none';     $label = <?php echo addslashes(t('common_720777','无')); ?>;   $color = '#9ca3af';
+        $level = 'none';     $label = t('common_720777','无');   $color = '#9ca3af';
     }
 
     return [
@@ -2846,11 +2846,11 @@ function compute_user_risk(array $u): array {
 function format_report_status(string $status): string {
     switch ($status) {
         case 'pending':
-            return <?php echo addslashes(t('common_59a9eb','待处理')); ?>;
+            return t('common_59a9eb','待处理');
         case 'resolved':
-            return <?php echo addslashes(t('common_219bde','已处理')); ?>;
+            return t('common_219bde','已处理');
         case 'rejected':
-            return <?php echo addslashes(t('common_e944e4','已驳回')); ?>;
+            return t('common_e944e4','已驳回');
         default:
             return $status;
     }
@@ -2862,13 +2862,13 @@ function format_report_status(string $status): string {
 function format_report_tab_label(string $status): string {
     switch ($status) {
         case 'all':
-            return <?php echo addslashes(t('common_778fc8','全部')); ?>;
+            return t('common_778fc8','全部');
         case 'pending':
-            return <?php echo addslashes(t('common_59a9eb','待处理')); ?>;
+            return t('common_59a9eb','待处理');
         case 'resolved':
-            return <?php echo addslashes(t('common_219bde','已处理')); ?>;
+            return t('common_219bde','已处理');
         case 'rejected':
-            return <?php echo addslashes(t('common_e944e4','已驳回')); ?>;
+            return t('common_e944e4','已驳回');
         default:
             return $status;
     }
@@ -2939,7 +2939,7 @@ function get_remember_credentials_key(): string {
  * 格式化举报原因类型
  */
 function format_report_reason(string $reasonType): string {
-    return get_report_reason_types()[$reasonType] ?? <?php echo addslashes(t('common_b244ea','其他原因')); ?>;
+    return get_report_reason_types()[$reasonType] ?? t('common_b244ea','其他原因');
 }
 
 // 已安装且迁移版本已最新的环境下，无需再重复初始化默认勋章

@@ -200,7 +200,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
                 <div class="icon-preview" id="icon-preview">
                     <span class="icon-preview-box"><?php echo forum_icon($editingForum['icon'] ?? null, 28, $editingForum['name'] ?? ''); ?></span>
                     <span class="icon-preview-label" id="icon-preview-label"><?php echo e($iconOptions[$editingForum['icon'] ?? ''] ?? t('admin_forums_icon_auto', '自动匹配')); ?></span>
-                    <button type="button" class="btn btn-sm btn-secondary" id="auto-suggest-icon" title="<?php echo e(t('admin_forums_suggest_icon_title', '根据版块名称自动推荐图标\"')); ?>><?php echo e(t('admin_forums_suggest_icon', '智能推荐')); ?></button>
+                    <button type="button" class="btn btn-sm btn-secondary" id="auto-suggest-icon" title="<?php echo e(t('admin_forums_suggest_icon_title', '根据版块名称自动推荐图标')); ?>"><?php echo e(t('admin_forums_suggest_icon', '智能推荐')); ?></button>
                 </div>
                 <p class="form-hint"><?php echo e(t('admin_forums_icon_hint', '从下方图标库中选择，或点击「智能推荐」根据版块名称匹配最合适的图标。')); ?></p>
                 <div class="icon-picker" id="icon-picker">

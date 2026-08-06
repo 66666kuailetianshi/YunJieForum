@@ -342,7 +342,7 @@ if ($action === 'list') {
     ?>
     <div class="page-header">
         <div>
-            <nav class="breadcrumb" aria-label="<?php echo e(t('pm_breadcrumb_aria', '面包屑导航\"')); ?> style="margin-bottom: 0.5rem;">
+            <nav class="breadcrumb" aria-label="<?php echo e(t('pm_breadcrumb_aria', '面包屑导航')); ?>" style="margin-bottom: 0.5rem;">
                 <a href="/"><?php echo e(t('pm_home', '首页')); ?></a>
                 <span class="breadcrumb-separator">/</span>
                 <span class="breadcrumb-current"><?php echo e(t('pm_page_title', '站内信')); ?></span>
@@ -403,7 +403,7 @@ if ($action === 'view') {
     ?>
     <div class="page-header">
         <div>
-            <nav class="breadcrumb" aria-label="<?php echo e(t('pm_breadcrumb_aria', '面包屑导航\"')); ?> style="margin-bottom: 0.5rem;">
+            <nav class="breadcrumb" aria-label="<?php echo e(t('pm_breadcrumb_aria', '面包屑导航')); ?>" style="margin-bottom: 0.5rem;">
                 <a href="/"><?php echo e(t('pm_home', '首页')); ?></a>
                 <span class="breadcrumb-separator">/</span>
                 <a href="<?php echo site_url('pm'); ?>"><?php echo e(t('pm_page_title', '站内信')); ?></a>
@@ -426,7 +426,7 @@ if ($action === 'view') {
             </div>
             <div class="pm-chat-header-actions">
                 <a href="<?php echo site_url('profile', ['user_id' => (int)$otherUser['id']]); ?>" class="btn btn-sm btn-secondary"><?php echo e(t('pm_profile_btn', '个人主页')); ?></a>
-                <form method="POST" action="<?php echo site_url('pm', ['action' => 'delete']); ?>" onsubmit=t('pm_4d9d43','return confirm(<?php echo e(json_encode(t(\'pm_delete_conv_confirm\', \'确定删除整个会话吗？此操作不可撤销。\'))); ?>);')>
+                <form method="POST" action="<?php echo site_url('pm', ['action' => 'delete']); ?>" onsubmit="<?php echo e(t('pm_4d9d43', 'return confirm(\'确定删除整个会话吗？此操作不可撤销。\');')); ?>">
                     <input type="hidden" name="csrf_token" value="<?php echo csrf_token(); ?>">
                     <input type="hidden" name="conversation_id" value="<?php echo (int)$conversation['id']; ?>">
                     <button type="submit" class="btn btn-sm btn-danger"><?php echo e(t('pm_delete_conv', '删除会话')); ?></button>
@@ -460,11 +460,11 @@ if ($action === 'view') {
                                 <span class="pm-msg-author"><a href="<?php echo $msgProfileUrl; ?>" title="<?php echo t('pm_view_profile_of', '查看 {name} 的主页', ['name' => e($msgName)]); ?>"><?php echo e($msgName); ?></a></span>
                                 <span><?php echo time_ago($msg['created_at']); ?></span>
                                 <?php if ($isMine): ?>
-                                    <form method="POST" action="<?php echo site_url('pm', ['action' => 'delete_message']); ?>" class="pm-msg-delete-form" onsubmit=t('pm_109c2d','return confirm(<?php echo e(json_encode(t(\'pm_delete_msg_confirm\', \'确定删除这条消息吗？\'))); ?>);')>
+                                    <form method="POST" action="<?php echo site_url('pm', ['action' => 'delete_message']); ?>" class="pm-msg-delete-form" onsubmit="<?php echo e(t('pm_109c2d', 'return confirm(\'确定删除这条消息吗？\');')); ?>">
                                         <input type="hidden" name="csrf_token" value="<?php echo csrf_token(); ?>">
                                         <input type="hidden" name="message_id" value="<?php echo (int)$msg['id']; ?>">
                                         <input type="hidden" name="conversation_id" value="<?php echo (int)$conversation['id']; ?>">
-                                        <button type="submit" title="<?php echo e(t('pm_delete_msg_title', '删除这条消息\"')); ?>><?php echo e(t('pm_delete', '删除')); ?></button>
+                                        <button type="submit" title="<?php echo e(t('pm_delete_msg_title', '删除这条消息')); ?>"><?php echo e(t('pm_delete', '删除')); ?></button>
                                     </form>
                                 <?php endif; ?>
                             </div>
@@ -488,12 +488,12 @@ if ($action === 'view') {
                 <input type="hidden" name="csrf_token" value="<?php echo csrf_token(); ?>">
                 <input type="hidden" name="to_user_id" value="<?php echo (int)$otherUser['id']; ?>">
                 <div class="bbcode-toolbar" style="display: flex; flex-wrap: wrap; gap: 0.375rem; margin-bottom: 0.5rem; align-items: center;">
-                    <button type="button" class="btn btn-sm btn-secondary" onclick="insertBBCode('pm-content', '[b]', '[/b]')" title="<?php echo e(t('pm_bold', '加粗\"')); ?>><strong>B</strong></button>
-                    <button type="button" class="btn btn-sm btn-secondary" onclick="insertBBCode('pm-content', '[i]', '[/i]')" title="<?php echo e(t('pm_italic', '斜体\"')); ?>><em>I</em></button>
-                    <button type="button" class="btn btn-sm btn-secondary" onclick="insertBBCode('pm-content', '[u]', '[/u]')" title="<?php echo e(t('pm_underline', '下划线\"')); ?>><u>U</u></button>
-                    <button type="button" class="btn btn-sm btn-secondary" onclick="insertPmLink()" title="<?php echo e(t('pm_insert_link', '插入链接\"')); ?>><?php echo e(t('pm_link', '链接')); ?></button>
-                    <button type="button" class="btn btn-sm btn-secondary" onclick="EditorUpload.uploadLocalImage('pm-content', '<?php echo csrf_token(); ?>')" title="<?php echo e(t('pm_upload_image', '上传本地图片\"')); ?>><?php echo e(t('pm_image', '图片')); ?></button>
-                    <button type="button" class="btn btn-sm btn-secondary" id="pm-emoji-btn" onclick="togglePmEmojiPanel(event)" title="<?php echo e(t('pm_insert_emoji', '插入表情\"')); ?>><?php echo e(t('pm_emoji', '表情')); ?></button>
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="insertBBCode('pm-content', '[b]', '[/b]')" title="<?php echo e(t('pm_bold', '加粗')); ?>"><strong>B</strong></button>
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="insertBBCode('pm-content', '[i]', '[/i]')" title="<?php echo e(t('pm_italic', '斜体')); ?>"><em>I</em></button>
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="insertBBCode('pm-content', '[u]', '[/u]')" title="<?php echo e(t('pm_underline', '下划线')); ?>"><u>U</u></button>
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="insertPmLink()" title="<?php echo e(t('pm_insert_link', '插入链接')); ?>"><?php echo e(t('pm_link', '链接')); ?></button>
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="EditorUpload.uploadLocalImage('pm-content', '<?php echo csrf_token(); ?>')" title="<?php echo e(t('pm_upload_image', '上传本地图片')); ?>"><?php echo e(t('pm_image', '图片')); ?></button>
+                    <button type="button" class="btn btn-sm btn-secondary" id="pm-emoji-btn" onclick="togglePmEmojiPanel(event)" title="<?php echo e(t('pm_insert_emoji', '插入表情')); ?>"><?php echo e(t('pm_emoji', '表情')); ?></button>
                 </div>
                 <!-- 工具栏内联输入面板（替代 prompt 弹窗，只需填地址） -->
                 <div class="toolbar-input-panel" id="pm-toolbar-input-panel">
@@ -508,7 +508,7 @@ if ($action === 'view') {
                 <div class="emoji-panel" id="pm-emoji-panel" style="display: none; position: absolute; z-index: 1200;">
                     <div class="emoji-panel-header">
                         <span class="emoji-panel-title"><?php echo e(t('pm_choose_emoji', '选择表情')); ?></span>
-                        <button type="button" class="emoji-panel-close" onclick="togglePmEmojiPanel(event)" aria-label="<?php echo e(t('pm_close', '关闭\"')); ?>>&times;</button>
+                        <button type="button" class="emoji-panel-close" onclick="togglePmEmojiPanel(event)" aria-label="<?php echo e(t('pm_close', '关闭')); ?>">&times;</button>
                     </div>
                     <div class="emoji-grid">
                         <?php foreach (get_emoji_list() as $emoji): ?>
@@ -516,7 +516,7 @@ if ($action === 'view') {
                         <?php endforeach; ?>
                     </div>
                 </div>
-                <textarea name="content" id="pm-content" rows="3" placeholder="<?php echo e(t('pm_reply_placeholder', '写下你的回复... 支持 BBCode 语法\"')); ?> required></textarea>
+                <textarea name="content" id="pm-content" rows="3" placeholder="<?php echo e(t('pm_reply_placeholder', '写下你的回复... 支持 BBCode 语法')); ?>" required></textarea>
                 <div class="pm-chat-input-bar">
                     <span class="pm-chat-input-hint"><?php echo e(t('pm_bbcode_hint', '支持 BBCode：加粗、链接、图片；可直接发送本地图片或表情')); ?></span>
                     <button type="submit" class="btn btn-primary"><?php echo e(t('pm_send', '发送')); ?></button>

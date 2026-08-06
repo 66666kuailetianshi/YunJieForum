@@ -156,7 +156,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
                                 <td>
                                     <a href="<?php echo site_url('admin/announcements', ['action' => 'toggle', 'id' => (int)$a['id'], 'csrf_token' => csrf_token()]); ?>" class="btn btn-sm btn-secondary"><?php echo (int)$a['is_active'] === 1 ? e(t('admin_ann_action_disable', '禁用')) : e(t('admin_ann_action_enable', '启用')); ?></a>
                                     <a href="<?php echo site_url('admin/announcements', ['action' => 'edit', 'id' => (int)$a['id']]); ?>" class="btn btn-sm btn-secondary"><?php echo e(t('admin_ann_action_edit', '编辑')); ?></a>
-                                    <a href="<?php echo site_url('admin/announcements', ['action' => 'delete', 'id' => (int)$a['id'], 'csrf_token' => csrf_token()]); ?>" class="btn btn-sm btn-danger" data-confirm="<?php echo e(t('admin_ann_confirm_delete', '确定删除该公告吗？此操作不可撤销。\"')); ?>><?php echo e(t('admin_ann_action_delete', '删除')); ?></a>
+                                    <a href="<?php echo site_url('admin/announcements', ['action' => 'delete', 'id' => (int)$a['id'], 'csrf_token' => csrf_token()]); ?>" class="btn btn-sm btn-danger" data-confirm="<?php echo e(t('admin_ann_confirm_delete', '确定删除该公告吗？此操作不可撤销。')); ?>"><?php echo e(t('admin_ann_action_delete', '删除')); ?></a>
                                 </td>
                             </tr>
                         <?php endforeach; ?>

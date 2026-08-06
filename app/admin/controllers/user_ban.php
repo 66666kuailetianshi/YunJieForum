@@ -158,7 +158,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
         <div class="form-group" id="custom-duration-group" style="display:none;">
             <label class="form-label"><?php echo e(t('admin_userban_label_custom_duration', '自定义时长')); ?></label>
             <div style="display:flex;gap:0.5rem;align-items:center;">
-                <input type="number" class="form-control" id="custom_value" name="custom_value" min="1" max="100" step="1" value="<?php echo e($_POST['custom_value'] ?? ''); ?>" placeholder="<?php echo e(t('admin_userban_placeholder_value', '数值\"')); ?> style="width:120px;">
+                <input type="number" class="form-control" id="custom_value" name="custom_value" min="1" max="100" step="1" value="<?php echo e($_POST['custom_value'] ?? ''); ?>" placeholder="<?php echo e(t('admin_userban_placeholder_value', '数值')); ?>" style="width:120px;">
                 <select class="form-control" id="custom_unit" name="custom_unit" style="width:140px;">
                     <?php foreach ($unitLabels as $key => $label): ?>
                         <option value="<?php echo $key; ?>" <?php echo (($_POST['custom_unit'] ?? '') === $key) ? 'selected' : ''; ?>><?php echo e($label); ?></option>

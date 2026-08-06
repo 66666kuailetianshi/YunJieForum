@@ -131,7 +131,7 @@ if ($flash): ?>
 
         <div class="form-group">
             <label class="form-label" for="site_slogan"><?php echo e(t('settings_site_slogan', '站点副标题')); ?></label>
-            <input type="text" class="form-control" id="site_slogan" name="site_slogan" value="<?php echo e($siteSlogan); ?>" maxlength="100" placeholder="<?php echo e(t('admin_settings_slogan_placeholder', '例如：官方网站、交流社区（留空则不显示）\"')); ?>>
+            <input type="text" class="form-control" id="site_slogan" name="site_slogan" value="<?php echo e($siteSlogan); ?>" maxlength="100" placeholder="<?php echo e(t('admin_settings_slogan_placeholder', '例如：官方网站、交流社区（留空则不显示）')); ?>">
             <p class="form-hint"><?php echo e(t('settings_site_slogan_hint', '显示在 logo 下方的简短说明，留空则前台不显示。')); ?></p>
         </div>
 

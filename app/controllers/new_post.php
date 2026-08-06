@@ -126,7 +126,7 @@ $pageTitle = t('newpost_page_title', '发布新帖');
 include APP_ROOT . 'app/includes/header.php';
 ?>
 
-<nav class="breadcrumb" aria-label="<?php echo e(t('newpost_breadcrumb', '面包屑导航\"')); ?>>
+<nav class="breadcrumb" aria-label="<?php echo e(t('newpost_breadcrumb', '面包屑导航')); ?>">
     <a href="/"><?php echo e(t('newpost_home', '首页')); ?></a>
     <?php if ($currentForum): ?>
         <span class="breadcrumb-separator">/</span>
@@ -169,20 +169,20 @@ include APP_ROOT . 'app/includes/header.php';
 
         <div class="form-group">
             <label class="form-label" for="title"><?php echo e(t('newpost_label_title', '标题')); ?></label>
-            <input type="text" class="form-control" id="title" name="title" value="<?php echo e($title); ?>" maxlength="255" placeholder="<?php echo e(t('newpost_title_placeholder', '请输入标题\"')); ?>>
+            <input type="text" class="form-control" id="title" name="title" value="<?php echo e($title); ?>" maxlength="255" placeholder="<?php echo e(t('newpost_title_placeholder', '请输入标题')); ?>">
         </div>
 
         <div class="form-group">
             <label class="form-label" for="content"><?php echo e(t('newpost_label_content', '正文')); ?></label>
             <div class="bbcode-toolbar" style="display: flex; flex-wrap: wrap; gap: 0.25rem; margin-bottom: 0.5rem;">
-                <button type="button" class="btn btn-sm btn-secondary" onclick="insertBBCode('content', '[b]', '[/b]')" title="<?php echo e(t('newpost_tool_bold', '加粗\"')); ?>><strong>B</strong></button>
-                <button type="button" class="btn btn-sm btn-secondary" onclick="insertBBCode('content', '[i]', '[/i]')" title="<?php echo e(t('newpost_tool_italic', '斜体\"')); ?>><em>I</em></button>
-                <button type="button" class="btn btn-sm btn-secondary" onclick="insertBBCode('content', '[u]', '[/u]')" title="<?php echo e(t('newpost_tool_underline', '下划线\"')); ?>><u>U</u></button>
-                <button type="button" class="btn btn-sm btn-secondary" onclick="insertBBCode('content', '[quote]', '[/quote]')" title="<?php echo e(t('newpost_tool_quote', '引用\"')); ?>><?php echo e(t('newpost_tool_quote', '引用')); ?></button>
-                <button type="button" class="btn btn-sm btn-secondary" onclick="insertBBCode('content', '[code]', '[/code]')" title="<?php echo e(t('newpost_tool_code', '代码\"')); ?>><?php echo e(t('newpost_tool_code', '代码')); ?></button>
-                <button type="button" class="btn btn-sm btn-secondary" onclick="insertBBCode('content', '[url=', '][/url]')" title="<?php echo e(t('newpost_tool_link', '链接\"')); ?>><?php echo e(t('newpost_tool_link', '链接')); ?></button>
-                <button type="button" class="btn btn-sm btn-secondary" onclick="insertBBCode('content', '[img]', '[/img]')" title="<?php echo e(t('newpost_tool_image', '图片链接\"')); ?>><?php echo e(t('newpost_tool_image', '图片链接')); ?></button>
-                <button type="button" class="btn btn-sm btn-secondary" onclick="EditorUpload.uploadLocalImage('content', '<?php echo csrf_token(); ?>')" title="<?php echo e(t('newpost_tool_upload', '上传图片\"')); ?>><?php echo e(t('newpost_tool_upload', '上传图片')); ?></button>
+                <button type="button" class="btn btn-sm btn-secondary" onclick="insertBBCode('content', '[b]', '[/b]')" title="<?php echo e(t('newpost_tool_bold', '加粗')); ?>"><strong>B</strong></button>
+                <button type="button" class="btn btn-sm btn-secondary" onclick="insertBBCode('content', '[i]', '[/i]')" title="<?php echo e(t('newpost_tool_italic', '斜体')); ?>"><em>I</em></button>
+                <button type="button" class="btn btn-sm btn-secondary" onclick="insertBBCode('content', '[u]', '[/u]')" title="<?php echo e(t('newpost_tool_underline', '下划线')); ?>"><u>U</u></button>
+                <button type="button" class="btn btn-sm btn-secondary" onclick="insertBBCode('content', '[quote]', '[/quote]')" title="<?php echo e(t('newpost_tool_quote', '引用')); ?>"><?php echo e(t('newpost_tool_quote', '引用')); ?></button>
+                <button type="button" class="btn btn-sm btn-secondary" onclick="insertBBCode('content', '[code]', '[/code]')" title="<?php echo e(t('newpost_tool_code', '代码')); ?>"><?php echo e(t('newpost_tool_code', '代码')); ?></button>
+                <button type="button" class="btn btn-sm btn-secondary" onclick="insertBBCode('content', '[url=', '][/url]')" title="<?php echo e(t('newpost_tool_link', '链接')); ?>"><?php echo e(t('newpost_tool_link', '链接')); ?></button>
+                <button type="button" class="btn btn-sm btn-secondary" onclick="insertBBCode('content', '[img]', '[/img]')" title="<?php echo e(t('newpost_tool_image', '图片链接')); ?>"><?php echo e(t('newpost_tool_image', '图片链接')); ?></button>
+                <button type="button" class="btn btn-sm btn-secondary" onclick="EditorUpload.uploadLocalImage('content', '<?php echo csrf_token(); ?>')" title="<?php echo e(t('newpost_tool_upload', '上传图片')); ?>"><?php echo e(t('newpost_tool_upload', '上传图片')); ?></button>
             </div>
             <textarea class="form-control" id="content" name="content" rows="10" placeholder="<?php echo e(t('newpost_content_placeholder', '分享你的想法... 支持 BBCode 语法')); ?>"><?php echo e($content); ?></textarea>
             <p class="form-hint"><?php echo e(t('newpost_bbcode_hint', '支持 BBCode：[b]粗体[/b] [i]斜体[/i] [u]下划线[/u] [quote]引用[/quote] [code]代码[/code] [url=地址]文字[/url] [img]图片地址[/img]；也可点击“上传图片”直接插入本地图片。')); ?></p>

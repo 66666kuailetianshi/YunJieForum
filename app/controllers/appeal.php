@@ -280,7 +280,7 @@ include APP_ROOT . 'app/includes/header.php';
                             <input type="text" id="appeal_username" name="appeal_username" class="form-control" required readonly value="<?php echo e($appealUsername); ?>" tabindex="-1">
                             <small class="text-muted"><?php echo e(t('appeal_username_locked_hint', '当前登录账号，禁言申诉仅限本人账号。')); ?></small>
                         <?php else: ?>
-                            <input type="text" id="appeal_username" name="appeal_username" class="form-control" required value="<?php echo e($_POST['appeal_username'] ?? ''); ?>" placeholder="<?php echo e(t('appeal_username_placeholder', '请输入你的用户名\"')); ?>>
+                            <input type="text" id="appeal_username" name="appeal_username" class="form-control" required value="<?php echo e($_POST['appeal_username'] ?? ''); ?>" placeholder="<?php echo e(t('appeal_username_placeholder', '请输入你的用户名')); ?>">
                         <?php endif; ?>
                     </div>
 

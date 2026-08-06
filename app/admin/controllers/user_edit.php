@@ -189,7 +189,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
                 </div>
                 <div class="form-group form-group-half">
                     <label class="form-label"><?php echo e(t('admin_useredit_label_reset_password', '重置密码（留空则不修改）')); ?></label>
-                    <input type="password" class="form-control" name="password" placeholder="<?php echo e(t('admin_useredit_placeholder_password', '输入新密码\"')); ?> autocomplete="new-password">
+                    <input type="password" class="form-control" name="password" placeholder="<?php echo e(t('admin_useredit_placeholder_password', '输入新密码')); ?>" autocomplete="new-password">
                 </div>
             </div>
         </div>

@@ -132,12 +132,12 @@ require_once dirname(__DIR__) . '/layout/header.php';
                     <div class="form-group" style="margin-bottom:0.5rem;">
                         <label class="form-label"><?php echo e(t('admin_pages_label_quick_insert', '快捷插入')); ?></label>
                         <div style="display:flex;flex-wrap:wrap;gap:0.4rem;">
-                            <button type="button" class="btn btn-secondary btn-sm" onclick="insertTag('h2')" title="<?php echo e(t('admin_pages_tool_h2_title', '章节标题\"')); ?>><?php echo e(t('admin_pages_tool_h2', 'H2 标题')); ?></button>
-                            <button type="button" class="btn btn-secondary btn-sm" onclick="insertTag('p')" title="<?php echo e(t('admin_pages_tool_p_title', '段落\"')); ?>><?php echo e(t('admin_pages_tool_p', '段落')); ?></button>
-                            <button type="button" class="btn btn-secondary btn-sm" onclick="insertWrap('strong')" title="<?php echo e(t('admin_pages_tool_bold_title', '加粗\"')); ?>><?php echo e(t('admin_pages_tool_bold', '加粗')); ?></button>
-                            <button type="button" class="btn btn-secondary btn-sm" onclick="insertList('ol')" title="<?php echo e(t('admin_pages_tool_ol_title', '有序列表\"')); ?>><?php echo e(t('admin_pages_tool_ol', '有序列表')); ?></button>
-                            <button type="button" class="btn btn-secondary btn-sm" onclick="insertList('ul')" title="<?php echo e(t('admin_pages_tool_ul_title', '无序列表\"')); ?>><?php echo e(t('admin_pages_tool_ul', '无序列表')); ?></button>
-                            <button type="button" class="btn btn-secondary btn-sm" onclick="insertBr()" title="<?php echo e(t('admin_pages_tool_br_title', '换行\"')); ?>><?php echo e(t('admin_pages_tool_br', '换行')); ?></button>
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="insertTag('h2')" title="<?php echo e(t('admin_pages_tool_h2_title', '章节标题')); ?>"><?php echo e(t('admin_pages_tool_h2', 'H2 标题')); ?></button>
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="insertTag('p')" title="<?php echo e(t('admin_pages_tool_p_title', '段落')); ?>"><?php echo e(t('admin_pages_tool_p', '段落')); ?></button>
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="insertWrap('strong')" title="<?php echo e(t('admin_pages_tool_bold_title', '加粗')); ?>"><?php echo e(t('admin_pages_tool_bold', '加粗')); ?></button>
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="insertList('ol')" title="<?php echo e(t('admin_pages_tool_ol_title', '有序列表')); ?>"><?php echo e(t('admin_pages_tool_ol', '有序列表')); ?></button>
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="insertList('ul')" title="<?php echo e(t('admin_pages_tool_ul_title', '无序列表')); ?>"><?php echo e(t('admin_pages_tool_ul', '无序列表')); ?></button>
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="insertBr()" title="<?php echo e(t('admin_pages_tool_br_title', '换行')); ?>"><?php echo e(t('admin_pages_tool_br', '换行')); ?></button>
                         </div>
                     </div>
 
@@ -159,7 +159,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
 
                 <!-- 恢复默认 — 独立表单（不可嵌套在编辑表单内） -->
                 <form method="POST" style="padding:0 1.5rem 1.5rem;"
-                      onsubmit=t('admin_site_pages_59c4eb','return confirm(\'<?php echo e(t(\'admin_pages_confirm_reset\', \'确认恢复为默认内容？当前编辑的内容将被覆盖。\')); ?>\');')>
+                      onsubmit="<?php echo e(t('admin_site_pages_59c4eb', 'return confirm(\'确认恢复为默认内容？当前编辑的内容将被覆盖。\');')); ?>">
                     <input type="hidden" name="csrf_token" value="<?php echo csrf_token(); ?>">
                     <input type="hidden" name="reset_default" value="1">
                     <input type="hidden" name="slug" value="<?php echo e($editingPage['slug']); ?>">
