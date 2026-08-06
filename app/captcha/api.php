@@ -17,7 +17,18 @@ header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
 
 $action = $_GET['action'] ?? ($_POST['action'] ?? 'get');
+$debug  = function_exists('get_site_setting') && get_site_setting('captcha_debug', '0') === '1';
 $resp   = ['enabled' => captcha_enabled()];
+
+if ($debug) {
+    $resp['debug'] = [
+        'action'  => $action,
+        'gd'      => function_exists('imagecreatetruecolor'),
+        'webp'    => function_exists('imagecreatefromwebp'),
+        'bg_api'  => CAPTCHA_BG_API,
+        'time'    => date('Y-m-d H:i:s'),
+    ];
+}
 
 if (!captcha_enabled()) {
     echo json_encode($resp);
@@ -26,9 +37,10 @@ if (!captcha_enabled()) {
 
 try {
     if ($action === 'get') {
-        // 调试模式：前端不渲染验证组件（captcha_passed 也已绕过，双重保障）
+        // 调试模式：正常返回挑战数据，但额外附带调试信息
         if (function_exists('get_site_setting') && get_site_setting('captcha_debug', '0') === '1') {
-            $resp['enabled'] = false;
+            $resp = array_merge($resp, captcha_new());
+            $resp['debug']['mode'] = 'debug';
         } else {
             $resp = array_merge($resp, captcha_new());
         }
@@ -59,6 +71,9 @@ try {
     }
 } catch (Throwable $e) {
     $resp['error'] = 'server_error';
+    if ($debug) {
+        $resp['debug']['exception'] = get_class($e) . ': ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine();
+    }
 }
 
 echo json_encode($resp);

@@ -44,7 +44,73 @@ const CAPTCHA_PASS_SCORE   = 3;
 const CAPTCHA_CLICK_BANK_SIDE = 3;
 const CAPTCHA_CLICK_BANK_SIZE = 9;
 const CAPTCHA_CLICK_ANSWER_WORDS_MIN = 2;
-const CAPTCHA_CLICK_ANSWER_WORDS_MAX = 3;
+const CAPTCHA_CLICK_ANSWER_WORDS_MAX = 4;
+
+/* ==================== 随机背景图 ==================== */
+const CAPTCHA_BG_API = 'https://api.szczk.top/background/';
+const CAPTCHA_BG_TIMEOUT = 5;
+
+/**
+ * 从随机背景图 API 获取一张图片并缩放/裁剪到目标尺寸
+ *
+ * - 请求 https://api.szczk.top/background/ 获取随机图片
+ * - 按 cover 方式裁剪并缩放到 $width × $height
+ * - 失败时返回 null（调用方退回程序化绘制）
+ *
+ * @return resource|null GD 图像资源
+ */
+function captcha_fetch_bg(int $width, int $height) {
+    if (!function_exists('imagecreatefromstring')) {
+        return null;
+    }
+    $data = @file_get_contents(CAPTCHA_BG_API, false, stream_context_create([
+        'http' => [
+            'timeout'    => CAPTCHA_BG_TIMEOUT,
+            'max_redirects' => 5,
+            'follow_location' => 1,
+            'header' => "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)\r\n",
+        ],
+    ]));
+    if (!$data) {
+        return null;
+    }
+
+    // 解码图片：优先用 imagecreatefromstring（GD 支持 webp 时可直接解码 webp 字节）
+    $src = @imagecreatefromstring($data);
+
+    // 兜底：若 GD 的 fromstring 不支持该格式，则尝试写入临时文件用 imagecreatefromwebp 解码
+    if (!$src && function_exists('imagecreatefromwebp')) {
+        $tmp = @tempnam(sys_get_temp_dir(), 'cap');
+        if ($tmp && @file_put_contents($tmp, $data) !== false) {
+            $src = @imagecreatefromwebp($tmp);
+            @unlink($tmp);
+        }
+    }
+    if (!$src) {
+        return null;
+    }
+
+    $sw = imagesx($src);
+    $sh = imagesy($src);
+    $targetRatio = $width / $height;
+    $srcRatio = $sw / $sh;
+
+    // cover 裁剪：取源图能填满目标比例的最大区域
+    if ($srcRatio > $targetRatio) {
+        $cropW = (int)round($sh * $targetRatio);
+        $cropH = $sh;
+    } else {
+        $cropW = $sw;
+        $cropH = (int)round($sw / $targetRatio);
+    }
+    $sx = (int)(($sw - $cropW) / 2);
+    $sy = (int)(($sh - $cropH) / 2);
+
+    $dst = imagecreatetruecolor($width, $height);
+    imagecopyresampled($dst, $src, 0, 0, $sx, $sy, $width, $height, $cropW, $cropH);
+    imagedestroy($src);
+    return $dst;
+}
 
 /**
  * 使用 GD 生成拼图验证码图片（仿 jigsaw-verify）
@@ -59,71 +125,76 @@ function slider_captcha_gd(int $gapX, int $gapY): array {
     $pw = SLIDER_CAPTCHA_PIECE;
     $tabR = SLIDER_CAPTCHA_TAB;
 
-    $img = imagecreatetruecolor($w, $h);
+    // 优先使用随机背景图 API，失败则退回程序化绘制
+    $img = captcha_fetch_bg($w, $h);
+    $usingApiBg = ($img !== null);
+    if (!$img) {
+        $img = imagecreatetruecolor($w, $h);
 
-    // 天空渐变
-    for ($y = 0; $y < $h; $y++) {
-        $ratio = $y / max(1, $h - 1);
-        $r = (int)(120 + $ratio * 80);
-        $g = (int)(180 + $ratio * 55);
-        $b = (int)(220 + $ratio * 35);
-        $color = imagecolorallocate($img, $r, $g, $b);
-        imageline($img, 0, $y, $w - 1, $y, $color);
+        // 天空渐变
+        for ($y = 0; $y < $h; $y++) {
+            $ratio = $y / max(1, $h - 1);
+            $r = (int)(120 + $ratio * 80);
+            $g = (int)(180 + $ratio * 55);
+            $b = (int)(220 + $ratio * 35);
+            $color = imagecolorallocate($img, $r, $g, $b);
+            imageline($img, 0, $y, $w - 1, $y, $color);
+        }
+
+        // 太阳
+        $sunX = random_int(40, $w - 40);
+        $sunY = random_int(18, 60);
+        $sunR = random_int(10, 16);
+        imagefilledellipse($img, $sunX, $sunY, $sunR * 2, $sunR * 2, imagecolorallocate($img, 255, 250, 200));
+
+        // 云朵
+        for ($i = 0, $n = random_int(2, 3); $i < $n; $i++) {
+            $cx = random_int(20, $w - 50);
+            $cy = random_int(10, 50);
+            $s = random_int(10, 18);
+            imagefilledellipse($img, $cx, $cy, $s * 2, max(5, (int)($s * 0.7)), $white = imagecolorallocate($img, 255, 255, 255));
+            imagefilledellipse($img, (int)($cx + $s * 0.8), (int)($cy + 2), (int)($s * 1.4), max(4, (int)($s * 0.6)), $white);
+            imagefilledellipse($img, (int)($cx - $s * 0.8), (int)($cy + 2), (int)($s * 1.2), max(4, (int)($s * 0.5)), $white);
+        }
+
+        // 远山
+        $farColor = imagecolorallocate($img, 130, 160, 130);
+        $pts = '0,' . ($h - 20);
+        $x = 0;
+        while ($x < $w) {
+            $x = min($w, $x + random_int(40, 90));
+            $pts .= ' ' . $x . ',' . random_int(30, 55);
+        }
+        $pts .= ' ' . $w . ',' . ($h - 20);
+        imagefilledpolygon($img, explode(',', str_replace(' ', ',', $pts)), 3, $farColor);
+
+        // 近山
+        $nearColor = imagecolorallocate($img, 80, 120, 70);
+        $pts = '0,' . ($h - 8);
+        $x = 0;
+        while ($x < $w) {
+            $x = min($w, $x + random_int(40, 80));
+            $pts .= ' ' . $x . ',' . random_int(55, 85);
+        }
+        $pts .= ' ' . $w . ',' . ($h - 8);
+        imagefilledpolygon($img, explode(',', str_replace(' ', ',', $pts)), 3, $nearColor);
+
+        // 树木
+        for ($i = 0, $n = random_int(2, 4); $i < $n; $i++) {
+            $tx = random_int(6, $w - 10);
+            $ty = $h - 8;
+            $th = random_int(12, 24);
+            imagefilledpolygon($img, [$tx, $ty + 2, $tx - 4, $ty - $th, $tx + 4, $ty - $th], 3, imagecolorallocate($img, 60, 100, 40));
+        }
+
+        // 地面
+        imagefilledrectangle($img, 0, $h - 8, $w - 1, $h - 1, imagecolorallocate($img, 80, 120, 60));
+
+        // 额外装饰（简单房子轮廓，增加辨识度）
+        $accent = imagecolorallocate($img, 180, 120, 80);
+        imagefilledrectangle($img, $w - 55, $h - 30, $w - 15, $h - 8, $accent);
+        imagefilledrectangle($img, $w - 48, $h - 40, $w - 22, $h - 30, imagecolorallocate($img, 140, 100, 60));
     }
-
-    // 太阳
-    $sunX = random_int(40, $w - 40);
-    $sunY = random_int(18, 60);
-    $sunR = random_int(10, 16);
-    imagefilledellipse($img, $sunX, $sunY, $sunR * 2, $sunR * 2, imagecolorallocate($img, 255, 250, 200));
-
-    // 云朵
-    for ($i = 0, $n = random_int(2, 3); $i < $n; $i++) {
-        $cx = random_int(20, $w - 50);
-        $cy = random_int(10, 50);
-        $s = random_int(10, 18);
-        imagefilledellipse($img, $cx, $cy, $s * 2, max(5, (int)($s * 0.7)), $white = imagecolorallocate($img, 255, 255, 255));
-        imagefilledellipse($img, (int)($cx + $s * 0.8), (int)($cy + 2), (int)($s * 1.4), max(4, (int)($s * 0.6)), $white);
-        imagefilledellipse($img, (int)($cx - $s * 0.8), (int)($cy + 2), (int)($s * 1.2), max(4, (int)($s * 0.5)), $white);
-    }
-
-    // 远山
-    $farColor = imagecolorallocate($img, 130, 160, 130);
-    $pts = '0,' . ($h - 20);
-    $x = 0;
-    while ($x < $w) {
-        $x = min($w, $x + random_int(40, 90));
-        $pts .= ' ' . $x . ',' . random_int(30, 55);
-    }
-    $pts .= ' ' . $w . ',' . ($h - 20);
-    imagefilledpolygon($img, explode(',', str_replace(' ', ',', $pts)), 3, $farColor);
-
-    // 近山
-    $nearColor = imagecolorallocate($img, 80, 120, 70);
-    $pts = '0,' . ($h - 8);
-    $x = 0;
-    while ($x < $w) {
-        $x = min($w, $x + random_int(40, 80));
-        $pts .= ' ' . $x . ',' . random_int(55, 85);
-    }
-    $pts .= ' ' . $w . ',' . ($h - 8);
-    imagefilledpolygon($img, explode(',', str_replace(' ', ',', $pts)), 3, $nearColor);
-
-    // 树木
-    for ($i = 0, $n = random_int(2, 4); $i < $n; $i++) {
-        $tx = random_int(6, $w - 10);
-        $ty = $h - 8;
-        $th = random_int(12, 24);
-        imagefilledpolygon($img, [$tx, $ty + 2, $tx - 4, $ty - $th, $tx + 4, $ty - $th], 3, imagecolorallocate($img, 60, 100, 40));
-    }
-
-    // 地面
-    imagefilledrectangle($img, 0, $h - 8, $w - 1, $h - 1, imagecolorallocate($img, 80, 120, 60));
-
-    // 额外装饰（简单房子轮廓，增加辨识度）
-    $accent = imagecolorallocate($img, 180, 120, 80);
-    imagefilledrectangle($img, $w - 55, $h - 30, $w - 15, $h - 8, $accent);
-    imagefilledrectangle($img, $w - 48, $h - 40, $w - 22, $h - 30, imagecolorallocate($img, 140, 100, 60));
 
     // 确保 gapX/gapY 不超出边界
     $gapX = max(0, min($w - $pw, $gapX));
@@ -285,67 +356,70 @@ function captcha_style(): string {
 
 /**
  * 使用 GD 生成点文字验证码背景图
- * - 随机风景图：天空 + 云朵 + 山 + 树/草地
+ * - 优先使用随机背景图 API，失败则程序化绘制风景图
  * - 返回 base64 data URL
  */
 function click_captcha_bg(int $width, int $height): string {
-    $img = imagecreatetruecolor($width, $height);
+    $img = captcha_fetch_bg($width, $height);
+    if (!$img) {
+        $img = imagecreatetruecolor($width, $height);
 
-    // 天空渐变
-    for ($y = 0; $y < $height; $y++) {
-        $ratio = $y / max(1, $height - 1);
-        $r = (int)(110 + $ratio * 90);
-        $g = (int)(170 + $ratio * 60);
-        $b = (int)(210 + $ratio * 40);
-        $color = imagecolorallocate($img, $r, $g, $b);
-        imageline($img, 0, $y, $width - 1, $y, $color);
+        // 天空渐变
+        for ($y = 0; $y < $height; $y++) {
+            $ratio = $y / max(1, $height - 1);
+            $r = (int)(110 + $ratio * 90);
+            $g = (int)(170 + $ratio * 60);
+            $b = (int)(210 + $ratio * 40);
+            $color = imagecolorallocate($img, $r, $g, $b);
+            imageline($img, 0, $y, $width - 1, $y, $color);
+        }
+
+        // 太阳
+        $sunX = random_int(40, $width - 40);
+        $sunY = random_int(18, 55);
+        $sunR = random_int(10, 16);
+        imagefilledellipse($img, $sunX, $sunY, $sunR * 2, $sunR * 2, imagecolorallocate($img, 255, 250, 200));
+
+        // 云朵
+        for ($i = 0, $n = random_int(2, 4); $i < $n; $i++) {
+            $cx = random_int(20, $width - 50);
+            $cy = random_int(10, 50);
+            $s = random_int(10, 18);
+            $white = imagecolorallocate($img, 255, 255, 255);
+            imagefilledellipse($img, $cx, $cy, $s * 2, max(5, (int)($s * 0.7)), $white);
+            imagefilledellipse($img, (int)($cx + $s * 0.8), (int)($cy + 2), (int)($s * 1.4), max(4, (int)($s * 0.6)), $white);
+            imagefilledellipse($img, (int)($cx - $s * 0.8), (int)($cy + 2), (int)($s * 1.2), max(4, (int)($s * 0.5)), $white);
+        }
+
+        // 远山
+        $farColor = imagecolorallocate($img, 120, 150, 120);
+        $pts = [0, $height - 20];
+        $x = 0;
+        while ($x < $width) {
+            $x = min($width, $x + random_int(40, 90));
+            $pts[] = $x;
+            $pts[] = random_int(40, 70);
+        }
+        $pts[] = $width;
+        $pts[] = $height - 20;
+        imagefilledpolygon($img, $pts, count($pts) / 2, $farColor);
+
+        // 近山
+        $nearColor = imagecolorallocate($img, 70, 110, 60);
+        $pts = [0, $height - 8];
+        $x = 0;
+        while ($x < $width) {
+            $x = min($width, $x + random_int(40, 80));
+            $pts[] = $x;
+            $pts[] = random_int(70, 100);
+        }
+        $pts[] = $width;
+        $pts[] = $height - 8;
+        imagefilledpolygon($img, $pts, count($pts) / 2, $nearColor);
+
+        // 地面
+        imagefilledrectangle($img, 0, $height - 8, $width - 1, $height - 1, imagecolorallocate($img, 75, 115, 55));
     }
-
-    // 太阳
-    $sunX = random_int(40, $width - 40);
-    $sunY = random_int(18, 55);
-    $sunR = random_int(10, 16);
-    imagefilledellipse($img, $sunX, $sunY, $sunR * 2, $sunR * 2, imagecolorallocate($img, 255, 250, 200));
-
-    // 云朵
-    for ($i = 0, $n = random_int(2, 4); $i < $n; $i++) {
-        $cx = random_int(20, $width - 50);
-        $cy = random_int(10, 50);
-        $s = random_int(10, 18);
-        $white = imagecolorallocate($img, 255, 255, 255);
-        imagefilledellipse($img, $cx, $cy, $s * 2, max(5, (int)($s * 0.7)), $white);
-        imagefilledellipse($img, (int)($cx + $s * 0.8), (int)($cy + 2), (int)($s * 1.4), max(4, (int)($s * 0.6)), $white);
-        imagefilledellipse($img, (int)($cx - $s * 0.8), (int)($cy + 2), (int)($s * 1.2), max(4, (int)($s * 0.5)), $white);
-    }
-
-    // 远山
-    $farColor = imagecolorallocate($img, 120, 150, 120);
-    $pts = [0, $height - 20];
-    $x = 0;
-    while ($x < $width) {
-        $x = min($width, $x + random_int(40, 90));
-        $pts[] = $x;
-        $pts[] = random_int(40, 70);
-    }
-    $pts[] = $width;
-    $pts[] = $height - 20;
-    imagefilledpolygon($img, $pts, count($pts) / 2, $farColor);
-
-    // 近山
-    $nearColor = imagecolorallocate($img, 70, 110, 60);
-    $pts = [0, $height - 8];
-    $x = 0;
-    while ($x < $width) {
-        $x = min($width, $x + random_int(40, 80));
-        $pts[] = $x;
-        $pts[] = random_int(70, 100);
-    }
-    $pts[] = $width;
-    $pts[] = $height - 8;
-    imagefilledpolygon($img, $pts, count($pts) / 2, $nearColor);
-
-    // 地面
-    imagefilledrectangle($img, 0, $height - 8, $width - 1, $height - 1, imagecolorallocate($img, 75, 115, 55));
 
     ob_start();
     imagepng($img);
@@ -418,8 +492,10 @@ function captcha_click_challenge(array $cap): array {
     static $pool = ['风', '雨', '雷', '山', '水', '火', '木', '日', '月', '星', '安', '全', '云', '界', '论', '坛', '护', '码', '信', '号', '数', '图', '文', '字', '语', '言', '网', '络', '端', '游', '戏', '秒', '分', '时', '天', '地', '人', '和', '平', '乐', '喜', '福', '寿', '康', '宁', '春', '夏', '秋', '冬'];
 
     do {
-        $word = $words[random_int(0, count($words) - 1)];
-        $targets = preg_split('//u', $word, -1, PREG_SPLIT_NO_EMPTY);
+        $count = random_int(CAPTCHA_CLICK_ANSWER_WORDS_MIN, CAPTCHA_CLICK_ANSWER_WORDS_MAX);
+        $tmp = $pool;
+        shuffle($tmp);
+        $targets = array_slice($tmp, 0, $count);
     } while (count($targets) < CAPTCHA_CLICK_ANSWER_WORDS_MIN);
 
     $distractors = array_values(array_filter($pool, function ($c) use ($targets) {

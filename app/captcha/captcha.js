@@ -24,6 +24,13 @@
             return apiUrl + (apiUrl.indexOf('?') >= 0 ? '&' : '?') + 'action=' + action;
         }
 
+        /* ---------- 调试日志（F12 控制台） ---------- */
+        function log() {
+            if (window.console && window.console.debug) {
+                try { window.console.debug.apply(window.console, ['[captcha]'].concat(Array.prototype.slice.call(arguments))); } catch (e) {}
+            }
+        }
+
         /* ---------- 行为特征采集（页面级） ---------- */
         var SIG = {
             samples: [],
@@ -120,6 +127,7 @@
             if (state.passed || state.checking) return;
             state.checking = true;
             setStatus('checking', '正在验证…', '');
+            log('check →', buildSignals());
             fetch(apiAction('check'), {
                 method: 'POST',
                 credentials: 'same-origin',
@@ -129,6 +137,7 @@
                 .then(function (r) { return r.json(); })
                 .then(function (data) {
                     state.checking = false;
+                    log('check ←', data);
                     if (data && data.ok) {
                         passed();
                     } else if (data && data.challenge === 'slider') {
@@ -139,7 +148,7 @@
                         fail();
                     }
                 })
-                .catch(function () { state.checking = false; fail(); });
+                .catch(function (err) { state.checking = false; log('check ✗ 网络错误', err); fail(); });
         }
 
         function passed() {
@@ -207,6 +216,7 @@
             }
 
             function verify() {
+                log('slider verify → x=' + x);
                 fetch(apiAction('slider'), {
                     method: 'POST',
                     credentials: 'same-origin',
@@ -215,6 +225,7 @@
                 })
                     .then(function (r) { return r.json(); })
                     .then(function (res) {
+                        log('slider verify ←', res, '提交x=' + x);
                         if (res && res.ok) {
                             done = true;
                             sbox.classList.add('sc-success');
@@ -243,7 +254,8 @@
                             }, 600);
                         }
                     })
-                    .catch(function () {
+                    .catch(function (err) {
+                        log('slider verify ✗ 网络错误', err);
                         sbox.classList.add('sc-error');
                         setTimeout(function () { sbox.classList.remove('sc-error'); }, 600);
                     });
@@ -324,6 +336,7 @@
 
             function submit() {
                 setStatus('checking', '正在校验…', '');
+                log('click verify →', selected);
                 fetch(apiAction('click'), {
                     method: 'POST',
                     credentials: 'same-origin',
@@ -332,6 +345,7 @@
                 })
                     .then(function (r) { return r.json(); })
                     .then(function (res) {
+                        log('click verify ←', res);
                         if (res && res.ok) {
                             passed();
                             return;
@@ -344,7 +358,7 @@
                             reset();
                         }, 700);
                     })
-                    .catch(function () { setStatus('error', '网络异常，请重试', ''); setTimeout(reset, 700); });
+                    .catch(function (err) { log('click verify ✗ 网络错误', err); setStatus('error', '网络异常，请重试', ''); setTimeout(reset, 700); });
             }
 
             buildScene();
@@ -384,7 +398,9 @@
             fetch(apiAction('get'), { cache: 'no-store', credentials: 'same-origin' })
                 .then(function (r) { return r.json(); })
                 .then(function (data) {
+                    log('get ←', data);
                     if (!data || !data.enabled) {
+                        log('验证未启用或调试模式，隐藏组件');
                         container.style.display = 'none';
                         return;
                     }
@@ -392,7 +408,8 @@
                     tokenInput.value = data.token;
                     renderChrome();
                 })
-                .catch(function () {
+                .catch(function (err) {
+                    log('get ✗ 网络错误', err);
                     container.style.display = 'none';
                 });
         }
