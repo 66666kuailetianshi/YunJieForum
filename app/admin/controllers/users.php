@@ -683,7 +683,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
         return '<tr data-user-id="' + u.id + '">' +
             '<td class="col-check"><input type="checkbox" class="row-check" value="' + u.id + '"' + checked + '></td>' +
             '<td class="col-uid"><code class="uid-code">' + escapeHtml(u.uid || '-') + '</code></td>' +
-            '<td data-open-drawer="' + u.id + <?php echo addslashes(t('admin_users_js_drawer_trigger','" style="cursor:pointer;" title="点击查看用户详情"><div class="user-cell"><img src="')); ?> + escapeHtml(u.avatar_url) + '" alt="" class="avatar avatar-sm"><div class="user-cell-info"><div class="user-cell-name">' + escapeHtml(u.username) + adminBadge + '</div><div class="user-cell-email">' + escapeHtml(u.email) + '</div></div></div></td>' +
+            '<td data-open-drawer="' + u.id + '" style="cursor:pointer;" title="点击查看用户详情"><div class="user-cell"><img src="' + escapeHtml(u.avatar_url) + '" alt="" class="avatar avatar-sm"><div class="user-cell-info"><div class="user-cell-name">' + escapeHtml(u.username) + adminBadge + '</div><div class="user-cell-email">' + escapeHtml(u.email) + '</div></div></div></td>' +
             '<td class="col-status">' + statusBadge + remainingHtml + '</td>' +
             '<td class="col-risk">' + riskHtml + '</td>' +
             '<td class="col-group">' + groupBadge + '</td>' +
