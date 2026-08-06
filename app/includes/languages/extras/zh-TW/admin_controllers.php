@@ -1171,7 +1171,7 @@
     'common_f7f8ea' => '色情低俗',
     'common_e95b5c' => '沙發',
     'admin_forums_226825' => '情感',
-    'admin_mail_center_8d75ab' => '<?php\\n// 站點配置（更新於 ',
+    'admin_mail_center_8d75ab' => "<?php\n// 站點配置（更新於 ",
     'common_4b3c8f' => '政治敏感',
     'common_f3a75d' => '眼睛',
     'admin_users_5de48f' => '禁言中',

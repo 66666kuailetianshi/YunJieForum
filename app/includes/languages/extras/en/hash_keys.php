@@ -273,7 +273,7 @@
     'common_291179' => 'Poop',
     'pm_4d9d43' => 'return confirm(\'Are you sure you want to delete the entire conversation? This action cannot be undone.\');',
     'common_fde815' => 'Floor',
-    'admin_mail_center_8d75ab' => '<?php\\n// Site configuration (updated on ',
+    'admin_mail_center_8d75ab' => "<?php\n// Site configuration (updated on ",
     'common_3ca73c' => 'Naked loans',
     'admin_users_7c6fe5' => 'Will be sent to the selected ',
     'common_32fc3c' => 'Mark Six',

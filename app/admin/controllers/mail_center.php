@@ -108,11 +108,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && validate_csrf()) {
                 @mkdir(DATA_PATH, 0755, true);
             }
 
-            // 同时读取并保留站点名称/副标题（site_config.php 是共享配置文件）
+            // 读取现有配置文件，保留 DB_* 数据库配置，仅更新站点信息与 SMTP 配置
             $savedName   = defined('SITE_NAME') ? SITE_NAME : APP_NAME;
             $savedSlogan = defined('SITE_SLOGAN') ? SITE_SLOGAN : '';
-
-            $configContent  = t('admin_mail_center_8d75ab','<?php\\n// 站点配置（更新于 ') . date('Y-m-d H:i:s') . "）\n";
+            $existingConfig = is_file(DATA_PATH . 'site_config.php') ? @file_get_contents(DATA_PATH . 'site_config.php') : '';
+            if ($existingConfig === false || $existingConfig === '') {
+                $existingConfig = "<?php\n";
+            }
+            // 移除旧的 SITE_NAME/SITE_SLOGAN/SMTP_* 定义（后面重新写入）
+            $configContent = preg_replace('/^define\(\'SITE_NAME\'.*$\n?/m', '', $existingConfig);
+            $configContent = preg_replace('/^define\(\'SITE_SLOGAN\'.*$\n?/m', '', $configContent);
+            $configContent = preg_replace('/^define\(\'SMTP_.*$\n?/m', '', $configContent);
+            $configContent = rtrim($configContent) . "\n";
+            $configContent .= "// 站点配置（更新时间 " . date('Y-m-d H:i:s') . "）\n";
             $configContent .= "define('SITE_NAME', " . var_export($savedName, true) . ");\n";
             if ($savedSlogan !== '') {
                 $configContent .= "define('SITE_SLOGAN', " . var_export($savedSlogan, true) . ");\n";
