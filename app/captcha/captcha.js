@@ -187,6 +187,8 @@
             var H = data.height || 150;
             var pw = data.piece_width || 58;
             var gapY = data.gap_y || 0;
+            var renderedW = stageEl.clientWidth || W;
+            var scale = renderedW > 0 ? W / renderedW : 1;
             var maxX = W - pw;
             var x = 0;
             var dragging = false;
@@ -196,8 +198,8 @@
 
             function setX(nx) {
                 x = Math.max(0, Math.min(maxX, nx));
-                pieceImg.style.left = x + 'px';
-                pieceImg.style.top = gapY + 'px';
+                pieceImg.style.left = (x / scale) + 'px';
+                pieceImg.style.top = (gapY / scale) + 'px';
                 var ratio = maxX > 0 ? x / maxX : 0;
                 var trackW = trackEl.offsetWidth - 44;
                 knob.style.left = Math.max(0, Math.min(trackW, ratio * trackW)) + 'px';

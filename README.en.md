@@ -50,6 +50,7 @@
 | Ops & Monitoring | Traffic statistics (visit records), system status, database backup, automatic schema migration, installation/error logs |
 | Multi-language | Built-in `Simplified Chinese / Traditional Chinese / English`, auto-detected by URL, Cookie, config, and browser language |
 | Themes | Light/dark dual themes based on CSS variables (light / dark), customizable colors and skins |
+| CAPTCHA | Built-in "slider jigsaw" and "click text" dual-mode human verification with GD-generated backgrounds, behavior scoring, and admin one-click switching. No third-party service required |
 
 ---
 
@@ -417,6 +418,12 @@ Visit the frontend/admin once to trigger `auto_migrate()` to auto-create tables;
 
 **Q6. Forgot the admin password?**
 Reset it via "Forgot password" (requires SMTP); or directly reset the corresponding user's `password` field in the `users` table using `password_hash()`.
+
+**Q7. The slider looks aligned but still fails?**
+First force-refresh the browser (`Ctrl+F5`) to load the latest `captcha.js`. If the container is squeezed by CSS so the stage width is not 300px, the system will automatically scale coordinates proportionally. You can also temporarily switch to "Click text" in "Site settings → Verification method" to troubleshoot.
+
+**Q8. The click-text characters show as boxes?**
+Click-text rendering depends on GD and a font file. It falls back to the system font by default; if Chinese characters display poorly, place a Chinese font (e.g. `SourceHanSansSC-Regular.otf`) in `app/captcha/fonts/` and the system will prefer it automatically.
 
 ---
 

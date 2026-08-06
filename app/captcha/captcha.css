@@ -203,11 +203,6 @@
     75%      { transform: translateX(5px); }
 }
 
-@media (max-width: 360px) {
-    .sc-box { width: 100%; }
-    .sc-stage { width: 100%; }
-}
-
 /* ============================================
    人机验证组件（仿 Cloudflare Turnstile 复选框）
    结构：.cap-widget > .cap-check(.cap-box/.cap-info)

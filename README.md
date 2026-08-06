@@ -50,6 +50,7 @@
 | 运维监控 | 流量统计（访问记录）、系统状态、数据库备份、自动 Schema 迁移、安装/错误日志 |
 | 多语言 | 内置 `简体中文 / 繁體中文 / English`，按 URL、Cookie、配置、浏览器语言自动识别 |
 | 主题 | 基于 CSS 变量的明暗双主题（light / dark），可改色与换肤 |
+| 人机验证 | 内置「滑块拼图」与「点选文字」双模式人机验证，支持 GD 生成背景图、行为打分与后台一键切换，无需第三方服务 |
 
 ---
 
@@ -346,6 +347,13 @@ location ~ \.php$ {
 - **会话安全**：`session.cookie_httponly`、`samesite=Lax`，HTTPS 时自动启用 `secure`；`remember` Cookie 可配置仅 HTTPS。
 - **CSRF**：所有写操作经 `validate_csrf()` / `csrf_token()` 校验。
 - **密码**：使用 PHP `password_hash`（bcrypt）存储。
+- **人机验证（Captcha）**：
+  - 独立模块位于 `app/captcha/`，无第三方依赖，无需注册外部服务。
+  - 支持「滑块拼图」与「点选文字」两种挑战模式，可在后台「站点配置 → 验证方式」一键切换或设为智能混合。
+  - 行为打分：前端采集鼠标/触摸/键盘/停留等行为特征，服务端二次计算，分数达标可无感通过。
+  - 滑块拼图：GD 动态生成 300×150 风景图，随机缺口位置，拖拽后服务端按容差校验。
+  - 点选文字：GD 生成背景图并随机散落旋转彩色汉字，用户按提示词顺序点击，顺序完全一致才算通过。
+  - 资源入口：`/index.php?route=captcha/assets&file=captcha.js|css`。
 - **安全响应头**：`X-Content-Type-Options: nosniff`、`X-Frame-Options: SAMEORIGIN`、`Referrer-Policy: strict-origin-when-cross-origin`。
 - **输出转义**：`e()` 统一转义输出，防止 XSS。
 - **内容审核**：敏感词引擎（Trie + Aho-Corasick）三级处理 + 白名单 + 命中日志；`assess_post_risk()` 评估发帖风险。
@@ -417,6 +425,12 @@ location ~ \.php$ {
 
 **Q6. 忘记管理员密码？**
 可通过「找回密码」（需 SMTP）重置；或直接在数据库 `users` 表用 `password_hash()` 重置对应用户的 `password` 字段。
+
+**Q7. 拼图验证看起来对齐了但提示失败？**
+请先强制刷新浏览器（`Ctrl+F5`）以加载最新 `captcha.js`；若容器被 CSS 压缩导致舞台宽度不是 300px，系统会自动按比例换算坐标。也可在后台「站点配置 → 验证方式」临时切到「点选文字」验证排查。
+
+**Q8. 点选文字验证的汉字显示为方框？**
+点选文字依赖 GD 与字体文件渲染。默认使用系统字体，中文显示不佳时请在 `app/captcha/fonts/` 放置中文字体（如 `SourceHanSansSC-Regular.otf`），系统将自动优先使用。
 
 ---
 
