@@ -285,7 +285,7 @@ function captcha_new(): array {
  * 行为验证：根据前端提交的行为特征打分
  * 达标 → 直接通过；不达标 → 生成滑块挑战返回给前端
  */
-function captcha_check(string $token, array $signals): array {
+function captcha_check(string $token, array $signals, bool $refresh = false): array {
     $cap = $_SESSION['captcha'] ?? null;
     if (!is_array($cap) || ($cap['token'] ?? '') !== $token) {
         return ['ok' => false, 'error' => 'invalid'];
@@ -294,12 +294,14 @@ function captcha_check(string $token, array $signals): array {
         unset($_SESSION['captcha']);
         return ['ok' => false, 'error' => 'expired'];
     }
-    if (($cap['attempts'] ?? 0) >= CAPTCHA_MAX_ATTEMPTS) {
+    if (($cap['attempts'] ?? 0) >= captcha_max_attempts()) {
         unset($_SESSION['captcha']);
         return ['ok' => false, 'error' => 'attempts'];
     }
 
-    if (captcha_behavior_score($signals) >= CAPTCHA_PASS_SCORE) {
+    // 换一张：跳过行为打分，直接重新生成挑战
+    $skipBehavior = $refresh || captcha_display() === 'popup';
+    if (!$skipBehavior && captcha_behavior_score($signals) >= captcha_pass_score()) {
         $cap['passed'] = true;
         $_SESSION['captcha'] = $cap;
         return ['ok' => true, 'method' => 'auto'];
@@ -329,6 +331,7 @@ function captcha_slider_challenge(array $cap): array {
     $cap['mode'] = 'slider';
     $cap['gap']  = $gapX;
     $cap['gapY'] = $gapY;
+    $cap['tol']  = captcha_slider_tolerance();
     $_SESSION['captcha'] = $cap;
 
     return [
@@ -352,6 +355,55 @@ function captcha_style(): string {
     }
     $v = get_site_setting('captcha_style', 'slider');
     return in_array($v, ['slider', 'click', 'auto'], true) ? $v : 'slider';
+}
+
+/**
+ * 验证难度：简单(easy) / 普通(normal) / 困难(hard)，默认普通
+ */
+function captcha_difficulty(): string {
+    if (!function_exists('get_site_setting')) {
+        return 'normal';
+    }
+    $v = get_site_setting('captcha_difficulty', 'normal');
+    return in_array($v, ['easy', 'normal', 'hard'], true) ? $v : 'normal';
+}
+
+/**
+ * 验证显示方式：内嵌(inline) / 弹窗(popup)，默认内嵌
+ */
+function captcha_display(): string {
+    if (!function_exists('get_site_setting')) {
+        return 'inline';
+    }
+    $v = get_site_setting('captcha_display', 'inline');
+    return in_array($v, ['inline', 'popup'], true) ? $v : 'inline';
+}
+
+/** 各难度对应的行为通过分数门槛 */
+function captcha_pass_score(): int {
+    return ['easy' => 2, 'normal' => 3, 'hard' => 5][captcha_difficulty()] ?? 3;
+}
+
+/** 各难度对应的最大尝试次数 */
+function captcha_max_attempts(): int {
+    return ['easy' => 5, 'normal' => 5, 'hard' => 3][captcha_difficulty()] ?? 5;
+}
+
+/** 各难度对应的滑块容差（像素，越小越难） */
+function captcha_slider_tolerance(): int {
+    return ['easy' => 12, 'normal' => 8, 'hard' => 5][captcha_difficulty()] ?? 8;
+}
+
+/** 各难度对应的点选目标字数量 [min, max] */
+function captcha_click_word_count(): array {
+    $d = captcha_difficulty();
+    if ($d === 'easy') {
+        return [2, 2];
+    }
+    if ($d === 'hard') {
+        return [4, 4];
+    }
+    return [CAPTCHA_CLICK_ANSWER_WORDS_MIN, CAPTCHA_CLICK_ANSWER_WORDS_MAX];
 }
 
 /**
@@ -483,20 +535,15 @@ function hex_to_rgb(string $hex): array {
  * - 返回 bg_b64 背景图，以及每个字在图片上的位置 pieces。
  */
 function captcha_click_challenge(array $cap): array {
-    static $words = [
-        '安全', '验证', '云界', '论坛', '登录', '账号', '保护', '密码', '邮箱', '用户',
-        '社区', '分享', '点赞', '收藏', '消息', '通知', '云端', '网络', '服务', '帮助',
-        '确认', '提交', '注册', '评论', '回复', '关注', '搜索', '设置', '个人', '中心',
-        '今天', '明天', '昨天', '时间', '地点', '人物', '事情', '原因', '结果', '方式'
-    ];
     static $pool = ['风', '雨', '雷', '山', '水', '火', '木', '日', '月', '星', '安', '全', '云', '界', '论', '坛', '护', '码', '信', '号', '数', '图', '文', '字', '语', '言', '网', '络', '端', '游', '戏', '秒', '分', '时', '天', '地', '人', '和', '平', '乐', '喜', '福', '寿', '康', '宁', '春', '夏', '秋', '冬'];
 
+    $words = captcha_click_word_count();
     do {
-        $count = random_int(CAPTCHA_CLICK_ANSWER_WORDS_MIN, CAPTCHA_CLICK_ANSWER_WORDS_MAX);
+        $count = random_int($words[0], $words[1]);
         $tmp = $pool;
         shuffle($tmp);
         $targets = array_slice($tmp, 0, $count);
-    } while (count($targets) < CAPTCHA_CLICK_ANSWER_WORDS_MIN);
+    } while (count($targets) < $words[0]);
 
     $distractors = array_values(array_filter($pool, function ($c) use ($targets) {
         return !in_array($c, $targets, true);
@@ -554,7 +601,7 @@ function captcha_click_challenge(array $cap): array {
     return [
         'ok'        => false,
         'challenge' => 'click',
-        'prompt'    => $word,
+        'prompt'    => implode('', $targets),
         'need'      => count($targets),
         'cols'      => CAPTCHA_CLICK_BANK_SIDE,
         'bank'      => $bank,
@@ -611,7 +658,7 @@ function captcha_slider_verify(string $token, $x): array {
     }
 
     $x = (int)$x;
-    if (abs($x - (int)$cap['gap']) <= SLIDER_CAPTCHA_TOLERANCE) {
+    if (abs($x - (int)$cap['gap']) <= (int)($cap['tol'] ?? SLIDER_CAPTCHA_TOLERANCE)) {
         $cap['passed'] = true;
         $_SESSION['captcha'] = $cap;
         return ['ok' => true];

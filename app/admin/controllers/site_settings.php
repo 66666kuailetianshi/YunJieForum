@@ -20,6 +20,8 @@ $smtpFrom    = defined('SMTP_FROM') ? SMTP_FROM : '';
 $sliderCaptchaEnabled = get_site_setting('captcha_enabled', get_site_setting('slider_captcha_enabled', '0')) === '1';
 $captchaStyle   = get_site_setting('captcha_style', 'slider');
 $captchaDebug   = get_site_setting('captcha_debug', '0') === '1';
+$captchaDisplay = get_site_setting('captcha_display', 'inline');
+$captchaDifficulty = get_site_setting('captcha_difficulty', 'normal');
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && validate_csrf()) {
     $newName   = trim($_POST['site_name'] ?? '');
@@ -92,6 +94,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && validate_csrf()) {
                 $captchaStyle = 'slider';
             }
             set_site_setting('captcha_style', $captchaStyle);
+            // 显示方式：内嵌 / 弹窗
+            $captchaDisplay = $_POST['captcha_display'] ?? 'inline';
+            if (!in_array($captchaDisplay, ['inline', 'popup'], true)) {
+                $captchaDisplay = 'inline';
+            }
+            set_site_setting('captcha_display', $captchaDisplay);
+            // 验证难度：简单 / 普通 / 困难
+            $captchaDifficulty = $_POST['captcha_difficulty'] ?? 'normal';
+            if (!in_array($captchaDifficulty, ['easy', 'normal', 'hard'], true)) {
+                $captchaDifficulty = 'normal';
+            }
+            set_site_setting('captcha_difficulty', $captchaDifficulty);
             // 调试模式：开启后前台跳过验证
             $captchaDebug = !empty($_POST['captcha_debug']) ? '1' : '0';
             set_site_setting('captcha_debug', $captchaDebug);
@@ -177,6 +191,19 @@ if ($flash): ?>
                 <option value="auto" <?php echo $captchaStyle === 'auto' ? 'selected' : ''; ?>><?php echo e(t('settings_captcha_auto', '智能混合（随机切换两种）')); ?></option>
             </select>
             <p class="form-hint"><?php echo e(t('settings_captcha_style_hint', '拼图验证：拖动拼图块与缺口对齐；点文字验证：按提示词顺序依次点击候选字。智能混合会在两者间随机切换，安全性与体验的平衡更好。')); ?></p>
+            <label class="form-label" for="captcha_display" style="margin-top: 0.75rem;"><?php echo e(t('settings_captcha_display', '显示方式')); ?></label>
+            <select class="form-control" id="captcha_display" name="captcha_display">
+                <option value="inline" <?php echo $captchaDisplay === 'inline' ? 'selected' : ''; ?>><?php echo e(t('settings_captcha_display_inline', '内嵌式（验证框直接显示在表单中）')); ?></option>
+                <option value="popup" <?php echo $captchaDisplay === 'popup' ? 'selected' : ''; ?>><?php echo e(t('settings_captcha_display_popup', '弹窗式（点击提交时弹出验证框）')); ?></option>
+            </select>
+            <p class="form-hint"><?php echo e(t('settings_captcha_display_hint', '弹窗式在用户点击登录、注册、重置密码提交按钮时才弹出验证框，界面更简洁。')); ?></p>
+            <label class="form-label" for="captcha_difficulty" style="margin-top: 0.75rem;"><?php echo e(t('settings_captcha_difficulty', '验证难度')); ?></label>
+            <select class="form-control" id="captcha_difficulty" name="captcha_difficulty">
+                <option value="easy" <?php echo $captchaDifficulty === 'easy' ? 'selected' : ''; ?>><?php echo e(t('settings_captcha_difficulty_easy', '简单（友好通过，验证少）')); ?></option>
+                <option value="normal" <?php echo $captchaDifficulty === 'normal' ? 'selected' : ''; ?>><?php echo e(t('settings_captcha_difficulty_normal', '普通（默认，平衡体验与安全）')); ?></option>
+                <option value="hard" <?php echo $captchaDifficulty === 'hard' ? 'selected' : ''; ?>><?php echo e(t('settings_captcha_difficulty_hard', '困难（严格校验，挑战更多）')); ?></option>
+            </select>
+            <p class="form-hint"><?php echo e(t('settings_captcha_difficulty_hint', '难度越高，行为验证通过门槛越高、滑块容差越小、点选目标字越多，防止机器人也更严格。')); ?></p>
             <label class="flex items-center gap-1" style="margin-top: 0.75rem; cursor: pointer;">
                 <input type="checkbox" id="captcha_debug" name="captcha_debug" value="1" <?php echo $captchaDebug ? 'checked' : ''; ?>>
                 <span style="font-weight:600;"><?php echo e(t('settings_captcha_debug', '调试模式（前台绕过验证）')); ?></span>

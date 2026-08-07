@@ -79,10 +79,44 @@
         }
 
         /* ---------- 组件状态 ---------- */
-        var state = { token: '', passed: false, checking: false };
+        var state = { token: '', passed: false, checking: false, display: 'inline' };
         var widget, box, title, sub, body;
+        var popupEl = null, popupBody = null, host = null;
+        var popupStatus = null, popupStatusTitle = null, popupStatusSub = null;
+        var popupStatusTick = null, popupStatusSpinner = null;
+
+        /* 显示方式优先取容器 data-display 属性（服务端渲染），其次用 API 响应兜底 */
+        state.display = (container.getAttribute('data-display') || 'inline') === 'popup' ? 'popup' : 'inline';
+
+        /* ---------- 弹窗模式：点击提交按钮时先弹验证，验证通过后再真正提交 ---------- */
+        var formEl = container.closest('form');
+        var submitTriggered = false; // 用户已点击提交，验证通过后自动真正提交
+        if (state.display === 'popup' && formEl) {
+            var submitBtn = formEl.querySelector('button[type="submit"], input[type="submit"]');
+            if (submitBtn) {
+                submitBtn.addEventListener('click', function (e) {
+                    // 已通过验证则放行正常提交
+                    if (state.passed) return;
+                    // 在浏览器原生校验之前拦截，先弹人机验证
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (!state.checking) {
+                        submitTriggered = true;
+                        openPopup();
+                        onCheck();
+                    }
+                });
+            }
+        }
 
         function renderChrome() {
+            if (state.display === 'popup') {
+                // 弹窗模式：不渲染内嵌复选框，仅保留触发容器（点击提交按钮时弹出）
+                container.innerHTML = '<div class="cap-widget cap-widget-popup" id="cap-widget"></div>';
+                widget = container.querySelector('.cap-widget');
+                body = container.querySelector('.cap-body');
+                return;
+            }
             container.innerHTML = '<div class="cap-widget" id="cap-widget">' +
                     '<div class="cap-check" role="button" tabindex="0" aria-label="人机验证">' +
                         '<div class="cap-box"><span class="cap-tick">&#10003;</span></div>' +
@@ -110,6 +144,29 @@
         }
 
         function setStatus(st, t, s) {
+            if (state.display === 'popup' && popupStatus) {
+                popupStatus.classList.remove('cap-popup-status-checking', 'cap-popup-status-success', 'cap-popup-status-error', 'cap-popup-status-hide');
+                if (!st) {
+                    popupStatus.classList.add('cap-popup-status-hide');
+                } else {
+                    popupStatus.classList.add('cap-popup-status-' + st);
+                    if (st === 'checking') {
+                        popupStatusSpinner.style.display = '';
+                        popupStatusTick.style.display = 'none';
+                    } else if (st === 'error') {
+                        popupStatusSpinner.style.display = 'none';
+                        popupStatusTick.style.display = '';
+                        popupStatusTick.textContent = '\u2717';
+                    } else {
+                        popupStatusSpinner.style.display = 'none';
+                        popupStatusTick.style.display = '';
+                        popupStatusTick.textContent = '\u2713';
+                    }
+                }
+                if (t) popupStatusTitle.textContent = t;
+                if (s) popupStatusSub.textContent = s;
+                return;
+            }
             widget.classList.remove('cap-checking', 'cap-success', 'cap-error');
             if (st) widget.classList.add('cap-' + st);
             if (st === 'checking') {
@@ -123,7 +180,7 @@
             if (s) sub.textContent = s;
         }
 
-        function onCheck() {
+        function onCheck(refresh) {
             if (state.passed || state.checking) return;
             state.checking = true;
             setStatus('checking', '正在验证…', '');
@@ -132,12 +189,13 @@
                 method: 'POST',
                 credentials: 'same-origin',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ token: state.token, signals: buildSignals() })
+                body: JSON.stringify({ token: state.token, signals: buildSignals(), refresh: !!refresh })
             })
                 .then(function (r) { return r.json(); })
                 .then(function (data) {
                     state.checking = false;
                     log('check ←', data);
+                    if (data && data.display) state.display = data.display;
                     if (data && data.ok) {
                         passed();
                     } else if (data && data.challenge === 'slider') {
@@ -151,11 +209,73 @@
                 .catch(function (err) { state.checking = false; log('check ✗ 网络错误', err); fail(); });
         }
 
+        /* ---------- 弹窗模式 ---------- */
+        function openPopup() {
+            if (popupEl) return;
+            popupEl = document.createElement('div');
+            popupEl.className = 'cap-popup-overlay';
+            popupEl.innerHTML =
+                '<div class="cap-popup-dialog" role="dialog" aria-modal="true">' +
+                    '<div class="cap-popup-head">' +
+                        '<span class="cap-popup-title">人机验证</span>' +
+                        '<button type="button" class="cap-popup-close" aria-label="关闭">&#10005;</button>' +
+                    '</div>' +
+                    '<div class="cap-popup-status cap-popup-status-hide">' +
+                        '<span class="cap-popup-status-tick">&#10003;</span>' +
+                        '<span class="cap-popup-status-spinner"></span>' +
+                        '<div class="cap-popup-status-text">' +
+                            '<div class="cap-popup-status-title"></div>' +
+                            '<div class="cap-popup-status-sub"></div>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div class="cap-popup-body"></div>' +
+                '</div>';
+            document.body.appendChild(popupEl);
+            popupBody = popupEl.querySelector('.cap-popup-body');
+            popupStatus = popupEl.querySelector('.cap-popup-status');
+            popupStatusTitle = popupEl.querySelector('.cap-popup-status-title');
+            popupStatusSub = popupEl.querySelector('.cap-popup-status-sub');
+            popupStatusTick = popupEl.querySelector('.cap-popup-status-tick');
+            popupStatusSpinner = popupEl.querySelector('.cap-popup-status-spinner');
+            var closeBtn = popupEl.querySelector('.cap-popup-close');
+            closeBtn.addEventListener('click', closePopup);
+            popupEl.addEventListener('click', function (e) {
+                if (e.target === popupEl) closePopup();
+            });
+            document.addEventListener('keydown', popupKeyHandler);
+        }
+        function popupKeyHandler(e) {
+            if (e.key === 'Escape') closePopup();
+        }
+        function closePopup() {
+            if (!popupEl) return;
+            document.removeEventListener('keydown', popupKeyHandler);
+            popupEl.parentNode && popupEl.parentNode.removeChild(popupEl);
+            popupEl = null;
+            popupBody = null;
+        }
+        /* 返回当前挑战应渲染到的容器：弹窗模式用弹窗主体，否则用内嵌 .cap-body */
+        function ensureHost() {
+            if (state.display === 'popup') {
+                if (!popupEl) openPopup();
+                host = popupBody;
+            } else {
+                host = body;
+            }
+            return host;
+        }
+
         function passed() {
             state.passed = true;
             tokenInput.value = state.token;
-            body.innerHTML = '';
+            if (host) host.innerHTML = '';
             setStatus('success', '验证通过', '已通过人机验证');
+            closePopup();
+            // 弹窗模式：验证通过后，若用户此前已点击提交，则继续真正提交表单
+            if (state.display === 'popup' && formEl && submitTriggered) {
+                submitTriggered = false;
+                formEl.requestSubmit ? formEl.requestSubmit() : formEl.submit();
+            }
         }
 
         function fail() {
@@ -165,10 +285,11 @@
             }, 1500);
         }
 
-        /* ---------- 内嵌拼图滑块（真实图片 + 缺口拼图） ---------- */
+        /* ---------- 内嵌/弹窗拼图滑块（真实图片 + 缺口拼图） ---------- */
         function showSlider(data) {
+            host = ensureHost();
             setStatus('', '请完成拼图验证', '按住滑块拖动，使拼图块与缺口对齐');
-            body.innerHTML =
+            host.innerHTML =
                 '<div class="sc-box">' +
                     '<div class="sc-stage" style="height:' + (data.height || 150) + 'px;">' +
                         '<img class="sc-bg" src="' + (data.bg_b64 || '') + '" alt="bg" draggable="false">' +
@@ -182,15 +303,15 @@
                     '<div class="sc-tools"><button type="button" class="sc-refresh">换一张</button></div>' +
                 '</div>';
 
-            var sbox = body.querySelector('.sc-box');
-            var bgImg = body.querySelector('.sc-bg');
-            var pieceImg = body.querySelector('.sc-piece');
-            var knob = body.querySelector('.sc-knob');
-            var fill = body.querySelector('.sc-track-fill');
-            var tip = body.querySelector('.sc-track-tip');
-            var refreshBtn = body.querySelector('.sc-refresh');
-            var stageEl = body.querySelector('.sc-stage');
-            var trackEl = body.querySelector('.sc-track');
+            var sbox = host.querySelector('.sc-box');
+            var bgImg = host.querySelector('.sc-bg');
+            var pieceImg = host.querySelector('.sc-piece');
+            var knob = host.querySelector('.sc-knob');
+            var fill = host.querySelector('.sc-track-fill');
+            var tip = host.querySelector('.sc-track-tip');
+            var refreshBtn = host.querySelector('.sc-refresh');
+            var stageEl = host.querySelector('.sc-stage');
+            var trackEl = host.querySelector('.sc-track');
 
             var W = data.width || 300;
             var H = data.height || 150;
@@ -293,14 +414,15 @@
             if (refreshBtn) {
                 refreshBtn.addEventListener('click', function () {
                     state.checking = false;
-                    onCheck();
+                    onCheck(true);
                 });
             }
             setX(0);
         }
 
-        /* ---------- 内嵌点文字验证（仿网易易盾「点选文字」） ---------- */
+        /* ---------- 内嵌/弹窗点文字验证（仿网易易盾「点选文字」） ---------- */
         function showClick(data) {
+            host = ensureHost();
             setStatus('', '请完成点选验证', '请按顺序点击正确的文字');
             var need = data.need || 2;
             var positions = data.positions || [];
@@ -319,7 +441,7 @@
                 html += '</div>';
                 html += '<div class="cc-tools"><button type="button" class="cc-reset"><span class="cc-reset-ic">&#8634;</span> 重选</button><button type="button" class="cc-refresh">换一张</button></div>';
                 html += '</div>';
-                body.innerHTML = html;
+                host.innerHTML = html;
             }
 
             var selected = [];
@@ -327,7 +449,7 @@
 
             function reset() {
                 selected = [];
-                var tiles = body.querySelectorAll('.cc-piece');
+                var tiles = host.querySelectorAll('.cc-piece');
                 for (var i = 0; i < tiles.length; i++) {
                     tiles[i].classList.remove('cc-selected', 'cc-wrong', 'cc-disabled');
                     tiles[i].removeAttribute('data-index');
@@ -350,7 +472,7 @@
                             passed();
                             return;
                         }
-                        var tiles = body.querySelectorAll('.cc-piece.cc-selected');
+                        var tiles = host.querySelectorAll('.cc-piece.cc-selected');
                         for (var i = 0; i < tiles.length; i++) tiles[i].classList.add('cc-wrong');
                         setStatus('error', '点选错误，请重试', '');
                         setTimeout(function () {
@@ -362,7 +484,7 @@
             }
 
             buildScene();
-            var scene = body.querySelector('.cc-scene');
+            var scene = host.querySelector('.cc-scene');
             if (scene) {
                 scene.addEventListener('click', function (e) {
                     var t = e.target;
@@ -372,7 +494,7 @@
                     t.setAttribute('data-index', selected.length + 1);
                     selected.push(t.getAttribute('data-ch'));
                     if (selected.length >= need) {
-                        var all = body.querySelectorAll('.cc-piece');
+                        var all = host.querySelectorAll('.cc-piece');
                         for (var j = 0; j < all.length; j++) {
                             if (!all[j].classList.contains('cc-selected')) all[j].classList.add('cc-disabled');
                         }
@@ -380,9 +502,9 @@
                     }
                 });
             }
-            var resetBtn = body.querySelector('.cc-reset');
+            var resetBtn = host.querySelector('.cc-reset');
             if (resetBtn) resetBtn.addEventListener('click', reset);
-            var refreshBtn = body.querySelector('.cc-refresh');
+            var refreshBtn = host.querySelector('.cc-refresh');
             if (refreshBtn) refreshBtn.addEventListener('click', function () {
                 state.checking = false;
                 onCheck();

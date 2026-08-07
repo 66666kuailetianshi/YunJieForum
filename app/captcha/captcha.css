@@ -477,3 +477,124 @@
     display: inline-block;
     margin-right: 2px;
 }
+
+/* ============================================
+   弹窗式验证（验证码高级设置：显示方式=弹窗）
+   点击提交按钮时弹出，验证通过或关闭后消失
+   ============================================ */
+.cap-popup-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 2147483000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(17, 24, 39, 0.55);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    animation: capFade 0.18s ease;
+}
+.cap-popup-dialog {
+    width: 360px;
+    max-width: calc(100vw - 32px);
+    background: #fff;
+    border-radius: 10px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.28);
+    overflow: hidden;
+    animation: capPop 0.2s ease;
+    font-family: inherit;
+}
+.cap-popup-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    border-bottom: 1px solid #f3f4f6;
+}
+.cap-popup-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: #111827;
+}
+.cap-popup-close {
+    border: none;
+    background: none;
+    color: #9ca3af;
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    transition: color 0.2s ease, background 0.2s ease;
+}
+.cap-popup-close:hover {
+    color: #111827;
+    background: #f3f4f6;
+}
+.cap-popup-body {
+    padding: 16px;
+    display: flex;
+    justify-content: center;
+}
+.cap-popup-status {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    border-bottom: 1px solid #f3f4f6;
+}
+.cap-popup-status.cap-popup-status-hide {
+    display: none;
+}
+.cap-popup-status-tick {
+    flex: none;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: #16a34a;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+}
+.cap-popup-status-success .cap-popup-status-tick {
+    display: flex;
+}
+.cap-popup-status-error .cap-popup-status-tick {
+    display: flex;
+    background: #ef4444;
+}
+.cap-popup-status-spinner {
+    flex: none;
+    width: 18px;
+    height: 18px;
+    border: 2px solid #6366f1;
+    border-top-color: transparent;
+    border-radius: 50%;
+    display: none;
+    animation: capSpin 0.7s linear infinite;
+}
+.cap-popup-status-checking .cap-popup-status-spinner {
+    display: block;
+}
+.cap-popup-status-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #111827;
+}
+.cap-popup-status-sub {
+    font-size: 12px;
+    color: #6b7280;
+    margin-top: 2px;
+}
+@keyframes capFade {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+@keyframes capPop {
+    from { opacity: 0; transform: translateY(12px) scale(0.98); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+}

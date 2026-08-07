@@ -18,7 +18,7 @@ header('Cache-Control: no-store');
 
 $action = $_GET['action'] ?? ($_POST['action'] ?? 'get');
 $debug  = function_exists('get_site_setting') && get_site_setting('captcha_debug', '0') === '1';
-$resp   = ['enabled' => captcha_enabled()];
+$resp   = ['enabled' => captcha_enabled(), 'display' => captcha_display()];
 
 if ($debug) {
     $resp['debug'] = [
@@ -51,7 +51,7 @@ try {
             $in = [];
         }
         $signals = is_array($in['signals'] ?? null) ? $in['signals'] : [];
-        $resp = array_merge($resp, captcha_check($in['token'] ?? '', $signals));
+        $resp = array_merge($resp, captcha_check($in['token'] ?? '', $signals, !empty($in['refresh'])));
     } elseif ($action === 'slider') {
         $raw = file_get_contents('php://input');
         $in  = json_decode($raw ?: '', true);

@@ -181,7 +181,7 @@ include APP_ROOT . 'app/includes/header.php';
             </div>
             <?php if (captcha_enabled()): ?>
                 <div class="form-group">
-                    <div id="captcha" data-api="<?php echo site_url('api/captcha'); ?>"></div>
+                    <div id="captcha" data-api="<?php echo site_url('api/captcha'); ?>" data-display="<?php echo e(captcha_display()); ?>"></div>
                     <input type="hidden" name="captcha_token" id="captcha_token" value="">
                 </div>
             <?php endif; ?>

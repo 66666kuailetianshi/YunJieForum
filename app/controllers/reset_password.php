@@ -5,6 +5,7 @@
 
 require_once APP_ROOT . 'app/includes/functions.php';
 require_once APP_ROOT . 'app/includes/db.php';
+require_once APP_ROOT . 'app/captcha/core.php';
 
 if (file_exists(INSTALLED_FILE) === false) {
     redirect('/install');
@@ -47,6 +48,8 @@ if ($token !== '' && $email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL))
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $valid) {
     if (!validate_csrf()) {
         $errors[] = t('reset_security_verify_fail', '安全验证失败，请刷新页面重试。');
+    } elseif (captcha_enabled() && !captcha_passed($_POST['captcha_token'] ?? '')) {
+        $errors[] = t('slider_captcha_fail', '请先完成人机验证。');
     } else {
         $password = $_POST['password'] ?? '';
         $passwordConfirm = $_POST['password_confirm'] ?? '';
@@ -106,6 +109,12 @@ include APP_ROOT . 'app/includes/header.php';
                     <label class="form-label" for="password_confirm"><?php echo e(t('reset_label_password_confirm', '确认新密码')); ?></label>
                     <input type="password" class="form-control" id="password_confirm" name="password_confirm" required minlength="6">
                 </div>
+                <?php if (captcha_enabled()): ?>
+                    <div class="form-group">
+                        <div id="captcha" data-api="<?php echo site_url('api/captcha'); ?>" data-display="<?php echo e(captcha_display()); ?>"></div>
+                        <input type="hidden" name="captcha_token" id="captcha_token" value="">
+                    </div>
+                <?php endif; ?>
                 <button type="submit" class="btn btn-primary btn-block"><?php echo e(t('reset_submit', '确认重置')); ?></button>
             </form>
         <?php endif; ?>
