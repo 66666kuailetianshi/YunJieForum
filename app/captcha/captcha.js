@@ -58,6 +58,31 @@
             if (SIG.samples.length > 3000) SIG.samples.shift();
         }
 
+        // ========== Popup 模式优化：延迟初始化直到用户点击提交按钮 ==========
+        var initDone = false;
+        function ensureInitialized() {
+            if (state.display !== 'popup' || initDone) return Promise.resolve();
+            // 仅在需要时才获取挑战
+            if (!state.token) {
+                return fetch(apiAction('get'), { cache: 'no-store', credentials: 'same-origin' })
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) {
+                        log('get ←', data);
+                        if (!data || !data.enabled) {
+                            log('验证未启用或调试模式');
+                            container.style.display = 'none';
+                            throw new Error('disabled');
+                        }
+                        state.token = data.token;
+                        tokenInput.value = data.token;
+                        initDone = true;
+                    });
+            } else {
+                initDone = true;
+                return Promise.resolve();
+            }
+        }
+
         function buildSignals() {
             var s = SIG.samples, n = s.length, dist = 0, i;
             for (i = 1; i < n; i++) dist += Math.hypot(s[i].x - s[i - 1].x, s[i].y - s[i - 1].y);
@@ -67,6 +92,40 @@
             var vari = 0;
             for (i = 0; i < n; i++) vari += Math.hypot(s[i].x - cx, s[i].y - cy);
             vari = n ? vari / n : 0;
+
+            // 恢复轨迹分析：起止点是否在同一侧（判断是直接点击还是有"恢复"动作）
+            var recovery = 0;
+            var accelChanges = 0;
+            if (n >= 2) {
+                var first = s[0], last = s[n - 1];
+                var dxEnd = last.x - first.x, dyEnd = last.y - first.y;
+                // 起止水平距离大且有折返
+                if (Math.abs(dxEnd) > 50) {
+                    var maxX = first.x, minX = first.x;
+                    for (var k = 1; k < n; k++) {
+                        if (s[k].x > maxX) maxX = s[k].x;
+                        if (s[k].x < minX) minX = s[k].x;
+                    }
+                    var rangeX = maxX - minX;
+                    if (rangeX > Math.abs(dxEnd) * 1.2 && rangeX > 60) {
+                        recovery = 1;
+                    }
+                }
+                // 加速度变化计数：检测快速移动→停顿→反向
+                var speeds = [];
+                for (var j = 1; j < n; j++) {
+                    speeds.push(Math.hypot(s[j].x - s[j - 1].x, s[j].y - s[j - 1].y));
+                }
+                if (speeds.length >= 3) {
+                    var avgSpd = speeds.reduce(function(a, b) { return a + b; }, 0) / speeds.length;
+                    for (var m = 1; m < speeds.length; m++) {
+                        if (speeds[m] > avgSpd * 2 && speeds[m - 1] < avgSpd * 0.5) {
+                            accelChanges++;
+                        }
+                    }
+                }
+            }
+
             return {
                 samples: n,
                 dist: Math.round(dist),
@@ -74,7 +133,9 @@
                 elapsed: Date.now() - SIG.pageStart,
                 clicks: SIG.clicks,
                 keys: SIG.keys,
-                noPointer: SIG.noPointer && n === 0
+                noPointer: SIG.noPointer && n === 0,
+                recovery: recovery,
+                accel_changes: accelChanges
             };
         }
 
@@ -85,12 +146,16 @@
         var popupStatus = null, popupStatusTitle = null, popupStatusSub = null;
         var popupStatusTick = null, popupStatusSpinner = null;
 
-        /* 显示方式优先取容器 data-display 属性（服务端渲染），其次用 API 响应兜底 */
-        state.display = (container.getAttribute('data-display') || 'inline') === 'popup' ? 'popup' : 'inline';
-
-        /* ---------- 弹窗模式：点击提交按钮时先弹验证，验证通过后再真正提交 ---------- */
+        /* ---------- 弹窗/触发模式：点击提交按钮或移入输入框时弹验证 ---------- */
         var formEl = container.closest('form');
         var submitTriggered = false; // 用户已点击提交，验证通过后自动真正提交
+        
+        // ========== 显示方式优先级：容器 data-display > API 响应 > 默认值 ==========
+        var storedDisplay = container.getAttribute('data-display');
+        state.display = storedDisplay ? 
+            (storedDisplay === 'trigger' || storedDisplay === 'popup') ? storedDisplay : 'inline' :
+            'inline';
+
         if (state.display === 'popup' && formEl) {
             var submitBtn = formEl.querySelector('button[type="submit"], input[type="submit"]');
             if (submitBtn) {
@@ -102,19 +167,36 @@
                     e.stopPropagation();
                     if (!state.checking) {
                         submitTriggered = true;
-                        openPopup();
-                        onCheck();
+                        ensureInitialized().then(function () {
+                            openPopup();
+                            onCheck();
+                        }).catch(function (err) {
+                            log('init ✗', err);
+                            setStatus('error', '验证未就绪', '请刷新页面后重试');
+                        });
                     }
                 });
             }
+        } else if (state.display === 'trigger' && formEl) {
+            // ========== Trigger 模式：鼠标移入表单输入框时自动显示验证框 ==========
+            var inputs = formEl.querySelectorAll('input[type="text"], input[type="password"], input[type="email"], textarea');
+            inputs.forEach(function(input) {
+                input.addEventListener('mouseenter', function() {
+                    if (state.passed) return;
+                    ensureInitialized().then(function() {
+                        openPopup();
+                        onCheck();
+                    }).catch(function(err) {
+                        log('trigger init ✗', err);
+                    });
+                });
+            });
         }
 
         function renderChrome() {
-            if (state.display === 'popup') {
-                // 弹窗模式：不渲染内嵌复选框，仅保留触发容器（点击提交按钮时弹出）
-                container.innerHTML = '<div class="cap-widget cap-widget-popup" id="cap-widget"></div>';
-                widget = container.querySelector('.cap-widget');
-                body = container.querySelector('.cap-body');
+            if (state.display === 'popup' && !body) {
+                // ========== Popup 模式：不预渲染内嵌容器，仅准备弹窗结构 ==========
+                container.innerHTML = '';
                 return;
             }
             container.innerHTML = '<div class="cap-widget" id="cap-widget">' +
@@ -202,6 +284,8 @@
                         showSlider(data);
                     } else if (data && data.challenge === 'click') {
                         showClick(data);
+                    } else if (data && data.challenge === 'swap') {
+                        showSwap(data);
                     } else {
                         fail();
                     }
@@ -511,12 +595,168 @@
             });
         }
 
-        /* ---------- 初始化：申请挑战 ---------- */
+        /* ---------- 推理拼图交换验证（交换 2 个图块复原图片）---------- */
+        function showSwap(data) {
+            host = ensureHost();
+            setStatus('', '请完成推理验证', '点击选中图块后，再点击另一图块交换位置，使图片恢复完整');
+            var cols = data.cols || 2;
+            var rows = data.rows || 2;
+            var pw = data.piece_w || 70;
+            var ph = data.piece_h || 70;
+            var sw = data.stage_w || 296;
+            var sh = data.stage_h || 146;
+            var gap = data.gap || 3;
+            var pieces = data.pieces || [];
+            var total = cols * rows;
+
+            function buildScene() {
+                var html = '<div class="sw-box">';
+                html += '<div class="sw-prompt"><span class="sw-prompt-label">推理验证：</span><span class="sw-prompt-word">交换被打乱的图块，恢复完整图片</span></div>';
+                html += '<div class="sw-scene" style="width:' + (sw + gap) + 'px;height:' + (sh + gap) + 'px;">';
+                for (var i = 0; i < pieces.length; i++) {
+                    var row = Math.floor(i / cols);
+                    var col = i % cols;
+                    var left = col * (pw + gap);
+                    var top = row * (ph + gap);
+                    // ========== 使用 data-pos 表示当前位置，data-content 存储正确内容索引 ==========
+                    html += '<div class="sw-tile" data-pos="' + i + '" data-content="' + pieces[i].correct + '" style="width:' + pw + 'px;height:' + ph + 'px;left:' + left + 'px;top:' + top + 'px;">';
+                    html += '<img src="' + (pieces[i].b64 || '') + '" draggable="false" style="width:100%;height:100%;">';
+                    html += '<span class="sw-tile-idx">' + (i + 1) + '</span>';
+                    html += '</div>';
+                }
+                html += '</div>';
+                html += '<div class="sw-tools"><button type="button" class="sw-reset"><span class="sw-reset-ic">&#8634;</span> 重置</button><button type="button" class="sw-refresh">换一张</button></div>';
+                html += '</div>';
+                host.innerHTML = html;
+            }
+
+            // ========== 每个 tile 存储它的内容（content.correct）==========
+            // initialOrder[pos] = 该位置上放的图块的 correct 值
+            var initialContent = pieces.map(function(p) { return p.correct; });
+            var currentOrder = initialContent.slice(); // 当前每个位置的内容
+
+            function reset() {
+                selected = null;
+                var tiles = host.querySelectorAll('.sw-tile');
+                for (var i = 0; i < tiles.length; i++) {
+                    tiles[i].classList.remove('sw-selected', 'sw-success');
+                }
+                currentOrder = initialContent.slice();
+            }
+
+            function doSwap(posI, posJ) {
+                // 交换两个位置的内容
+                var tmp = currentOrder[posI];
+                currentOrder[posI] = currentOrder[posJ];
+                currentOrder[posJ] = tmp;
+
+                // 更新显示位置（带动画）
+                var tileI = host.querySelector('.sw-tile[data-pos="' + posI + '"]');
+                var tileJ = host.querySelector('.sw-tile[data-pos="' + posJ + '"]');
+                if (tileI && tileJ) {
+                    var rowI = Math.floor(posI / cols), colI = posI % cols;
+                    var rowJ = Math.floor(posJ / cols), colJ = posJ % cols;
+                    var leftI = colI * (pw + gap), topI = rowI * (ph + gap);
+                    var leftJ = colJ * (pw + gap), topJ = rowJ * (ph + gap);
+                    tileI.style.transition = 'all 0.25s ease';
+                    tileJ.style.transition = 'all 0.25s ease';
+                    tileI.style.left = leftI + 'px';
+                    tileI.style.top = topI + 'px';
+                    tileJ.style.left = leftJ + 'px';
+                    tileJ.style.top = topJ + 'px';
+                    // 交换 data-pos 属性
+                    tileI.setAttribute('data-pos', posJ);
+                    tileJ.setAttribute('data-pos', posI);
+                }
+                // 短暂延迟后清除 transition 避免后续点击卡顿
+                setTimeout(function() {
+                    var all = host.querySelectorAll('.sw-tile');
+                    for (var k = 0; k < all.length; k++) {
+                        all[k].style.transition = '';
+                    }
+                }, 280);
+            }
+
+            function submitOrder() {
+                setStatus('checking', '正在校验…', '');
+                log('swap verify →', currentOrder);
+                fetch(apiAction('swap'), {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: state.token, order: currentOrder })
+                })
+                    .then(function (r) { return r.json(); })
+                    .then(function (res) {
+                        log('swap verify ←', res);
+                        if (res && res.ok) {
+                            var allTiles = host.querySelectorAll('.sw-tile');
+                            for (var i = 0; i < allTiles.length; i++) {
+                                allTiles[i].classList.add('sw-success');
+                            }
+                            setStatus('success', '验证通过', '推理验证已通过');
+                            setTimeout(passed, 600);
+                        } else {
+                            setStatus('error', '交换错误，请重试', '请继续交换图块使图片恢复完整');
+                            setTimeout(reset, 400);
+                        }
+                    })
+                    .catch(function (err) {
+                        log('swap verify ✗ 网络错误', err);
+                        setStatus('error', '网络异常，请重试', '');
+                        setTimeout(reset, 600);
+                    });
+            }
+
+            buildScene();
+            var scene = host.querySelector('.sw-scene');
+            if (scene) {
+                scene.addEventListener('click', function (e) {
+                    var tile = e.target.closest('.sw-tile');
+                    if (!tile) return;
+                    var pos = parseInt(tile.getAttribute('data-pos'), 10);
+                    if (isNaN(pos)) return;
+
+                    if (selected === null) {
+                        // 第一次点击：选中
+                        selected = pos;
+                        tile.classList.add('sw-selected');
+                    } else if (pos === selected) {
+                        // 取消选中
+                        tile.classList.remove('sw-selected');
+                        selected = null;
+                    } else {
+                        // 交换
+                        var prev = host.querySelector('.sw-tile[data-pos="' + selected + '"]');
+                        if (prev) prev.classList.remove('sw-selected');
+                        doSwap(selected, pos);
+                        selected = null;
+                        // 自动检测是否复原
+                        var expected = Array.from({length: total}, (_, i) => i);
+                        if (JSON.stringify(currentOrder) === JSON.stringify(expected)) {
+                            submitOrder();
+                        }
+                    }
+                });
+            }
+
+            var resetBtn = host.querySelector('.sw-reset');
+            if (resetBtn) resetBtn.addEventListener('click', reset);
+            var refreshBtn = host.querySelector('.sw-refresh');
+            if (refreshBtn) refreshBtn.addEventListener('click', function () {
+                state.checking = false;
+                onCheck(true);
+            });
+        }
+
+        /* ---------- 初始化：申请挑战（仅在非 popup 模式时立即执行）---------- */
         var initialToken = (tokenInput.value || '').trim();
-        if (initialToken) {
+        if (initialToken && state.display !== 'popup') {
             state.token = initialToken;
+            // ========== Inline 模式才需要渲染组件 ==========
             renderChrome();
-        } else {
+        } else if (!initialToken && state.display === 'inline') {
+            // inline 模式直接获取
             fetch(apiAction('get'), { cache: 'no-store', credentials: 'same-origin' })
                 .then(function (r) { return r.json(); })
                 .then(function (data) {

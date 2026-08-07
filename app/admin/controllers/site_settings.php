@@ -22,6 +22,8 @@ $captchaStyle   = get_site_setting('captcha_style', 'slider');
 $captchaDebug   = get_site_setting('captcha_debug', '0') === '1';
 $captchaDisplay = get_site_setting('captcha_display', 'inline');
 $captchaDifficulty = get_site_setting('captcha_difficulty', 'normal');
+$captchaTriggerMode = get_site_setting('captcha_trigger_mode', 'suspicious');
+$captchaSkipCooldown = get_site_setting('captcha_skip_cooldown', '600');
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && validate_csrf()) {
     $newName   = trim($_POST['site_name'] ?? '');
@@ -88,12 +90,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && validate_csrf()) {
             $captchaEnabled = !empty($_POST['captcha_enabled']) ? '1' : '0';
             set_site_setting('captcha_enabled', $captchaEnabled);
             set_site_setting('slider_captcha_enabled', $captchaEnabled);
-            // 验证方式：拼图 / 点文字 / 智能混合
+            // 验证方式：拼图 / 点文字 / 推理交换 / 智能混合
             $captchaStyle = $_POST['captcha_style'] ?? 'slider';
-            if (!in_array($captchaStyle, ['slider', 'click', 'auto'], true)) {
+            if (!in_array($captchaStyle, ['slider', 'click', 'swap', 'auto'], true)) {
                 $captchaStyle = 'slider';
             }
             set_site_setting('captcha_style', $captchaStyle);
+            // 触发模式
+            $captchaTriggerMode = $_POST['captcha_trigger_mode'] ?? 'suspicious';
+            if (!in_array($captchaTriggerMode, ['always', 'suspicious', 'high_risk'], true)) {
+                $captchaTriggerMode = 'suspicious';
+            }
+            set_site_setting('captcha_trigger_mode', $captchaTriggerMode);
+            // 冷却期
+            $captchaSkipCooldown = (int)($_POST['captcha_skip_cooldown'] ?? '600');
+            if ($captchaSkipCooldown < 60) $captchaSkipCooldown = 60;
+            if ($captchaSkipCooldown > 86400) $captchaSkipCooldown = 86400;
+            set_site_setting('captcha_skip_cooldown', (string)$captchaSkipCooldown);
             // 显示方式：内嵌 / 弹窗
             $captchaDisplay = $_POST['captcha_display'] ?? 'inline';
             if (!in_array($captchaDisplay, ['inline', 'popup'], true)) {
@@ -188,15 +201,17 @@ if ($flash): ?>
             <select class="form-control" id="captcha_style" name="captcha_style">
                 <option value="slider" <?php echo $captchaStyle === 'slider' ? 'selected' : ''; ?>><?php echo e(t('settings_captcha_slider', '拼图验证（拖拽滑块对齐缺口）')); ?></option>
                 <option value="click" <?php echo $captchaStyle === 'click' ? 'selected' : ''; ?>><?php echo e(t('settings_captcha_click', '点文字验证（按顺序点击文字）')); ?></option>
+                <option value="swap" <?php echo $captchaStyle === 'swap' ? 'selected' : ''; ?>><?php echo e(t('settings_captcha_swap', '推理交换验证（交换图块复原图片）')); ?></option>
                 <option value="auto" <?php echo $captchaStyle === 'auto' ? 'selected' : ''; ?>><?php echo e(t('settings_captcha_auto', '智能混合（随机切换两种）')); ?></option>
             </select>
-            <p class="form-hint"><?php echo e(t('settings_captcha_style_hint', '拼图验证：拖动拼图块与缺口对齐；点文字验证：按提示词顺序依次点击候选字。智能混合会在两者间随机切换，安全性与体验的平衡更好。')); ?></p>
+            <p class="form-hint"><?php echo e(t('settings_captcha_style_hint', '拼图验证：拖动拼图块与缺口对齐；点文字验证：按提示词顺序依次点击候选字；推理交换：拖动交换打乱的图块使其恢复完整。智能混合会在多种验证间随机切换，安全性与体验的平衡更好。')); ?></p>
             <label class="form-label" for="captcha_display" style="margin-top: 0.75rem;"><?php echo e(t('settings_captcha_display', '显示方式')); ?></label>
             <select class="form-control" id="captcha_display" name="captcha_display">
                 <option value="inline" <?php echo $captchaDisplay === 'inline' ? 'selected' : ''; ?>><?php echo e(t('settings_captcha_display_inline', '内嵌式（验证框直接显示在表单中）')); ?></option>
                 <option value="popup" <?php echo $captchaDisplay === 'popup' ? 'selected' : ''; ?>><?php echo e(t('settings_captcha_display_popup', '弹窗式（点击提交时弹出验证框）')); ?></option>
+                <option value="trigger" <?php echo $captchaDisplay === 'trigger' ? 'selected' : ''; ?>><?php echo e(t('settings_captcha_display_trigger', '触发式（鼠标移入时显示验证框）')); ?></option>
             </select>
-            <p class="form-hint"><?php echo e(t('settings_captcha_display_hint', '弹窗式在用户点击登录、注册、重置密码提交按钮时才弹出验证框，界面更简洁。')); ?></p>
+            <p class="form-hint"><?php echo e(t('settings_captcha_display_hint', '弹窗式在用户点击登录、注册、重置密码提交按钮时才弹出验证框，界面更简洁；触发式则在鼠标移入输入框时自动显示验证框，更加友好。')); ?></p>
             <label class="form-label" for="captcha_difficulty" style="margin-top: 0.75rem;"><?php echo e(t('settings_captcha_difficulty', '验证难度')); ?></label>
             <select class="form-control" id="captcha_difficulty" name="captcha_difficulty">
                 <option value="easy" <?php echo $captchaDifficulty === 'easy' ? 'selected' : ''; ?>><?php echo e(t('settings_captcha_difficulty_easy', '简单（友好通过，验证少）')); ?></option>
@@ -204,6 +219,16 @@ if ($flash): ?>
                 <option value="hard" <?php echo $captchaDifficulty === 'hard' ? 'selected' : ''; ?>><?php echo e(t('settings_captcha_difficulty_hard', '困难（严格校验，挑战更多）')); ?></option>
             </select>
             <p class="form-hint"><?php echo e(t('settings_captcha_difficulty_hint', '难度越高，行为验证通过门槛越高、滑块容差越小、点选目标字越多，防止机器人也更严格。')); ?></p>
+            <label class="form-label" for="captcha_trigger_mode" style="margin-top: 0.75rem;"><?php echo e(t('settings_captcha_trigger_mode', '触发模式')); ?></label>
+            <select class="form-control" id="captcha_trigger_mode" name="captcha_trigger_mode">
+                <option value="always" <?php echo $captchaTriggerMode === 'always' ? 'selected' : ''; ?>><?php echo e(t('settings_captcha_trigger_always', '始终显示（安全级别最高）')); ?></option>
+                <option value="suspicious" <?php echo $captchaTriggerMode === 'suspicious' ? 'selected' : ''; ?>><?php echo e(t('settings_captcha_trigger_suspicious', '可疑行为触发（默认，体验与安全平衡）')); ?></option>
+                <option value="high_risk" <?php echo $captchaTriggerMode === 'high_risk' ? 'selected' : ''; ?>><?php echo e(t('settings_captcha_trigger_high_risk', '仅高风险操作触发（发帖/私信等）')); ?></option>
+            </select>
+            <p class="form-hint"><?php echo e(t('settings_captcha_trigger_hint', '始终显示：所有用户每次都必须完成验证；可疑行为触发：仅检测到机器人特征时才弹出验证；高风险触发：仅在发帖、私信等敏感操作时验证。')); ?></p>
+            <label class="form-label" for="captcha_skip_cooldown" style="margin-top: 0.75rem;"><?php echo e(t('settings_captcha_skip_cooldown', '冷却期（秒）')); ?></label>
+            <input type="number" class="form-control" id="captcha_skip_cooldown" name="captcha_skip_cooldown" value="<?php echo e($captchaSkipCooldown); ?>" min="60" max="86400" style="max-width: 200px;">
+            <p class="form-hint"><?php echo e(t('settings_captcha_skip_cooldown_hint', '用户通过验证后，在此期间内不会再被要求验证。建议 600-1800 秒。')); ?></p>
             <label class="flex items-center gap-1" style="margin-top: 0.75rem; cursor: pointer;">
                 <input type="checkbox" id="captcha_debug" name="captcha_debug" value="1" <?php echo $captchaDebug ? 'checked' : ''; ?>>
                 <span style="font-weight:600;"><?php echo e(t('settings_captcha_debug', '调试模式（前台绕过验证）')); ?></span>

@@ -5,6 +5,7 @@
 
 require_once APP_ROOT . 'app/includes/functions.php';
 require_once APP_ROOT . 'app/includes/db.php';
+require_once APP_ROOT . 'app/captcha/core.php';
 require_once APP_ROOT . 'app/components/sensitive_filter/helper.php';
 
 if (file_exists(INSTALLED_FILE) === false) {
@@ -36,6 +37,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif (!validate_post_nonce()) {
         $errors[] = t('newpost_error_nonce', '发帖请求已过期或重复提交，请刷新页面后重试。');
     } else {
+        captcha_record_signal('submit');
+
         $forumId = isset($_POST['forum_id']) ? (int)$_POST['forum_id'] : 0;
         $title = isset($_POST['title']) ? trim($_POST['title']) : '';
         $content = isset($_POST['content']) ? trim($_POST['content']) : '';
@@ -67,6 +70,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // 敏感词过滤
         $processedTitle = sw_process_content($title, 'post_title', (int)$_SESSION['user_id'], null, $errors);
         $processedContent = sw_process_content($content, 'post_content', (int)$_SESSION['user_id'], null, $errors);
+
+        if (captcha_enabled() && should_trigger_captcha('new_post') && !captcha_passed($_POST['captcha_token'] ?? '')) {
+            $errors[] = t('slider_captcha_fail', '请先完成人机验证。');
+        }
 
         if (empty($errors)) {
             try {
@@ -187,6 +194,13 @@ include APP_ROOT . 'app/includes/header.php';
             <textarea class="form-control" id="content" name="content" rows="10" placeholder="<?php echo e(t('newpost_content_placeholder', '分享你的想法... 支持 BBCode 语法')); ?>"><?php echo e($content); ?></textarea>
             <p class="form-hint"><?php echo e(t('newpost_bbcode_hint', '支持 BBCode：[b]粗体[/b] [i]斜体[/i] [u]下划线[/u] [quote]引用[/quote] [code]代码[/code] [url=地址]文字[/url] [img]图片地址[/img]；也可点击“上传图片”直接插入本地图片。')); ?></p>
         </div>
+
+        <?php if (captcha_enabled() && should_trigger_captcha('new_post')): ?>
+        <div class="form-group">
+            <div id="captcha" data-api="<?php echo site_url('api/captcha'); ?>" data-display="<?php echo e(captcha_display()); ?>"></div>
+            <input type="hidden" name="captcha_token" id="captcha_token" value="">
+        </div>
+        <?php endif; ?>
 
         <div class="flex gap-1">
             <button type="submit" class="btn btn-primary" id="submit-post-btn"><?php echo e(t('newpost_submit', '发布帖子')); ?></button>

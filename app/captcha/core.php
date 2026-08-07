@@ -50,6 +50,14 @@ const CAPTCHA_CLICK_ANSWER_WORDS_MAX = 4;
 const CAPTCHA_BG_API = 'https://api.szczk.top/background/';
 const CAPTCHA_BG_TIMEOUT = 5;
 
+/* ==================== 推理拼图交换验证参数 ==================== */
+const SWAP_CAPTCHA_WIDTH      = 300;
+const SWAP_CAPTCHA_HEIGHT     = 150;
+const SWAP_CAPTCHA_COLS       = 2;
+const SWAP_CAPTCHA_ROWS       = 2;
+const SWAP_CAPTCHA_PAD        = 2;
+const SWAP_CAPTCHA_GAP        = 3;
+
 /**
  * 从随机背景图 API 获取一张图片并缩放/裁剪到目标尺寸
  *
@@ -283,7 +291,7 @@ function captcha_new(): array {
 
 /**
  * 行为验证：根据前端提交的行为特征打分
- * 达标 → 直接通过；不达标 → 生成滑块挑战返回给前端
+ * 达标 → 直接通过；不达标 → 根据配置下发对应挑战
  */
 function captcha_check(string $token, array $signals, bool $refresh = false): array {
     $cap = $_SESSION['captcha'] ?? null;
@@ -309,10 +317,14 @@ function captcha_check(string $token, array $signals, bool $refresh = false): ar
 
     $style = captcha_style();
     if ($style === 'auto') {
-        $style = (random_int(0, 1) === 0) ? 'slider' : 'click';
+        $styles = ['slider', 'click', 'swap'];
+        $style = $styles[random_int(0, count($styles) - 1)];
     }
     if ($style === 'click') {
         return captcha_click_challenge($cap);
+    }
+    if ($style === 'swap') {
+        return captcha_swap_challenge($cap);
     }
     return captcha_slider_challenge($cap);
 }
@@ -347,14 +359,182 @@ function captcha_slider_challenge(array $cap): array {
 }
 
 /**
- * 验证方式：拼图(slider) / 点文字(click) / 智能混合(auto)，默认拼图
+ * 下发推理拼图交换验证码挑战（拖动交换 2 个图块复原图片）
+ *
+ * - 将背景图切割为 cols × rows 的网格
+ * - 随机交换其中 2 个图块的位置
+ * - 用户通过拖拽交换图块使其恢复正确顺序
+ */
+function captcha_swap_challenge(array $cap): array {
+    $cols = SWAP_CAPTCHA_COLS;
+    $rows = SWAP_CAPTCHA_ROWS;
+    $total = $cols * $rows;
+    if ($total < 4) {
+        $cols = 2;
+        $rows = 2;
+        $total = 4;
+    }
+
+    $srcW = SWAP_CAPTCHA_WIDTH;
+    $srcH = SWAP_CAPTCHA_HEIGHT;
+    $pad  = SWAP_CAPTCHA_PAD;
+    $gap  = SWAP_CAPTCHA_GAP;
+
+    $stageW = $srcW - $pad * 2;
+    $stageH = $srcH - $pad * 2;
+    $pieceW = (int)(($stageW - ($cols - 1) * $gap) / $cols);
+    $pieceH = (int)(($stageH - ($rows - 1) * $gap) / $rows);
+
+    // 获取背景图
+    $src = captcha_fetch_bg($srcW, $srcH);
+    if (!$src && function_exists('imagecreatetruecolor')) {
+        $src = imagecreatetruecolor($srcW, $srcH);
+        for ($y = 0; $y < $srcH; $y++) {
+            $ratio = $y / max(1, $srcH - 1);
+            $r = (int)(90 + $ratio * 100);
+            $g = (int)(140 + $ratio * 80);
+            $b = (int)(180 + $ratio * 60);
+            $color = imagecolorallocate($src, $r, $g, $b);
+            imageline($src, 0, $y, $srcW - 1, $y, $color);
+        }
+        for ($i = 0, $n = random_int(3, 6); $i < $n; $i++) {
+            $cx = random_int(20, $srcW - 20);
+            $cy = random_int(20, $srcH - 20);
+            $r  = random_int(8, 20);
+            $c  = imagecolorallocatealpha($src, random_int(100, 255), random_int(100, 255), random_int(100, 255), random_int(30, 60));
+            imagefilledellipse($src, $cx, $cy, $r * 2, $r * 2, $c);
+        }
+    }
+    if (!$src) {
+        $cap['mode']   = 'swap';
+        $cap['passed'] = false;
+        $_SESSION['captcha'] = $cap;
+        return ['ok' => false, 'error' => 'gd_unavailable'];
+    }
+
+    // 初始顺序：[0, 1, 2, 3] 等
+    $order = range(0, $total - 1);
+
+    // 随机交换 2 个位置制造"破损"
+    $a = random_int(0, $total - 1);
+    $b = random_int(0, $total - 1);
+    while ($b === $a) {
+        $b = random_int(0, $total - 1);
+    }
+    // 交换 $a 和 $b 位置的图块
+    $tmp = $order[$a];
+    $order[$a] = $order[$b];
+    $order[$b] = $tmp;
+
+    // 记录正确顺序和交换信息
+    $cap['mode']       = 'swap';
+    $cap['swap_a']     = $a;
+    $cap['swap_b']     = $b;
+    $cap['answer']     = $order; // 正确的排列顺序
+    $cap['cols']       = $cols;
+    $cap['rows']       = $rows;
+    $cap['piece_w']    = $pieceW;
+    $cap['piece_h']    = $pieceH;
+    $cap['stage_w']    = $stageW;
+    $cap['stage_h']    = $stageH;
+    $cap['gap']        = $gap;
+    $cap['attempts']   = 0;
+    $_SESSION['captcha'] = $cap;
+
+    // 生成拼图块图片（返回每个图块的位置）
+    $pieces = [];
+    for ($idx = 0; $idx < $total; $idx++) {
+        $correctIdx = $order[$idx]; // 当前排列中第 idx 个位置放的应是 correctIdx 块
+        $origRow = (int)floor($correctIdx / $cols);
+        $origCol = $correctIdx % $cols;
+
+        $sx = $pad + $origCol * ($pieceW + $gap);
+        $sy = $pad + $origRow * ($pieceH + $gap);
+
+        $pieceImg = imagecreatetruecolor($pieceW, $pieceH);
+        imagesavealpha($pieceImg, true);
+        $transparent = imagecolorallocatealpha($pieceImg, 0, 0, 0, 127);
+        imagefill($pieceImg, 0, 0, $transparent);
+        imagecopy($pieceImg, $src, 0, 0, $sx, $sy, $pieceW, $pieceH);
+
+        // 边框 + 轻微阴影
+        $border = imagecolorallocatealpha($pieceImg, 255, 255, 255, 30);
+        $shadow = imagecolorallocatealpha($pieceImg, 0, 0, 0, 40);
+        imagerectangle($pieceImg, 0, 0, $pieceW - 1, $pieceH - 1, $border);
+        imagerectangle($pieceImg, 1, 1, $pieceW - 2, $pieceH - 2, $shadow);
+
+        ob_start();
+        imagepng($pieceImg);
+        $b64 = base64_encode(ob_get_clean());
+        imagedestroy($pieceImg);
+
+        $pieces[] = [
+            'index'   => $idx,
+            'correct' => $correctIdx,
+            'b64'     => 'data:image/png;base64,' . $b64,
+        ];
+    }
+
+    imagedestroy($src);
+
+    return [
+        'ok'      => false,
+        'challenge' => 'swap',
+        'width'   => $srcW,
+        'height'  => $srcH,
+        'cols'    => $cols,
+        'rows'    => $rows,
+        'piece_w' => $pieceW,
+        'piece_h' => $pieceH,
+        'stage_w' => $stageW,
+        'stage_h' => $stageH,
+        'gap'     => $gap,
+        'pieces'  => $pieces,
+        'order'   => $order,
+    ];
+}
+
+/**
+ * 交换拼图校验：用户提交的排列顺序与正确顺序一致则通过
+ *
+ * @param string $token 挑战 token
+ * @param array  $order 用户提交的图块排列（每个元素为 correct index）
+ */
+function captcha_swap_verify(string $token, array $order): array {
+    $cap = $_SESSION['captcha'] ?? null;
+    if (!is_array($cap) || ($cap['token'] ?? '') !== $token) {
+        return ['ok' => false];
+    }
+    if (($cap['expires'] ?? 0) < time()) {
+        unset($_SESSION['captcha']);
+        return ['ok' => false];
+    }
+    if (($cap['mode'] ?? '') !== 'swap') {
+        return ['ok' => false];
+    }
+
+    $expected = $cap['answer'] ?? [];
+    $got = array_values($order);
+    if ($got === $expected) {
+        $cap['passed'] = true;
+        $_SESSION['captcha'] = $cap;
+        return ['ok' => true];
+    }
+
+    $cap['attempts'] = ($cap['attempts'] ?? 0) + 1;
+    $_SESSION['captcha'] = $cap;
+    return ['ok' => false];
+}
+
+/**
+ * 验证方式：拼图(slider) / 点文字(click) / 推理交换(swap) / 智能混合(auto)，默认拼图
  */
 function captcha_style(): string {
     if (!function_exists('get_site_setting')) {
         return 'slider';
     }
     $v = get_site_setting('captcha_style', 'slider');
-    return in_array($v, ['slider', 'click', 'auto'], true) ? $v : 'slider';
+    return in_array($v, ['slider', 'click', 'swap', 'auto'], true) ? $v : 'slider';
 }
 
 /**
@@ -369,14 +549,14 @@ function captcha_difficulty(): string {
 }
 
 /**
- * 验证显示方式：内嵌(inline) / 弹窗(popup)，默认内嵌
+ * 验证显示方式：内嵌 (inline) / 弹窗 (popup) / 触发 (trigger)，默认内嵌
  */
 function captcha_display(): string {
     if (!function_exists('get_site_setting')) {
         return 'inline';
     }
     $v = get_site_setting('captcha_display', 'inline');
-    return in_array($v, ['inline', 'popup'], true) ? $v : 'inline';
+    return in_array($v, ['inline', 'popup', 'trigger'], true) ? $v : 'inline';
 }
 
 /** 各难度对应的行为通过分数门槛 */
@@ -712,5 +892,169 @@ function captcha_behavior_score(array $s): int {
     if ($keys >= 1) $score += 1;
     if ($noPointer && $n < 10) $score = min($score, 1);
 
+    // 恢复轨迹加分：鼠标起止不在同一侧，且有一定停顿/折返
+    if (isset($s['recovery']) && $s['recovery'] > 0) {
+        $score += (int)$s['recovery'];
+    }
+    // 加速度多样本加分：快速移动后减速停顿，再反向
+    if (isset($s['accel_changes']) && $s['accel_changes'] >= 2) {
+        $score += 1;
+    }
+
     return $score;
+}
+
+/* ==================== 触发式验证配置 ==================== */
+
+/**
+ * 触发模式：
+ * - always：始终显示验证码（推荐，用户体验最佳）
+ * - suspicious：检测到可疑行为时触发（默认）
+ * - high_risk：高风险操作时触发（发帖/私信）
+ */
+function captcha_trigger_mode(): string {
+    if (!function_exists('get_site_setting')) {
+        return 'always'; // 默认改为 always，确保登录注册都能看到
+    }
+    $v = get_site_setting('captcha_trigger_mode', 'always'); // 改默认值为 always
+    return in_array($v, ['always', 'suspicious', 'high_risk'], true) ? $v : 'always';
+}
+
+/**
+ * 跳过验证的冷却期（秒）：用户刚通过验证后，此时间内不再要求
+ */
+function captcha_skip_cooldown(): int {
+    if (!function_exists('get_site_setting')) {
+        return 600;
+    }
+    $v = (int)get_site_setting('captcha_skip_cooldown', '600');
+    return max(60, min(86400, $v));
+}
+
+/**
+ * 判断当前请求是否需要触发人机验证
+ *
+ * 触发条件：
+ * - 触发模式 = always
+ * - 触发模式 = high_risk 且当前路由是高敏感操作
+ * - 触发模式 = suspicious 且检测到异常行为信号
+ */
+function should_trigger_captcha(string $action = ''): bool {
+    if (!captcha_enabled()) {
+        return false;
+    }
+    $mode = captcha_trigger_mode();
+    if ($mode === 'always') {
+        return true;
+    }
+
+    $highRiskRoutes = ['new_post', 'post', 'pm', 'report', 'appeal', 'forgot_password', 'reset_password'];
+    if ($mode === 'high_risk' && in_array($action, $highRiskRoutes, true)) {
+        return true;
+    }
+
+    // suspicious：检查 IP / 会话 / 设备异常信号
+    return captcha_is_suspicious();
+}
+
+/**
+ * 判断当前会话是否呈现可疑行为特征
+ */
+function captcha_is_suspicious(): bool {
+    $key = 'captcha_signals';
+    $sig = $_SESSION[$key] ?? null;
+    if (!is_array($sig)) {
+        return true;
+    }
+
+    // 登录失败次数
+    if ((int)($sig['login_fails'] ?? 0) >= 3) {
+        return true;
+    }
+
+    // 提交频率
+    $submits = (int)($sig['submits'] ?? 0);
+    $firstSubmit = (int)($sig['first_submit'] ?? 0);
+    if ($submits >= 6 && $firstSubmit > 0 && (time() - $firstSubmit) < 60) {
+        return true;
+    }
+
+    // 无指针设备且无有效鼠标样本
+    if (!empty($sig['no_pointer']) && (int)($sig['mouse_samples'] ?? 0) < 5) {
+        return true;
+    }
+
+    // IP 请求频率
+    $ipKey = 'captcha_ip_' . ($_SERVER['REMOTE_ADDR'] ?? '');
+    $ipHits = (int)($_SESSION[$ipKey] ?? 0);
+    if ($ipHits >= 20 && (time() - ($sig['first_hit'] ?? time())) < 60) {
+        return true;
+    }
+
+    return false;
+}
+
+/**
+ * 记录用户行为信号（供触发检测使用）
+ */
+function captcha_record_signal(string $type, $value = null): void {
+    if (session_status() === PHP_SESSION_NONE) {
+        return;
+    }
+    if (!isset($_SESSION['captcha_signals'])) {
+        $_SESSION['captcha_signals'] = [
+            'login_fails'   => 0,
+            'submits'       => 0,
+            'first_submit'  => 0,
+            'no_pointer'    => false,
+            'mouse_samples' => 0,
+            'first_hit'     => time(),
+        ];
+    }
+    $sig = &$_SESSION['captcha_signals'];
+    switch ($type) {
+        case 'login_fail':
+            $sig['login_fails'] = ($sig['login_fails'] ?? 0) + 1;
+            break;
+        case 'submit':
+            $sig['submits'] = ($sig['submits'] ?? 0) + 1;
+            if (empty($sig['first_submit'])) {
+                $sig['first_submit'] = time();
+            }
+            break;
+        case 'mouse_move':
+            $sig['mouse_samples'] = ($sig['mouse_samples'] ?? 0) + 1;
+            break;
+        case 'no_pointer':
+            $sig['no_pointer'] = true;
+            break;
+        case 'clear':
+            $_SESSION['captcha_signals'] = [
+                'login_fails'   => 0,
+                'submits'       => 0,
+                'first_submit'  => 0,
+                'no_pointer'    => false,
+                'mouse_samples' => 0,
+                'first_hit'     => time(),
+            ];
+            break;
+    }
+}
+
+/**
+ * 清除行为信号（验证通过后调用）
+ */
+function captcha_clear_signals(): void {
+    captcha_record_signal('clear');
+}
+
+/**
+ * 记录 IP 请求频率
+ */
+function captcha_record_ip_hit(): void {
+    if (session_status() === PHP_SESSION_NONE) {
+        return;
+    }
+    $ipKey = 'captcha_ip_' . ($_SERVER['REMOTE_ADDR'] ?? '');
+    $_SESSION[$ipKey] = ($_SESSION[$ipKey] ?? 0) + 1;
 }

@@ -179,7 +179,7 @@ include APP_ROOT . 'app/includes/header.php';
                 </label>
                 <div id="agree-terms-error" class="form-error" style="display: none; margin-top: 0.25rem; color: var(--error); font-size: 0.875rem;"><?php echo e(t('register_agree_error', '请阅读并同意用户协议与隐私政策。')); ?></div>
             </div>
-            <?php if (captcha_enabled()): ?>
+            <?php if (captcha_enabled() && should_trigger_captcha('register')): ?>
                 <div class="form-group">
                     <div id="captcha" data-api="<?php echo site_url('api/captcha'); ?>" data-display="<?php echo e(captcha_display()); ?>"></div>
                     <input type="hidden" name="captcha_token" id="captcha_token" value="">

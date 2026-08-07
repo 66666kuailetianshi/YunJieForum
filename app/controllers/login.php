@@ -41,6 +41,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $user = $stmt->fetch();
 
             if (!$user || !password_verify($password, $user['password'])) {
+                captcha_record_signal('login_fail');
                 $errors[] = t('login_account_password_error', '账号或密码错误。');
             } else {
                 // 检查账号是否被封禁
@@ -90,6 +91,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
 
                     set_flash(t('login_welcome_back', '欢迎回来，{name}！', ['name' => $user['username']]), 'success');
+
+                    captcha_clear_signals();
 
                     $redirect = $_SESSION['redirect_after_login'] ?? 'index.php';
                     unset($_SESSION['redirect_after_login']);
@@ -150,12 +153,18 @@ include APP_ROOT . 'app/includes/header.php';
                 </label>
                 <div id="agree-terms-error" class="form-error" style="display: none; margin-top: 0.25rem; color: var(--error); font-size: 0.875rem;"><?php echo e(t('login_agree_error', '请阅读并同意用户协议与隐私政策。')); ?></div>
             </div>
-            <?php if (captcha_enabled()): ?>
-                <div class="form-group">
+            <?php $capRender = captcha_enabled() && (should_trigger_captcha('login') || in_array(captcha_display(), ['popup', 'trigger'], true)); ?>
+        <?php if ($capRender): ?>
+            <div class="form-group" data-captcha-wrap>
+                <?php if (captcha_enabled() && !should_trigger_captcha('login') && captcha_display() !== 'popup' && captcha_display() !== 'trigger'): ?>
+                    <!-- 无需触发且非弹窗/触发模式：占位空行 -->
+                    <span class="text-muted" style="font-size:12px;"><?php echo e(t('captcha_not_required', '本次操作无需验证')); ?></span>
+                <?php elseif (captcha_enabled()): ?>
                     <div id="captcha" data-api="<?php echo site_url('api/captcha'); ?>" data-display="<?php echo e(captcha_display()); ?>"></div>
                     <input type="hidden" name="captcha_token" id="captcha_token" value="">
-                </div>
-            <?php endif; ?>
+                <?php endif; ?>
+            </div>
+        <?php endif; ?>
             <button type="submit" class="btn btn-primary btn-block"><?php echo e(t('login_submit', '登录')); ?></button>
         </form>
 

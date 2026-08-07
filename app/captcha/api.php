@@ -66,6 +66,14 @@ try {
             $in = [];
         }
         $resp = array_merge($resp, captcha_click_verify($in['token'] ?? '', $in['seq'] ?? null));
+    } elseif ($action === 'swap') {
+        $raw = file_get_contents('php://input');
+        $in  = json_decode($raw ?: '', true);
+        if (!is_array($in)) {
+            $in = [];
+        }
+        $order = is_array($in['order'] ?? null) ? $in['order'] : [];
+        $resp = array_merge($resp, captcha_swap_verify($in['token'] ?? '', $order));
     } else {
         $resp['error'] = 'unknown_action';
     }
