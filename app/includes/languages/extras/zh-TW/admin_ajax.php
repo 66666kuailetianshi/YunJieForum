@@ -208,7 +208,7 @@
     'admin_forums_86835d' => '漏洞',
     'common_f6f8a3' => '初級會員',
     'admin_forums_ba958f' => '電競',
-    'admin_ban_appeals_b82e0b' => '&csrf_token=<?php echo csrf_token(); ?>" class="btn btn-sm btn-danger" data-confirm="確定刪除該申訴記錄嗎？">刪除</a>',
+    'admin_ban_appeals_b82e0b' => '" class="btn btn-sm btn-danger" data-confirm="確定刪除該申訴記錄嗎？">刪除</a>',
     'pm_4d9d43' => 'return confirm(\'確定刪除整個會話嗎？此操作不可撤銷。\');',
     'common_ca499d' => '色情',
     'common_edad6c' => '侵權/抄襲',

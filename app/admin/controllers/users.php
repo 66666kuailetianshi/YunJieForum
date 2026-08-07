@@ -232,6 +232,8 @@ require_once dirname(__DIR__) . '/layout/header.php';
 .drawer-subtitle { font-weight:600; margin:1rem 0 0.5rem; }
 .drawer-list-item { display:flex; justify-content:space-between; gap:0.5rem; padding:0.35rem 0; border-bottom:1px solid var(--border); font-size:0.85rem; }
 .toolbar-actions { display:flex; gap:0.5rem; align-items:center; margin-left:0.5rem; }
+.detail-link { display:inline-flex; align-items:center; justify-content:center; padding:0.25rem 0.6rem; font-size:0.75rem; border-radius:0.375rem; border:1px solid var(--border-strong); color:var(--brand); background:transparent; cursor:pointer; text-decoration:none; transition:background var(--transition), border-color var(--transition), color var(--transition); }
+.detail-link:hover { background:var(--brand-soft); border-color:var(--brand); color:var(--brand); }
 </style>
 
 <div class="page-header">
@@ -436,7 +438,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
                                         <?php echo e($risk['label']); ?> · <?php echo (int)$risk['score']; ?>
                                     </span>
                                 <?php endif; ?>
-                                <button type="button" class="btn btn-sm btn-ghost" data-risk-user="<?php echo (int)$u['id']; ?>" title="<?php echo e(t('admin_users_risk_detail_title', '查看风险详情')); ?>"><?php echo e(t('admin_users_risk_detail', '详情')); ?></button>
+                                <a href="javascript:void(0);" class="detail-link" data-open-drawer="<?php echo (int)$u['id']; ?>" title="<?php echo e(t('admin_users_view_detail', '点击查看用户详情')); ?>"><?php echo e(t('admin_users_view_detail', '详情')); ?></a>
                             </div>
                         </td>
                         <td class="col-group">
@@ -586,17 +588,17 @@ require_once dirname(__DIR__) . '/layout/header.php';
     }
 
     function formatRemaining(sec) {
-        if (sec <= 0) return <?php echo addslashes(t('admin_users_expired','已到期')); ?>;
+        if (sec <= 0) return <?php echo json_encode(t('admin_users_expired','已到期')); ?>;
         var days = Math.floor(sec / 86400);
         var hours = Math.floor((sec % 86400) / 3600);
         var minutes = Math.floor((sec % 3600) / 60);
         var seconds = sec % 60;
         var parts = [];
-        if (days > 0) parts.push(days + <?php echo addslashes(t('admin_users_unit_day','天')); ?>);
-        if (hours > 0) parts.push(hours + <?php echo addslashes(t('admin_users_unit_hour','时')); ?>);
-        if (minutes > 0) parts.push(minutes + <?php echo addslashes(t('admin_users_unit_minute','分')); ?>);
-        parts.push(seconds + <?php echo addslashes(t('admin_users_unit_second','秒')); ?>);
-        return <?php echo addslashes(t('admin_users_remaining_prefix','剩 ')); ?> + parts.join(' ');
+        if (days > 0) parts.push(days + <?php echo json_encode(t('admin_users_unit_day','天')); ?>);
+        if (hours > 0) parts.push(hours + <?php echo json_encode(t('admin_users_unit_hour','时')); ?>);
+        if (minutes > 0) parts.push(minutes + <?php echo json_encode(t('admin_users_unit_minute','分')); ?>);
+        parts.push(seconds + <?php echo json_encode(t('admin_users_unit_second','秒')); ?>);
+        return <?php echo json_encode(t('admin_users_remaining_prefix','剩 ')); ?> + parts.join(' ');
     }
 
     // 初始化：从 DOM 读取服务端渲染的剩余秒数
@@ -646,38 +648,38 @@ require_once dirname(__DIR__) . '/layout/header.php';
         var riskLevelClass = u.risk_level === 'critical' ? 'badge-soft-danger' : (u.risk_level === 'high' || u.risk_level === 'medium' ? 'badge-soft-warning' : (u.risk_level === 'low' ? 'badge-soft-success' : 'badge-soft-secondary'));
         var riskHtml = '<div class="risk-cell">';
         if (u.role === 'admin') {
-            riskHtml += '<span class="badge badge-soft-primary" data-risk-user="' + u.id + <?php echo addslashes(t('admin_users_risk_exempt_title', '" title="管理员账号不参与风险评分&#10;点击查看详情"')); ?> + '>' + <?php echo addslashes(t('admin_users_risk_exempt', '豁免')); ?> + '</span>';
+            riskHtml += '<span class="badge badge-soft-primary" data-risk-user="' + u.id + <?php echo json_encode(t('admin_users_risk_exempt_title', '" title="管理员账号不参与风险评分&#10;点击查看详情"')); ?> + '>' + <?php echo json_encode(t('admin_users_risk_exempt', '豁免')); ?> + '</span>';
         } else {
-            riskHtml += '<span class="badge ' + riskLevelClass + '" data-risk-user="' + u.id + <?php echo addslashes(t('admin_users_js_risk_title_prefix','" title="风险：')); ?> + escapeHtml(u.risk_label) + <?php echo addslashes(t('admin_users_left_paren','（')); ?> + (parseInt(u.risk_score, 10) || 0) + <?php echo addslashes(t('admin_users_js_risk_title_suffix',' 分）&#10;点击查看详情">')); ?> + escapeHtml(u.risk_label) + ' · ' + (parseInt(u.risk_score, 10) || 0) + '</span>';
+            riskHtml += '<span class="badge ' + riskLevelClass + '" data-risk-user="' + u.id + <?php echo json_encode(t('admin_users_js_risk_title_prefix','" title="风险：')); ?> + escapeHtml(u.risk_label) + <?php echo json_encode(t('admin_users_left_paren','（')); ?> + (parseInt(u.risk_score, 10) || 0) + <?php echo json_encode(t('admin_users_js_risk_title_suffix',' 分）&#10;点击查看详情">')); ?> + escapeHtml(u.risk_label) + ' · ' + (parseInt(u.risk_score, 10) || 0) + '</span>';
         }
-        riskHtml += '<button type="button" class="btn btn-sm btn-ghost" data-risk-user="' + u.id + <?php echo addslashes(t('admin_users_js_risk_detail_btn','" title="查看风险详情">详情</button></div>')); ?>;
+        riskHtml += '<a href="javascript:void(0);" class="detail-link" data-open-drawer="' + u.id + <?php echo json_encode(t('admin_users_view_detail', '" title="点击查看用户详情">详情</a>')); ?>;
 
         // 用户组
         var groupBadge = '<span class="badge badge-outline" style="color:' + escapeHtml(u.group_color) + ';border-color:' + escapeHtml(u.group_color) + ';background:' + escapeHtml(u.group_color) + '15;">' + escapeHtml(u.group_title) + '</span>';
 
         // 操作按钮
         var actions = '<div class="action-btns">';
-        actions += '<a href="<?php echo site_url('admin/user_edit'); ?>&user_id=' + u.id + <?php echo addslashes(t('admin_users_js_edit_link','" class="btn btn-sm btn-primary" title="编辑">编辑</a> ')); ?>;
+        actions += '<a href="<?php echo site_url('admin/user_edit'); ?>&user_id=' + u.id + <?php echo json_encode(t('admin_users_js_edit_link','" class="btn btn-sm btn-primary" title="编辑">编辑</a> ')); ?>;
         actions += '<div class="dropdown action-dropdown">';
-        actions += <?php echo addslashes(t('admin_users_js_more_btn','<button type="button" class="btn btn-sm btn-secondary dropdown-toggle" data-toggle-dropdown>更多</button>')); ?>;
+        actions += '<?php echo json_encode(t('admin_users_js_more_btn','<button type="button" class="btn btn-sm btn-secondary dropdown-toggle" data-toggle-dropdown>更多</button>')); ?>';
         actions += '<div class="dropdown-menu dropdown-menu-right">';
-        actions += '<a href="<?php echo site_url('profile', ['user_id' => '']); ?>' + u.id + <?php echo addslashes(t('admin_users_js_frontend_detail','" target="_blank" class="dropdown-item">前台详情</a>')); ?>;
+        actions += '<a href="<?php echo site_url('profile', ['user_id' => '']); ?>' + u.id + <?php echo json_encode(t('admin_users_js_frontend_detail','" target="_blank" class="dropdown-item">前台详情</a>')); ?>;
         if (u.role !== 'admin') {
             if (u.status === 'banned') {
-                actions += '<a href="<?php echo site_url('admin/users'); ?>&action=unban&user_id=' + u.id + '&csrf_token=' + csrfToken + <?php echo addslashes(t('admin_users_js_unban_link','" class="dropdown-item" data-confirm="确定解封该用户吗？">解封</a>')); ?>;
+                actions += '<a href="<?php echo site_url('admin/users'); ?>&action=unban&user_id=' + u.id + '&csrf_token=' + csrfToken + <?php echo json_encode(t('admin_users_js_unban_link','" class="dropdown-item" data-confirm="确定解封该用户吗？">解封</a>')); ?>;
             } else if (u.status === 'muted') {
-                actions += '<a href="<?php echo site_url('admin/users'); ?>&action=unmute&user_id=' + u.id + '&csrf_token=' + csrfToken + <?php echo addslashes(t('admin_users_js_unmute_link','" class="dropdown-item" data-confirm="确定解除该用户的禁言吗？">解除禁言</a>')); ?>;
-                actions += '<a href="<?php echo site_url('admin/user_ban'); ?>&user_id=' + u.id + <?php echo addslashes(t('admin_users_js_ban_link','" class="dropdown-item text-danger">封号</a>')); ?>;
+                actions += '<a href="<?php echo site_url('admin/users'); ?>&action=unmute&user_id=' + u.id + '&csrf_token=' + csrfToken + <?php echo json_encode(t('admin_users_js_unmute_link','" class="dropdown-item" data-confirm="确定解除该用户的禁言吗？">解除禁言</a>')); ?>;
+                actions += '<a href="<?php echo site_url('admin/user_ban'); ?>&user_id=' + u.id + <?php echo json_encode(t('admin_users_js_ban_link','" class="dropdown-item text-danger">封号</a>')); ?>;
             } else {
-                actions += '<a href="<?php echo site_url('admin/user_ban'); ?>&user_id=' + u.id + <?php echo addslashes(t('admin_users_js_ban_link','" class="dropdown-item text-danger">封号</a>')); ?>;
-                actions += '<a href="<?php echo site_url('admin/user_mute'); ?>&user_id=' + u.id + <?php echo addslashes(t('admin_users_js_mute_link','" class="dropdown-item text-warning">禁言</a>')); ?>;
+                actions += '<a href="<?php echo site_url('admin/user_ban'); ?>&user_id=' + u.id + <?php echo json_encode(t('admin_users_js_ban_link','" class="dropdown-item text-danger">封号</a>')); ?>;
+                actions += '<a href="<?php echo site_url('admin/user_mute'); ?>&user_id=' + u.id + <?php echo json_encode(t('admin_users_js_mute_link','" class="dropdown-item text-warning">禁言</a>')); ?>;
             }
             actions += '<div class="dropdown-divider"></div>';
-            actions += '<a href="<?php echo site_url('admin/users'); ?>&action=delete&user_id=' + u.id + '&csrf_token=' + csrfToken + <?php echo addslashes(t('admin_users_js_delete_link','" class="dropdown-item text-danger" data-confirm="确定删除该用户吗？&#10;该用户的所有帖子、回复与签到记录将被一并删除，且无法恢复。">删除</a>')); ?>;
+            actions += '<a href="<?php echo site_url('admin/users'); ?>&action=delete&user_id=' + u.id + '&csrf_token=' + csrfToken + <?php echo json_encode(t('admin_users_js_delete_link','" class="dropdown-item text-danger" data-confirm="确定删除该用户吗？&#10;该用户的所有帖子、回复与签到记录将被一并删除，且无法恢复。">删除</a>')); ?>;
         }
         actions += '</div></div></div>';
 
-        var adminBadge = u.role === 'admin' ? <?php echo addslashes(t('admin_users_js_admin_badge',' <span class="badge badge-danger text-xs">管理员</span>')); ?> : '';
+        var adminBadge = u.role === 'admin' ? <?php echo json_encode(t('admin_users_js_admin_badge',' <span class="badge badge-danger text-xs">管理员</span>')); ?> : '';
 
         var checked = selectedIds.has(u.id) ? ' checked' : '';
         return '<tr data-user-id="' + u.id + '">' +
@@ -734,7 +736,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
 
                 if (users.length === 0) {
                     if (lastSignature !== 'EMPTY') {
-                        tbody.innerHTML = <?php echo addslashes(t('admin_users_js_no_users','<tr><td colspan="12" class="text-muted text-center py-2">未找到用户。</td></tr>')); ?>;
+                        tbody.innerHTML = <?php echo json_encode(t('admin_users_js_no_users','<tr><td colspan="12" class="text-muted text-center py-2">未找到用户。</td></tr>')); ?>;
                         lastSignature = 'EMPTY';
                     }
                     return;
@@ -759,7 +761,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
         var body = document.getElementById('risk-modal-body');
         if (!overlay || !body) return;
         overlay.style.display = 'flex';
-        body.innerHTML = <?php echo addslashes(t('admin_users_js_loading','<p class="text-muted text-center py-2">加载中…</p>')); ?>;
+        body.innerHTML = <?php echo json_encode(t('admin_users_js_loading','<p class="text-muted text-center py-2">加载中…</p>')); ?>;
         fetch('<?php echo site_url('admin/api/user_risk_detail_ajax'); ?>&user_id=' + userId, { credentials: 'same-origin' })
             .then(function (r) {
                 return r.text().then(function (t) {
@@ -770,7 +772,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
                 var d = null;
                 try { d = JSON.parse(res.text); } catch (err) { d = null; }
                 if (!d || d.error) {
-                    var msg = d && d.error ? d.error : <?php echo addslashes(t('admin_users_js_api_error_prefix','接口返回异常（HTTP ')); ?> + res.status + <?php echo addslashes(t('admin_users_right_paren','）')); ?>;
+                    var msg = d && d.error ? d.error : <?php echo json_encode(t('admin_users_js_api_error_prefix','接口返回异常（HTTP ')); ?> + res.status + <?php echo json_encode(t('admin_users_right_paren','）')); ?>;
                     body.innerHTML = '<p class="text-error text-center py-2">' + escapeHtml(msg) + '</p>' +
                         (res.text ? '<pre style="max-height:120px;overflow:auto;font-size:0.75rem;background:var(--surface-2);padding:0.5rem;border-radius:6px;">' + escapeHtml(res.text.substring(0, 300)) + '</pre>' : '');
                     return;
@@ -778,7 +780,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
                 body.innerHTML = buildRiskDetailHtml(d);
             })
             .catch(function (e) {
-                body.innerHTML = <?php echo addslashes(t('admin_users_js_load_failed_prefix','<p class="text-error text-center py-2">加载失败：')); ?> + escapeHtml(e && e.message ? e.message : <?php echo addslashes(t('admin_users_js_network_error','网络错误')); ?>) + '</p>';
+                body.innerHTML = <?php echo json_encode(t('admin_users_js_load_failed_prefix','<p class="text-error text-center py-2">加载失败：')); ?> + escapeHtml(e && e.message ? e.message : <?php echo json_encode(t('admin_users_js_network_error','网络错误')); ?>) + '</p>';
             });
     }
 
@@ -796,39 +798,39 @@ require_once dirname(__DIR__) . '/layout/header.php';
         var html = '';
         html += '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:1rem;">';
         html += '<div><div style="font-weight:700;font-size:1.05rem;">' + escapeHtml(u.username) + ' <span class="text-muted" style="font-weight:400;">(UID ' + escapeHtml(u.uid) + ')</span></div>';
-        html += '<div class="text-muted" style="font-size:0.8rem;">' + escapeHtml(u.email) + <?php echo addslashes(t('admin_users_js_registered_at',' · 注册于 ')); ?> + escapeHtml(u.created_at) + <?php echo addslashes(t('admin_users_js_post_count',' · 帖子 ')); ?> + u.post_count + <?php echo addslashes(t('admin_users_js_reply_count',' · 回复 ')); ?> + u.reply_count + '</div></div>';
-        html += '<span class="badge" style="background:' + escapeHtml(risk.color) + ';color:#fff;">' + escapeHtml(u.status_fmt) + <?php echo addslashes(t('admin_users_js_risk_label',' · 风险 ')); ?> + escapeHtml(risk.label) + <?php echo addslashes(t('admin_users_left_paren','（')); ?> + (parseInt(risk.score, 10) || 0) + <?php echo addslashes(t('admin_users_score_close',' 分）')); ?> + '</span>';
+        html += '<div class="text-muted" style="font-size:0.8rem;">' + escapeHtml(u.email) + <?php echo json_encode(t('admin_users_js_registered_at',' · 注册于 ')); ?> + escapeHtml(u.created_at) + <?php echo json_encode(t('admin_users_js_post_count',' · 帖子 ')); ?> + u.post_count + <?php echo json_encode(t('admin_users_js_reply_count',' · 回复 ')); ?> + u.reply_count + '</div></div>';
+        html += '<span class="badge" style="background:' + escapeHtml(risk.color) + ';color:#fff;">' + escapeHtml(u.status_fmt) + <?php echo json_encode(t('admin_users_js_risk_label',' · 风险 ')); ?> + escapeHtml(risk.label) + <?php echo json_encode(t('admin_users_left_paren','（')); ?> + (parseInt(risk.score, 10) || 0) + <?php echo json_encode(t('admin_users_score_close',' 分）')); ?> + '</span>';
         html += '</div>';
 
         // 评分构成
         html += '<div class="card" style="padding:1rem;margin-bottom:1rem;background:var(--surface-2);">';
-        html += <?php echo addslashes(t('admin_users_risk_score_breakdown', '<div style="font-weight:600;margin-bottom:0.5rem;">评分构成</div>')); ?>;
+        html += <?php echo json_encode(t('admin_users_risk_score_breakdown', '<div style="font-weight:600;margin-bottom:0.5rem;">评分构成</div>')); ?>;
         if (adminExempt) {
-            html += <?php echo addslashes(t('admin_users_risk_admin_exempt_note', '<p class="text-muted mb-0">管理员账号不参与风险评分。</p>')); ?>;
+            html += <?php echo json_encode(t('admin_users_risk_admin_exempt_note', '<p class="text-muted mb-0">管理员账号不参与风险评分。</p>')); ?>;
         } else {
             html += '<table class="data-table data-table-compact" style="width:100%;">';
-            html += <?php echo addslashes(t('admin_users_risk_table_header','<tr><th>维度</th><th>数量</th><th>分值</th></tr>')); ?>;
-            html += <?php echo addslashes(t('admin_users_js_row_resolved_reports','<tr><td>确认违规举报</td><td>')); ?> + (c.resolved_report_count|0) + '</td><td>+' + ((c.resolved_report_count|0) * 6) + '</td></tr>';
-            html += <?php echo addslashes(t('admin_users_js_row_pending_reports','<tr><td>待处理举报</td><td>')); ?> + (c.pending_report_count|0) + '</td><td>+' + ((c.pending_report_count|0) * 2) + '</td></tr>';
-            html += <?php echo addslashes(t('admin_users_js_row_sensitive_review','<tr><td>需审核/拦截敏感词</td><td>')); ?> + (c.sensitive_review_count|0) + '</td><td>+' + ((c.sensitive_review_count|0) * 3) + '</td></tr>';
-            html += <?php echo addslashes(t('admin_users_js_row_sensitive_replace','<tr><td>仅替换敏感词（已清洗）</td><td>')); ?> + (c.sensitive_replace_count|0) + <?php echo addslashes(t('admin_users_risk_no_score','</td><td>不计分</td></tr>')); ?>;
-            html += <?php echo addslashes(t('admin_users_risk_rejected_report','<tr><td>被驳回举报（反向减分）</td><td>')); ?> + (c.rejected_report_count|0) + '</td><td>-' + ((c.rejected_report_count|0) * 3) + '</td></tr>';
-            html += <?php echo addslashes(t('admin_users_js_row_rejected_appeal','<tr><td>申诉被拒</td><td>')); ?> + (c.rejected_appeal_count|0) + '</td><td>+' + ((c.rejected_appeal_count|0) * 4) + '</td></tr>';
-            var statusBonus = u.status === 'muted' ? [<?php echo addslashes(t('admin_users_js_status_muted','禁言中')); ?>, '+10'] : (u.status === 'banned' ? [<?php echo addslashes(t('admin_users_js_status_banned','封禁中')); ?>, '+20'] : [<?php echo addslashes(t('admin_users_js_none','无')); ?>, '0']);
-            html += <?php echo addslashes(t('admin_users_js_row_status_bonus','<tr><td>状态加成</td><td>')); ?> + statusBonus[0] + '</td><td>' + statusBonus[1] + '</td></tr>';
-            html += '<tr><th colspan="2">' + <?php echo addslashes(t('admin_users_risk_total','风险总分')); ?> + '</th><th>' + (parseInt(risk.score, 10) || 0) + <?php echo addslashes(t('admin_users_left_paren','（')); ?> + escapeHtml(risk.label) + <?php echo addslashes(t('admin_users_right_paren','）')); ?> + '</th></tr>';
+            html += <?php echo json_encode(t('admin_users_risk_table_header','<tr><th>维度</th><th>数量</th><th>分值</th></tr>')); ?>;
+            html += <?php echo json_encode(t('admin_users_js_row_resolved_reports','<tr><td>确认违规举报</td><td>')); ?> + (c.resolved_report_count|0) + '</td><td>+' + ((c.resolved_report_count|0) * 6) + '</td></tr>';
+            html += <?php echo json_encode(t('admin_users_js_row_pending_reports','<tr><td>待处理举报</td><td>')); ?> + (c.pending_report_count|0) + '</td><td>+' + ((c.pending_report_count|0) * 2) + '</td></tr>';
+            html += <?php echo json_encode(t('admin_users_js_row_sensitive_review','<tr><td>需审核/拦截敏感词</td><td>')); ?> + (c.sensitive_review_count|0) + '</td><td>+' + ((c.sensitive_review_count|0) * 3) + '</td></tr>';
+            html += <?php echo json_encode(t('admin_users_js_row_sensitive_replace','<tr><td>仅替换敏感词（已清洗）</td><td>')); ?> + (c.sensitive_replace_count|0) + <?php echo json_encode(t('admin_users_risk_no_score','</td><td>不计分</td></tr>')); ?>;
+            html += <?php echo json_encode(t('admin_users_risk_rejected_report','<tr><td>被驳回举报（反向减分）</td><td>')); ?> + (c.rejected_report_count|0) + '</td><td>-' + ((c.rejected_report_count|0) * 3) + '</td></tr>';
+            html += <?php echo json_encode(t('admin_users_js_row_rejected_appeal','<tr><td>申诉被拒</td><td>')); ?> + (c.rejected_appeal_count|0) + '</td><td>+' + ((c.rejected_appeal_count|0) * 4) + '</td></tr>';
+            var statusBonus = u.status === 'muted' ? [<?php echo json_encode(t('admin_users_js_status_muted','禁言中')); ?>, '+10'] : (u.status === 'banned' ? [<?php echo json_encode(t('admin_users_js_status_banned','封禁中')); ?>, '+20'] : [<?php echo json_encode(t('admin_users_js_none','无')); ?>, '0']);
+            html += <?php echo json_encode(t('admin_users_js_row_status_bonus','<tr><td>状态加成</td><td>')); ?> + statusBonus[0] + '</td><td>' + statusBonus[1] + '</td></tr>';
+            html += '<tr><th colspan="2">' + <?php echo json_encode(t('admin_users_risk_total','风险总分')); ?> + '</th><th>' + (parseInt(risk.score, 10) || 0) + <?php echo json_encode(t('admin_users_left_paren','（')); ?> + escapeHtml(risk.label) + <?php echo json_encode(t('admin_users_right_paren','）')); ?> + '</th></tr>';
             html += '</table>';
         }
         html += '</div>';
 
         // 被举报记录
-        html += <?php echo addslashes(t('admin_users_js_reports_section','<div style="font-weight:600;margin-bottom:0.5rem;">被举报记录</div>')); ?>;
+        html += <?php echo json_encode(t('admin_users_js_reports_section','<div style="font-weight:600;margin-bottom:0.5rem;">被举报记录</div>')); ?>;
         if (!d.reports || d.reports.length === 0) {
-            html += <?php echo addslashes(t('admin_users_js_empty_note','<p class="text-muted" style="font-size:0.85rem;">无</p>')); ?>;
+            html += <?php echo json_encode(t('admin_users_js_empty_note','<p class="text-muted" style="font-size:0.85rem;">无</p>')); ?>;
         } else {
             html += '<div class="risk-record-list">';
             d.reports.forEach(function (r) {
-                var statusTxt = r.status === 'pending' ? <?php echo addslashes(t('admin_users_js_report_pending','<span class="badge badge-warning">待处理</span>')); ?> : (r.status === 'resolved' ? <?php echo addslashes(t('admin_users_js_report_resolved','<span class="badge badge-success">已确认违规</span>')); ?> : <?php echo addslashes(t('admin_users_js_report_rejected','<span class="badge badge-secondary">已驳回</span>')); ?>);
+                var statusTxt = r.status === 'pending' ? <?php echo json_encode(t('admin_users_js_report_pending','<span class="badge badge-warning">待处理</span>')); ?> : (r.status === 'resolved' ? <?php echo json_encode(t('admin_users_js_report_resolved','<span class="badge badge-success">已确认违规</span>')); ?> : <?php echo json_encode(t('admin_users_js_report_rejected','<span class="badge badge-secondary">已驳回</span>')); ?>);
                 html += '<div class="risk-record-item">';
                 html += '<div class="risk-record-head"><span>' + escapeHtml(r.created_at_fmt) + ' · ' + escapeHtml(r.target_label) + ' · ' + escapeHtml(r.reason_type) + '</span>' + statusTxt + '</div>';
                 html += '<div class="risk-record-body">' + escapeHtml(r.content_preview) + '</div>';
@@ -838,9 +840,9 @@ require_once dirname(__DIR__) . '/layout/header.php';
         }
 
         // 敏感词记录
-        html += <?php echo addslashes(t('admin_users_js_sensitive_section','<div style="font-weight:600;margin:1rem 0 0.5rem;">敏感词命中记录</div>')); ?>;
+        html += <?php echo json_encode(t('admin_users_js_sensitive_section','<div style="font-weight:600;margin:1rem 0 0.5rem;">敏感词命中记录</div>')); ?>;
         if (!d.sensitive_logs || d.sensitive_logs.length === 0) {
-            html += <?php echo addslashes(t('admin_users_js_empty_note','<p class="text-muted" style="font-size:0.85rem;">无</p>')); ?>;
+            html += <?php echo json_encode(t('admin_users_js_empty_note','<p class="text-muted" style="font-size:0.85rem;">无</p>')); ?>;
         } else {
             html += '<div class="risk-record-list">';
             d.sensitive_logs.forEach(function (s) {
@@ -853,17 +855,17 @@ require_once dirname(__DIR__) . '/layout/header.php';
         }
 
         // 申诉记录
-        html += <?php echo addslashes(t('admin_users_js_appeals_section','<div style="font-weight:600;margin:1rem 0 0.5rem;">申诉记录</div>')); ?>;
+        html += <?php echo json_encode(t('admin_users_js_appeals_section','<div style="font-weight:600;margin:1rem 0 0.5rem;">申诉记录</div>')); ?>;
         if (!d.appeals || d.appeals.length === 0) {
-            html += <?php echo addslashes(t('admin_users_js_empty_note','<p class="text-muted" style="font-size:0.85rem;">无</p>')); ?>;
+            html += <?php echo json_encode(t('admin_users_js_empty_note','<p class="text-muted" style="font-size:0.85rem;">无</p>')); ?>;
         } else {
             html += '<div class="risk-record-list">';
             d.appeals.forEach(function (ap) {
-                var statusTxt = ap.status === 'pending' ? <?php echo addslashes(t('admin_users_js_appeal_pending','<span class="badge badge-warning">待审核</span>')); ?> : (ap.status === 'approved' ? <?php echo addslashes(t('admin_users_js_appeal_approved','<span class="badge badge-success">已通过</span>')); ?> : <?php echo addslashes(t('admin_users_js_appeal_rejected','<span class="badge badge-danger">已拒绝</span>')); ?>);
+                var statusTxt = ap.status === 'pending' ? <?php echo json_encode(t('admin_users_js_appeal_pending','<span class="badge badge-warning">待审核</span>')); ?> : (ap.status === 'approved' ? <?php echo json_encode(t('admin_users_js_appeal_approved','<span class="badge badge-success">已通过</span>')); ?> : <?php echo json_encode(t('admin_users_js_appeal_rejected','<span class="badge badge-danger">已拒绝</span>')); ?>);
                 html += '<div class="risk-record-item">';
                 html += '<div class="risk-record-head"><span>' + escapeHtml(ap.created_at_fmt) + ' · ' + escapeHtml(ap.appeal_type_fmt) + '</span>' + statusTxt + '</div>';
                 html += '<div class="risk-record-body">' + escapeHtml(ap.appeal_reason) + '</div>';
-                if (ap.admin_note) html += <?php echo addslashes(t('admin_users_js_admin_note','<div class="risk-record-note">管理员备注：')); ?> + escapeHtml(ap.admin_note) + '</div>';
+                if (ap.admin_note) html += <?php echo json_encode(t('admin_users_js_admin_note','<div class="risk-record-note">管理员备注：')); ?> + escapeHtml(ap.admin_note) + '</div>';
                 html += '</div>';
             });
             html += '</div>';
@@ -1020,18 +1022,18 @@ require_once dirname(__DIR__) . '/layout/header.php';
         if (!overlay || !panel) return;
         overlay.classList.add('open');
         overlay.style.display = 'flex';
-        panel.innerHTML = <?php echo addslashes(t('admin_users_js_loading','<p class="text-muted text-center py-2">加载中…</p>')); ?>;
+        panel.innerHTML = <?php echo json_encode(t('admin_users_js_loading','<p class="text-muted text-center py-2">加载中…</p>')); ?>;
         fetch(detailUrl + '&user_id=' + userId, { credentials: 'same-origin' })
             .then(function (r) { return r.json(); })
             .then(function (d) {
                 if (!d || !d.success || !d.detail) {
-                    panel.innerHTML = <?php echo addslashes(t('admin_users_js_drawer_load_failed','<p class="text-error text-center py-2">加载失败。</p>')); ?>;
+                    panel.innerHTML = <?php echo json_encode(t('admin_users_js_drawer_load_failed','<p class="text-error text-center py-2">加载失败。</p>')); ?>;
                     return;
                 }
                 panel.innerHTML = buildUserDrawerHtml(d.detail);
             })
             .catch(function () {
-                panel.innerHTML = <?php echo addslashes(t('admin_users_js_drawer_load_failed','<p class="text-error text-center py-2">加载失败。</p>')); ?>;
+                panel.innerHTML = <?php echo json_encode(t('admin_users_js_drawer_load_failed','<p class="text-error text-center py-2">加载失败。</p>')); ?>;
             });
     }
     function closeDrawer() {
@@ -1044,45 +1046,45 @@ require_once dirname(__DIR__) . '/layout/header.php';
         html += '<img src="' + escapeHtml(u.avatar) + '" alt="" class="avatar" style="width:48px;height:48px;border-radius:50%;">';
         html += '<div style="flex:1;"><div style="font-weight:700;font-size:1.05rem;">' + escapeHtml(u.username) + ' <span class="text-muted" style="font-weight:400;">(UID ' + escapeHtml(u.uid != null ? String(u.uid) : '-') + ')</span></div>';
         html += '<div class="text-muted" style="font-size:0.8rem;">' + escapeHtml(u.email) + '</div></div>';
-        html += <?php echo addslashes(t('admin_users_js_drawer_close_btn','<button type="button" class="btn btn-sm btn-secondary" data-close-drawer>关闭</button></div>')); ?>;
+        html += <?php echo json_encode(t('admin_users_js_drawer_close_btn','<button type="button" class="btn btn-sm btn-secondary" data-close-drawer>关闭</button></div>')); ?>;
 
         html += '<div class="drawer-stat-row">';
-        html += '<div class="drawer-stat"><div class="ds-value">' + escapeHtml(u.status_fmt) + <?php echo addslashes(t('admin_users_js_label_status','</div><div class="ds-label">状态</div></div>')); ?>;
-        html += '<div class="drawer-stat"><div class="ds-value">' + escapeHtml(u.group_title) + <?php echo addslashes(t('admin_users_js_label_group','</div><div class="ds-label">等级</div></div>')); ?>;
-        html += '<div class="drawer-stat"><div class="ds-value">' + (parseInt(u.points,10)||0) + '</div><div class="ds-label">' + <?php echo addslashes(t('admin_users_th_points','积分')); ?> + '</div></div>';
-        html += '<div class="drawer-stat"><div class="ds-value">' + (parseInt(u.coins,10)||0) + <?php echo addslashes(t('admin_users_js_label_coins','</div><div class="ds-label">金币</div></div>')); ?>;
+        html += '<div class="drawer-stat"><div class="ds-value">' + escapeHtml(u.status_fmt) + <?php echo json_encode(t('admin_users_js_label_status','</div><div class="ds-label">状态</div></div>')); ?>;
+        html += '<div class="drawer-stat"><div class="ds-value">' + escapeHtml(u.group_title) + <?php echo json_encode(t('admin_users_js_label_group','</div><div class="ds-label">等级</div></div>')); ?>;
+        html += '<div class="drawer-stat"><div class="ds-value">' + (parseInt(u.points,10)||0) + '</div><div class="ds-label">' + <?php echo json_encode(t('admin_users_th_points','积分')); ?> + '</div></div>';
+        html += '<div class="drawer-stat"><div class="ds-value">' + (parseInt(u.coins,10)||0) + <?php echo json_encode(t('admin_users_js_label_coins','</div><div class="ds-label">金币</div></div>')); ?>;
         html += '</div>';
 
-        html += '<div class="drawer-section"><div class="ds-k">' + <?php echo addslashes(t('admin_users_drawer_risk_score','风险评分')); ?> + '</div><div class="ds-v"><span class="badge" style="background:' + escapeHtml(u.risk.color) + ';color:#fff;">' + escapeHtml(u.risk.label) + <?php echo addslashes(t('admin_users_left_paren','（')); ?> + (parseInt(u.risk.score,10)||0) + <?php echo addslashes(t('admin_users_score_close',' 分）')); ?> + '</span></div></div>';
-        html += <?php echo addslashes(t('admin_users_js_drawer_role','<div class="drawer-section"><div class="ds-k">角色</div><div class="ds-v">')); ?> + escapeHtml(u.role) + '</div></div>';
-        if (u.signature) html += <?php echo addslashes(t('admin_users_js_drawer_signature','<div class="drawer-section"><div class="ds-k">签名</div><div class="ds-v">')); ?> + escapeHtml(u.signature) + '</div></div>';
-        html += '<div class="drawer-section"><div class="ds-k">' + <?php echo addslashes(t('admin_users_th_created_at','注册时间')); ?> + '</div><div class="ds-v">' + escapeHtml(u.created_at_fmt) + <?php echo addslashes(t('admin_users_left_paren','（')); ?> + (u.reg_days||0) + <?php echo addslashes(t('admin_users_js_drawer_days_ago',' 天前）</div></div>')); ?>;
-        html += <?php echo addslashes(t('admin_users_js_drawer_last_active','<div class="drawer-section"><div class="ds-k">最后活跃</div><div class="ds-v">')); ?> + escapeHtml(u.last_active_txt) + '</div></div>';
+        html += '<div class="drawer-section"><div class="ds-k">' + <?php echo json_encode(t('admin_users_drawer_risk_score','风险评分')); ?> + '</div><div class="ds-v"><span class="badge" style="background:' + escapeHtml(u.risk.color) + ';color:#fff;">' + escapeHtml(u.risk.label) + <?php echo json_encode(t('admin_users_left_paren','（')); ?> + (parseInt(u.risk.score,10)||0) + <?php echo json_encode(t('admin_users_score_close',' 分）')); ?> + '</span></div></div>';
+        html += <?php echo json_encode(t('admin_users_js_drawer_role','<div class="drawer-section"><div class="ds-k">角色</div><div class="ds-v">')); ?> + escapeHtml(u.role) + '</div></div>';
+        if (u.signature) html += <?php echo json_encode(t('admin_users_js_drawer_signature','<div class="drawer-section"><div class="ds-k">签名</div><div class="ds-v">')); ?> + escapeHtml(u.signature) + '</div></div>';
+        html += '<div class="drawer-section"><div class="ds-k">' + <?php echo json_encode(t('admin_users_th_created_at','注册时间')); ?> + '</div><div class="ds-v">' + escapeHtml(u.created_at_fmt) + <?php echo json_encode(t('admin_users_left_paren','（')); ?> + (u.reg_days||0) + <?php echo json_encode(t('admin_users_js_drawer_days_ago',' 天前）</div></div>')); ?>;
+        html += <?php echo json_encode(t('admin_users_js_drawer_last_active','<div class="drawer-section"><div class="ds-k">最后活跃</div><div class="ds-v">')); ?> + escapeHtml(u.last_active_txt) + '</div></div>';
         if ((u.status === 'banned' || u.status === 'muted') && u.status_reason) {
-            html += <?php echo addslashes(t('admin_users_js_drawer_reason','<div class="drawer-section"><div class="ds-k">原因</div><div class="ds-v">')); ?> + escapeHtml(u.status_reason) + '</div></div>';
+            html += <?php echo json_encode(t('admin_users_js_drawer_reason','<div class="drawer-section"><div class="ds-k">原因</div><div class="ds-v">')); ?> + escapeHtml(u.status_reason) + '</div></div>';
         }
-        if (u.checkin_streak > 0) html += <?php echo addslashes(t('admin_users_js_drawer_checkin','<div class="drawer-section"><div class="ds-k">连续签到</div><div class="ds-v">')); ?> + (parseInt(u.checkin_streak,10)||0) + <?php echo addslashes(t('admin_users_js_drawer_days',' 天</div></div>')); ?>;
+        if (u.checkin_streak > 0) html += <?php echo json_encode(t('admin_users_js_drawer_checkin','<div class="drawer-section"><div class="ds-k">连续签到</div><div class="ds-v">')); ?> + (parseInt(u.checkin_streak,10)||0) + <?php echo json_encode(t('admin_users_js_drawer_days',' 天</div></div>')); ?>;
 
-        html += <?php echo addslashes(t('admin_users_js_drawer_stats_title','<div class="drawer-subtitle">活动统计</div>')); ?>;
+        html += <?php echo json_encode(t('admin_users_js_drawer_stats_title','<div class="drawer-subtitle">活动统计</div>')); ?>;
         html += '<div class="drawer-stat-row">';
-        html += '<div class="drawer-stat"><div class="ds-value">' + (u.counts.post_count||0) + <?php echo addslashes(t('admin_users_js_label_posts','</div><div class="ds-label">帖子</div></div>')); ?>;
-        html += '<div class="drawer-stat"><div class="ds-value">' + (u.counts.reply_count||0) + <?php echo addslashes(t('admin_users_js_label_replies','</div><div class="ds-label">回复</div></div>')); ?>;
-        html += '<div class="drawer-stat"><div class="ds-value">' + (u.counts.resolved_report_count||0) + <?php echo addslashes(t('admin_users_js_label_resolved_reports','</div><div class="ds-label">违规举报</div></div>')); ?>;
-        html += '<div class="drawer-stat"><div class="ds-value">' + (u.counts.pending_report_count||0) + <?php echo addslashes(t('admin_users_js_label_pending_reports','</div><div class="ds-label">待处理</div></div>')); ?>;
+        html += '<div class="drawer-stat"><div class="ds-value">' + (u.counts.post_count||0) + <?php echo json_encode(t('admin_users_js_label_posts','</div><div class="ds-label">帖子</div></div>')); ?>;
+        html += '<div class="drawer-stat"><div class="ds-value">' + (u.counts.reply_count||0) + <?php echo json_encode(t('admin_users_js_label_replies','</div><div class="ds-label">回复</div></div>')); ?>;
+        html += '<div class="drawer-stat"><div class="ds-value">' + (u.counts.resolved_report_count||0) + <?php echo json_encode(t('admin_users_js_label_resolved_reports','</div><div class="ds-label">违规举报</div></div>')); ?>;
+        html += '<div class="drawer-stat"><div class="ds-value">' + (u.counts.pending_report_count||0) + <?php echo json_encode(t('admin_users_js_label_pending_reports','</div><div class="ds-label">待处理</div></div>')); ?>;
         html += '</div>';
         html += '<div class="drawer-stat-row" style="margin-top:0.5rem;">';
-        html += '<div class="drawer-stat"><div class="ds-value">' + (u.counts.sensitive_hit_count||0) + <?php echo addslashes(t('admin_users_js_label_sensitive','</div><div class="ds-label">敏感词</div></div>')); ?>;
-        html += '<div class="drawer-stat"><div class="ds-value">' + (u.counts.rejected_appeal_count||0) + <?php echo addslashes(t('admin_users_js_label_rejected_appeals','</div><div class="ds-label">申诉被拒</div></div>')); ?>;
+        html += '<div class="drawer-stat"><div class="ds-value">' + (u.counts.sensitive_hit_count||0) + <?php echo json_encode(t('admin_users_js_label_sensitive','</div><div class="ds-label">敏感词</div></div>')); ?>;
+        html += '<div class="drawer-stat"><div class="ds-value">' + (u.counts.rejected_appeal_count||0) + <?php echo json_encode(t('admin_users_js_label_rejected_appeals','</div><div class="ds-label">申诉被拒</div></div>')); ?>;
         html += '</div>';
 
         if (u.recent_posts && u.recent_posts.length) {
-            html += <?php echo addslashes(t('admin_users_js_drawer_recent_posts','<div class="drawer-subtitle">最近帖子</div>')); ?>;
+            html += <?php echo json_encode(t('admin_users_js_drawer_recent_posts','<div class="drawer-subtitle">最近帖子</div>')); ?>;
             u.recent_posts.forEach(function (p) {
                 html += '<div class="drawer-list-item"><span>' + escapeHtml(p.title) + '</span><span class="text-muted" style="font-size:0.72rem;">' + escapeHtml(p.created_at) + '</span></div>';
             });
         }
         if (u.recent_replies && u.recent_replies.length) {
-            html += <?php echo addslashes(t('admin_users_js_drawer_recent_replies','<div class="drawer-subtitle">最近回复</div>')); ?>;
+            html += <?php echo json_encode(t('admin_users_js_drawer_recent_replies','<div class="drawer-subtitle">最近回复</div>')); ?>;
             u.recent_replies.forEach(function (r) {
                 var preview = (r.content || '').replace(/<[^>]+>/g, '');
                 if (preview.length > 40) preview = preview.substring(0, 40) + '…';
@@ -1090,9 +1092,9 @@ require_once dirname(__DIR__) . '/layout/header.php';
             });
         }
         if (u.ban_history && u.ban_history.length) {
-            html += <?php echo addslashes(t('admin_users_js_drawer_ban_history','<div class="drawer-subtitle">封禁 / 申诉历史</div>')); ?>;
+            html += <?php echo json_encode(t('admin_users_js_drawer_ban_history','<div class="drawer-subtitle">封禁 / 申诉历史</div>')); ?>;
             u.ban_history.forEach(function (ap) {
-                var st = ap.status === 'pending' ? <?php echo addslashes(t('admin_users_js_ban_pending','待审核')); ?> : (ap.status === 'approved' ? <?php echo addslashes(t('admin_users_js_ban_approved','已通过')); ?> : <?php echo addslashes(t('admin_users_js_ban_rejected','已拒绝')); ?>);
+                var st = ap.status === 'pending' ? <?php echo json_encode(t('admin_users_js_ban_pending','待审核')); ?> : (ap.status === 'approved' ? <?php echo json_encode(t('admin_users_js_ban_approved','已通过')); ?> : <?php echo json_encode(t('admin_users_js_ban_rejected','已拒绝')); ?>);
                 html += '<div class="drawer-list-item"><span>' + escapeHtml(ap.reason || '') + '</span><span class="text-muted" style="font-size:0.72rem;">' + escapeHtml(st) + '</span></div>';
             });
         }
@@ -1105,7 +1107,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
         var txt = document.getElementById('notify-target-text');
         if (txt) {
             var ids = Array.from(selectedIds);
-            txt.textContent = ids.length > 0 ? (<?php echo addslashes(t('admin_users_js_notify_selected_prefix','已勾选的 ')); ?> + ids.length + <?php echo addslashes(t('admin_users_js_notify_users',' 位用户')); ?>) : <?php echo addslashes(t('admin_users_js_notify_filter_users','当前筛选结果中的用户')); ?>;
+            txt.textContent = ids.length > 0 ? (<?php echo json_encode(t('admin_users_js_notify_selected_prefix','已勾选的 ')); ?> + ids.length + <?php echo json_encode(t('admin_users_js_notify_users',' 位用户')); ?>) : <?php echo json_encode(t('admin_users_js_notify_filter_users','当前筛选结果中的用户')); ?>;
         }
         if (overlay) overlay.style.display = 'flex';
     }
@@ -1146,10 +1148,10 @@ require_once dirname(__DIR__) . '/layout/header.php';
             if (!extra) return;
             var a = this.value, html = '';
             if (a === 'ban' || a === 'mute') {
-                html = <?php echo addslashes(t('admin_users_js_bulk_reason_input','<input type="text" id="bulk-reason" class="form-control" placeholder="原因（可选）" style="width:150px;">')); ?> +
-                       <?php echo addslashes(t('admin_users_js_bulk_days_input','<input type="number" id="bulk-days" class="form-control" placeholder="天数(0=永久)" style="width:120px;" min="0" value="0">')); ?>;
+                html = <?php echo json_encode(t('admin_users_js_bulk_reason_input','<input type="text" id="bulk-reason" class="form-control" placeholder="原因（可选）" style="width:150px;">')); ?> +
+                       <?php echo json_encode(t('admin_users_js_bulk_days_input','<input type="number" id="bulk-days" class="form-control" placeholder="天数(0=永久)" style="width:120px;" min="0" value="0">')); ?>;
             } else if (a === 'set_role') {
-                html = <?php echo addslashes(t('admin_users_js_bulk_role_select','<select id="bulk-role" class="form-control" style="width:auto;"><option value="user">普通用户</option><option value="moderator">版主</option></select>')); ?>;
+                html = <?php echo json_encode(t('admin_users_js_bulk_role_select','<select id="bulk-role" class="form-control" style="width:auto;"><option value="user">普通用户</option><option value="moderator">版主</option></select>')); ?>;
             }
             extra.innerHTML = html;
             extra.style.display = html ? 'inline-block' : 'none';
@@ -1160,11 +1162,11 @@ require_once dirname(__DIR__) . '/layout/header.php';
     if (applyBtn) {
         applyBtn.addEventListener('click', function () {
             var action = document.getElementById('bulk-action-select').value;
-            if (!action) { alert(<?php echo addslashes(t('admin_users_js_select_action','请选择批量操作')); ?>); return; }
+            if (!action) { alert(<?php echo json_encode(t('admin_users_js_select_action','请选择批量操作')); ?>); return; }
             var ids = Array.from(selectedIds);
-            if (ids.length === 0) { alert(<?php echo addslashes(t('admin_users_js_select_users','请先勾选用户')); ?>); return; }
-            if (action === 'delete' && !confirm(<?php echo addslashes(t('admin_users_js_confirm_delete_prefix','确定删除选中的 ')); ?> + ids.length + <?php echo addslashes(t('admin_users_js_confirm_delete_suffix',' 位用户吗？此操作不可恢复。')); ?>)) return;
-            if ((action === 'ban' || action === 'mute') && !confirm(<?php echo addslashes(t('admin_users_js_confirm_action_prefix','确定对选中的 ')); ?> + ids.length + <?php echo addslashes(t('admin_users_js_confirm_action_suffix',' 位用户执行该操作吗？')); ?>)) return;
+            if (ids.length === 0) { alert(<?php echo json_encode(t('admin_users_js_select_users','请先勾选用户')); ?>); return; }
+            if (action === 'delete' && !confirm(<?php echo json_encode(t('admin_users_js_confirm_delete_prefix','确定删除选中的 ')); ?> + ids.length + <?php echo json_encode(t('admin_users_js_confirm_delete_suffix',' 位用户吗？此操作不可恢复。')); ?>)) return;
+            if ((action === 'ban' || action === 'mute') && !confirm(<?php echo json_encode(t('admin_users_js_confirm_action_prefix','确定对选中的 ')); ?> + ids.length + <?php echo json_encode(t('admin_users_js_confirm_action_suffix',' 位用户执行该操作吗？')); ?>)) return;
             var fd = new FormData();
             fd.append('csrf_token', csrfToken);
             fd.append('action', action);
@@ -1182,17 +1184,17 @@ require_once dirname(__DIR__) . '/layout/header.php';
                 .then(function (d) {
                     applyBtn.disabled = false;
                     if (d && d.success) {
-                        alert(d.message || <?php echo addslashes(t('admin_users_js_success','操作成功')); ?>);
+                        alert(d.message || <?php echo json_encode(t('admin_users_js_success','操作成功')); ?>);
                         selectedIds.clear();
                         syncSelectionUI();
                         tbody.querySelectorAll('.row-check').forEach(function (c) { c.checked = false; });
                         if (selAll) selAll.checked = false;
                         refreshList();
                     } else {
-                        alert(d.error || <?php echo addslashes(t('admin_users_js_failed','操作失败')); ?>);
+                        alert(d.error || <?php echo json_encode(t('admin_users_js_failed','操作失败')); ?>);
                     }
                 })
-                .catch(function () { applyBtn.disabled = false; alert(<?php echo addslashes(t('admin_users_js_network_error','网络错误')); ?>); });
+                .catch(function () { applyBtn.disabled = false; alert(<?php echo json_encode(t('admin_users_js_network_error','网络错误')); ?>); });
         });
     }
     // 清空选择
@@ -1222,11 +1224,11 @@ require_once dirname(__DIR__) . '/layout/header.php';
     if (notifySend) {
         notifySend.addEventListener('click', function () {
             var content = (document.getElementById('notify-content') || {}).value || '';
-            if (!content.trim()) { alert(<?php echo addslashes(t('admin_users_js_input_content','请输入站内信内容')); ?>); return; }
+            if (!content.trim()) { alert(<?php echo json_encode(t('admin_users_js_input_content','请输入站内信内容')); ?>); return; }
             var useFilter = document.getElementById('notify-scope-filter') && document.getElementById('notify-scope-filter').checked;
             var ids = Array.from(selectedIds);
-            if (!useFilter && ids.length === 0) { alert(<?php echo addslashes(t('admin_users_js_notify_select_hint','请先勾选用户，或勾选“发送给当前筛选结果”。')); ?>); return; }
-            if (!confirm(<?php echo addslashes(t('admin_users_js_confirm_send','确定发送站内信？')); ?> + (useFilter ? <?php echo addslashes(t('admin_users_js_send_to_filter','将发送给当前筛选结果中的所有用户。')); ?> : (<?php echo addslashes(t('admin_users_js_send_to_selected_prefix','将发送给选中的 ')); ?> + ids.length + <?php echo addslashes(t('admin_users_js_send_to_selected_suffix',' 位用户。')); ?>)))) return;
+            if (!useFilter && ids.length === 0) { alert(<?php echo json_encode(t('admin_users_js_notify_select_hint','请先勾选用户，或勾选“发送给当前筛选结果”。')); ?>); return; }
+            if (!confirm(<?php echo json_encode(t('admin_users_js_confirm_send','确定发送站内信？')); ?> + (useFilter ? <?php echo json_encode(t('admin_users_js_send_to_filter','将发送给当前筛选结果中的所有用户。')); ?> : (<?php echo json_encode(t('admin_users_js_send_to_selected_prefix','将发送给选中的 ')); ?> + ids.length + <?php echo json_encode(t('admin_users_js_send_to_selected_suffix',' 位用户。')); ?>)))) return;
             var fd = new FormData();
             fd.append('csrf_token', csrfToken);
             fd.append('action', 'send_pm');
@@ -1244,10 +1246,10 @@ require_once dirname(__DIR__) . '/layout/header.php';
                 .then(function (r) { return r.json(); })
                 .then(function (d) {
                     notifySend.disabled = false;
-                    if (d && d.success) { alert(d.message || <?php echo addslashes(t('admin_users_js_sent','发送成功')); ?>); closeNotify(); }
-                    else { alert(d.error || <?php echo addslashes(t('admin_users_js_send_failed','发送失败')); ?>); }
+                    if (d && d.success) { alert(d.message || <?php echo json_encode(t('admin_users_js_sent','发送成功')); ?>); closeNotify(); }
+                    else { alert(d.error || <?php echo json_encode(t('admin_users_js_send_failed','发送失败')); ?>); }
                 })
-                .catch(function () { notifySend.disabled = false; alert(<?php echo addslashes(t('admin_users_js_network_error','网络错误')); ?>); });
+                .catch(function () { notifySend.disabled = false; alert(<?php echo json_encode(t('admin_users_js_network_error','网络错误')); ?>); });
         });
     }
     // 批量通知按钮

@@ -508,7 +508,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
             })
             .catch(function(err) {
                 fetching = false;
-                console.error(<?php echo addslashes(t('admin_traffic_monitor_bea187','流量数据加载失败:')); ?>, err);
+                console.error(<?php echo json_encode(t('admin_traffic_monitor_bea187','流量数据加载失败:')); ?>, err);
                 var indicator = document.getElementById('refresh-indicator');
                 if (indicator && !indicator.querySelector('.err-msg')) {
                     var span = document.createElement('span');

@@ -151,7 +151,7 @@
     'common_8404ac' => 'left: ',
     'admin_users_07517c' => '" style="cursor:pointer;" title="Click to view user details"><div class="user-cell"><img src="',
     'admin_users_bdc0a5' => 'Please select a bulk action',
-    'admin_ban_appeals_b82e0b' => '&csrf_token=<?php echo csrf_token(); ?>" class="btn btn-sm btn-danger" data-confirm="Delete this appeal record?">Delete</a>',
+    'admin_ban_appeals_b82e0b' => '" class="btn btn-sm btn-danger" data-confirm="Delete this appeal record?">Delete</a>',
     'common_a34c44' => 'Premium Member',
     'report_ffc21f' => 'New report received',
     'send_email_code_f9b9e9' => 'Security verification failed. Please refresh the page and try again.',

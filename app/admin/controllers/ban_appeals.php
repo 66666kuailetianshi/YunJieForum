@@ -467,24 +467,24 @@ endif;
 
     function renderRow(a) {
         var statusBadge = '';
-        if (a.status === 'pending') statusBadge = <?php echo addslashes(t('admin_ban_appeals_9718ac','<span class="badge badge-warning">待审核</span>')); ?>;
-        else if (a.status === 'approved') statusBadge = <?php echo addslashes(t('admin_ban_appeals_452750','<span class="badge badge-success">已通过</span>')); ?>;
-        else statusBadge = <?php echo addslashes(t('admin_ban_appeals_4e768e','<span class="badge badge-danger">已拒绝</span>')); ?>;
+        if (a.status === 'pending') statusBadge = <?php echo json_encode(t('admin_ban_appeals_9718ac','<span class="badge badge-warning">待审核</span>')); ?>;
+        else if (a.status === 'approved') statusBadge = <?php echo json_encode(t('admin_ban_appeals_452750','<span class="badge badge-success">已通过</span>')); ?>;
+        else statusBadge = <?php echo json_encode(t('admin_ban_appeals_4e768e','<span class="badge badge-danger">已拒绝</span>')); ?>;
 
         var typeBadge = a.appeal_type === 'mute'
-            ? <?php echo addslashes(t('admin_ban_appeals_fff06a','<span class="badge" style="background:#f59e0b;color:#fff;">禁言申诉</span>')); ?>
-            : <?php echo addslashes(t('admin_ban_appeals_8908df','<span class="badge badge-danger">封禁申诉</span>')); ?>;
+            ? <?php echo json_encode(t('admin_ban_appeals_fff06a','<span class="badge" style="background:#f59e0b;color:#fff;">禁言申诉</span>')); ?>
+            : <?php echo json_encode(t('admin_ban_appeals_8908df','<span class="badge badge-danger">封禁申诉</span>')); ?>;
 
-        var reason = a.ban_reason !== '' ? escapeHtml(a.ban_reason.length > 50 ? a.ban_reason.substring(0, 50) : a.ban_reason) : <?php echo addslashes(t('admin_ban_appeals_22f2f3','<span class="text-muted">未填写</span>')); ?>;
+        var reason = a.ban_reason !== '' ? escapeHtml(a.ban_reason.length > 50 ? a.ban_reason.substring(0, 50) : a.ban_reason) : <?php echo json_encode(t('admin_ban_appeals_22f2f3','<span class="text-muted">未填写</span>')); ?>;
         var appealText = a.appeal_reason.length > 100 ? a.appeal_reason.substring(0, 100) + '…' : a.appeal_reason;
 
-        var handledHtml = a.handled_at_fmt ? <?php echo addslashes(t('admin_ban_appeals_66f0c7','<div class="text-muted" style="font-size:0.75rem;">处理于 ')); ?> + escapeHtml(a.handled_at_fmt) + '</div>' : '';
+        var handledHtml = a.handled_at_fmt ? <?php echo json_encode(t('admin_ban_appeals_66f0c7','<div class="text-muted" style="font-size:0.75rem;">处理于 ')); ?> + escapeHtml(a.handled_at_fmt) + '</div>' : '';
 
-        var actionHtml = '<a href="<?php echo site_url('admin/ban_appeals'); ?>&action=view&appeal_id=' + a.id + <?php echo addslashes(t('admin_ban_appeals_803dce','" class="btn btn-sm btn-secondary">查看</a> ')); ?>;
+        var actionHtml = '<a href="<?php echo site_url('admin/ban_appeals'); ?>&action=view&appeal_id=' + a.id + <?php echo json_encode(t('admin_ban_appeals_803dce','" class="btn btn-sm btn-secondary">查看</a> ')); ?>;
         if (a.status === 'pending') {
-            actionHtml += '<a href="<?php echo site_url('admin/ban_appeals'); ?>&action=view&appeal_id=' + a.id + <?php echo addslashes(t('admin_ban_appeals_53e582','" class="btn btn-sm btn-primary">审核</a> ')); ?>;
+            actionHtml += '<a href="<?php echo site_url('admin/ban_appeals'); ?>&action=view&appeal_id=' + a.id + <?php echo json_encode(t('admin_ban_appeals_53e582','" class="btn btn-sm btn-primary">审核</a> ')); ?>;
         }
-        actionHtml += '<a href="<?php echo site_url('admin/ban_appeals'); ?>&action=delete&appeal_id=' + a.id + <?php echo addslashes(t('admin_ban_appeals_b82e0b','&csrf_token=<?php echo csrf_token(); ?>" class="btn btn-sm btn-danger" data-confirm="确定删除该申诉记录吗？">删除</a>')); ?>;
+        actionHtml += '<a href="<?php echo site_url('admin/ban_appeals'); ?>&action=delete&appeal_id=' + a.id + '&csrf_token=' + <?php echo json_encode(csrf_token()); ?> + <?php echo json_encode(t('admin_ban_appeals_b82e0b','" class="btn btn-sm btn-danger" data-confirm="确定删除该申诉记录吗？">删除</a>')); ?>;
 
         return '<tr>' +
             '<td>' + typeBadge + '</td>' +
@@ -520,7 +520,7 @@ endif;
                 var appeals = data.appeals || [];
                 if (appeals.length === 0) {
                     if (tbody) {
-                        tbody.innerHTML = <?php echo addslashes(t('admin_ban_appeals_f9d086','<tr><td colspan="7" class="text-center text-muted">暂无申诉记录</td></tr>')); ?>;
+                        tbody.innerHTML = <?php echo json_encode(t('admin_ban_appeals_f9d086','<tr><td colspan="7" class="text-center text-muted">暂无申诉记录</td></tr>')); ?>;
                     }
                     return;
                 }
