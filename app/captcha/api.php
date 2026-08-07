@@ -18,7 +18,12 @@ header('Cache-Control: no-store');
 
 $action = $_GET['action'] ?? ($_POST['action'] ?? 'get');
 $debug  = function_exists('get_site_setting') && get_site_setting('captcha_debug', '0') === '1';
-$resp   = ['enabled' => captcha_enabled(), 'display' => captcha_display()];
+
+// 只在 'get' 动作时返回 display 字段（其他动作不需要重复传递）
+$resp   = ['enabled' => captcha_enabled()];
+if ($action === 'get') {
+    $resp['display'] = captcha_display();
+}
 
 if ($debug) {
     $resp['debug'] = [

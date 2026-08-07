@@ -50,7 +50,7 @@
 | Ops & Monitoring | Traffic statistics (visit records), system status, database backup, automatic schema migration, installation/error logs |
 | Multi-language | Built-in `Simplified Chinese / Traditional Chinese / English`, auto-detected by URL, Cookie, config, and browser language |
 | Themes | Light/dark dual themes based on CSS variables (light / dark), customizable colors and skins |
-| CAPTCHA | Built-in slider jigsaw, click text, and reasoning swap three-mode human verification with GD-generated backgrounds, behavior scoring, trigger modes (always/suspicious/high-risk), display modes (inline/popup/trigger), and admin one-click switching. No third-party service required |
+| CAPTCHA | Supports "slider jigsaw", "click text", and "reasoning swap" challenge modes with one-click switching or smart mixing; display modes include inline embedding and popup; behavioral scoring allows seamless verification for legitimate users |
 
 ---
 
@@ -428,6 +428,14 @@ Click-text rendering depends on GD and a font file. It falls back to the system 
 **Q9. How to enable Reasoning Swap verification?**
 In "Site Settings → CAPTCHA Settings", select "Reasoning Swap Verification (swap tiles to restore image)", and configure trigger mode (always/suspicious/high-risk) and display mode (inline/popup/trigger). This mode supports Simplified Chinese/Traditional Chinese/English hints.
 
+### 常见问题 (FAQ)
+
+**Q7. Jigsaw verification seems aligned but fails?**
+First force-refresh the browser (`Ctrl+F5`) to load the latest `captcha.js`. If the container is squeezed by CSS so the stage width is not 300px, the system will automatically scale coordinates proportionally. You can also temporarily switch to "Click text" or "Reasoning swap" in "Site settings → Verification method" to troubleshoot.
+
+**Q8. Chinese characters display as boxes in click-text verification?**
+Click-text rendering depends on GD and a font file. It falls back to the system font by default; if Chinese characters display poorly, place a Chinese font (e.g. `SourceHanSansSC-Regular.otf`) in `app/captcha/fonts/` and the system will prefer it automatically.
+
 **Q10. Where is Trigger Mode for CAPTCHA set?**
 In "Site Settings → CAPTCHA Settings", find the "Display Mode" dropdown and select "Trigger Mode (show verification when mouse enters)". The verification window will automatically pop up when users move their mouse to input fields, providing a more user-friendly experience.
 
@@ -436,9 +444,4 @@ In "Site Settings → CAPTCHA Settings", find the "Display Mode" dropdown and se
 > Documentation compiled from the project source (`index.php`, `install.php`, `app/includes/*`, `public/*`), version `1.3.4-beta`.
 > If it differs from the actual implementation, please follow the code and the installation wizard prompts.
 
----
 
-## Other Language Versions
-
-- [简体中文 (README.md)](README.md)
-- [繁體中文 (README.zh-TW.md)](README.zh-TW.md)

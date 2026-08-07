@@ -1576,7 +1576,6 @@ return [
     'settings_captcha_style_hint' => '選擇驗證方式的樣式風格',
     'settings_captcha_display_inline' => '行內嵌入',
     'settings_captcha_display_popup' => '彈窗模式',
-    'settings_captcha_display_trigger' => '觸發式驗證',
     'settings_captcha_display_hint' => '選擇驗證組件的展示方式',
     'settings_captcha_difficulty_easy' => '簡單',
     'settings_captcha_difficulty_normal' => '普通',

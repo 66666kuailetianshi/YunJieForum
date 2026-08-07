@@ -412,9 +412,12 @@ function captcha_swap_challenge(array $cap): array {
         return ['ok' => false, 'error' => 'gd_unavailable'];
     }
 
-    // 初始顺序：[0, 1, 2, 3] 等
+    // ========== 正确顺序始终是 [0,1,2,3] ==========
+    $correctOrder = range(0, $total - 1);  // [0,1,2,3]
+    
+    // 初始顺序：被打乱的顺序
     $order = range(0, $total - 1);
-
+    
     // 随机交换 2 个位置制造"破损"
     $a = random_int(0, $total - 1);
     $b = random_int(0, $total - 1);
@@ -430,7 +433,7 @@ function captcha_swap_challenge(array $cap): array {
     $cap['mode']       = 'swap';
     $cap['swap_a']     = $a;
     $cap['swap_b']     = $b;
-    $cap['answer']     = $order; // 正确的排列顺序
+    $cap['answer']     = $correctOrder; // ✅ 正确答案是 [0,1,2,3]
     $cap['cols']       = $cols;
     $cap['rows']       = $rows;
     $cap['piece_w']    = $pieceW;
@@ -514,8 +517,13 @@ function captcha_swap_verify(string $token, array $order): array {
     }
 
     $expected = $cap['answer'] ?? [];
+    
+    // ========== 调试：记录实际收到的值 ==========
+    error_log('swap verify - expected: ' . json_encode($expected) . ', got: ' . json_encode($order));
+    
+    // 确保数组索引从 0 开始连续
     $got = array_values($order);
-    if ($got === $expected) {
+    if (json_encode($got) === json_encode($expected)) {
         $cap['passed'] = true;
         $_SESSION['captcha'] = $cap;
         return ['ok' => true];
@@ -549,14 +557,14 @@ function captcha_difficulty(): string {
 }
 
 /**
- * 验证显示方式：内嵌 (inline) / 弹窗 (popup) / 触发 (trigger)，默认内嵌
+ * 验证显示方式：内嵌 (inline) / 弹窗 (popup)，默认内嵌
  */
 function captcha_display(): string {
     if (!function_exists('get_site_setting')) {
         return 'inline';
     }
     $v = get_site_setting('captcha_display', 'inline');
-    return in_array($v, ['inline', 'popup', 'trigger'], true) ? $v : 'inline';
+    return in_array($v, ['inline', 'popup'], true) ? $v : 'inline';
 }
 
 /** 各难度对应的行为通过分数门槛 */

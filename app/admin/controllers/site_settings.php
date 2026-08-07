@@ -209,9 +209,8 @@ if ($flash): ?>
             <select class="form-control" id="captcha_display" name="captcha_display">
                 <option value="inline" <?php echo $captchaDisplay === 'inline' ? 'selected' : ''; ?>><?php echo e(t('settings_captcha_display_inline', '内嵌式（验证框直接显示在表单中）')); ?></option>
                 <option value="popup" <?php echo $captchaDisplay === 'popup' ? 'selected' : ''; ?>><?php echo e(t('settings_captcha_display_popup', '弹窗式（点击提交时弹出验证框）')); ?></option>
-                <option value="trigger" <?php echo $captchaDisplay === 'trigger' ? 'selected' : ''; ?>><?php echo e(t('settings_captcha_display_trigger', '触发式（鼠标移入时显示验证框）')); ?></option>
             </select>
-            <p class="form-hint"><?php echo e(t('settings_captcha_display_hint', '弹窗式在用户点击登录、注册、重置密码提交按钮时才弹出验证框，界面更简洁；触发式则在鼠标移入输入框时自动显示验证框，更加友好。')); ?></p>
+            <p class="form-hint"><?php echo e(t('settings_captcha_display_hint', '弹窗式在用户点击登录、注册、重置密码提交按钮时才弹出验证框，界面更简洁；内嵌式则始终显示在表单中。')); ?></p>
             <label class="form-label" for="captcha_difficulty" style="margin-top: 0.75rem;"><?php echo e(t('settings_captcha_difficulty', '验证难度')); ?></label>
             <select class="form-control" id="captcha_difficulty" name="captcha_difficulty">
                 <option value="easy" <?php echo $captchaDifficulty === 'easy' ? 'selected' : ''; ?>><?php echo e(t('settings_captcha_difficulty_easy', '简单（友好通过，验证少）')); ?></option>
