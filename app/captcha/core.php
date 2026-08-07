@@ -571,7 +571,9 @@ function captcha_max_attempts(): int {
 
 /** 各难度对应的滑块容差（像素，越小越难） */
 function captcha_slider_tolerance(): int {
-    return ['easy' => 12, 'normal' => 8, 'hard' => 5][captcha_difficulty()] ?? 8;
+    $d = captcha_difficulty();
+    $base = ['easy' => 15, 'normal' => 10, 'hard' => 7][$d] ?? 10;
+    return $base;
 }
 
 /** 各难度对应的点选目标字数量 [min, max] */
@@ -824,6 +826,9 @@ function captcha_click_verify(string $token, $seq): array {
 /**
  * 滑块拖拽松手后的即时校验：|x - gap| <= 容差 则标记已通过
  */
+/**
+ * 校验拼图滑块拖拽位置是否对齐缺口
+ */
 function captcha_slider_verify(string $token, $x): array {
     $cap = $_SESSION['captcha'] ?? null;
     if (!is_array($cap) || ($cap['token'] ?? '') !== $token) {
@@ -838,12 +843,18 @@ function captcha_slider_verify(string $token, $x): array {
     }
 
     $x = (int)$x;
-    if (abs($x - (int)$cap['gap']) <= (int)($cap['tol'] ?? SLIDER_CAPTCHA_TOLERANCE)) {
+    $tol = (int)($cap['tol'] ?? captcha_slider_tolerance());
+    
+    // ========== 增强容差：允许一定的视觉偏差 ==========
+    $diff = abs($x - (int)$cap['gap']);
+    $tolWithMargin = max($tol + 3, $tol); // 增加至少 3px 的余量
+    
+    if ($diff <= $tolWithMargin) {
         $cap['passed'] = true;
         $_SESSION['captcha'] = $cap;
         return ['ok' => true];
     }
-
+    
     $cap['attempts'] = ($cap['attempts'] ?? 0) + 1;
     $_SESSION['captcha'] = $cap;
     return ['ok' => false];

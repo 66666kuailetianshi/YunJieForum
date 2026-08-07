@@ -402,7 +402,9 @@
             var pw = data.piece_width || 58;
             var gapY = data.gap_y || 0;
             var renderedW = stageEl.clientWidth || W;
-            var scale = renderedW > 0 ? W / renderedW : 1;
+            var renderedH = stageEl.clientHeight || H;
+            var scaleX = renderedW > 0 ? W / renderedW : 1;
+            var scaleY = renderedH > 0 ? H / renderedH : 1;
             var maxX = W - pw;
             var x = 0;
             var dragging = false;
@@ -412,8 +414,12 @@
 
             function setX(nx) {
                 x = Math.max(0, Math.min(maxX, nx));
-                pieceImg.style.left = (x / scale) + 'px';
-                pieceImg.style.top = (gapY / scale) + 'px';
+                // ========== 使用正确的比例转换 ==========
+                var displayX = x / scaleX;
+                var displayY = gapY / scaleY;
+                pieceImg.style.left = displayX + 'px';
+                pieceImg.style.top = displayY + 'px';
+                
                 var ratio = maxX > 0 ? x / maxX : 0;
                 var trackW = trackEl.offsetWidth - 44;
                 knob.style.left = Math.max(0, Math.min(trackW, ratio * trackW)) + 'px';
