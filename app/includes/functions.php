@@ -178,17 +178,30 @@ function validate_post_nonce(?string $token = null): bool {
  * 作为幂等 token 失效后的第二道防线（例如用户新开标签页绕过 session）。
  * 跨库安全：不在 SQL 里使用数据库专属函数，查询后在 PHP 中做哈希比对。
  */
-function has_recent_duplicate_post(int $userId, string $title, string $content, int $seconds = 30): bool {
+function has_recent_duplicate_post(int $userId, string $title, string $content, int $seconds = 30, ?int $boardId = null): bool {
     try {
         $db = get_db();
         $driver = get_db_driver();
-        // 用各数据库都支持的日期减法语法
-        if ($driver instanceof SQLiteDriver) {
-            $stmt = $db->prepare("SELECT title, content FROM posts WHERE user_id = :uid AND created_at >= datetime('now', '-' || :sec || ' seconds') ORDER BY created_at DESC LIMIT 10");
+        
+        // 如果指定了 board_id，则只检查同一板块内的重复帖子
+        if ($boardId !== null && $boardId > 0) {
+            $whereClause = "user_id = :uid AND forum_id = :bid AND created_at >= ";
         } else {
-            $stmt = $db->prepare("SELECT title, content FROM posts WHERE user_id = :uid AND created_at >= DATE_SUB(NOW(), INTERVAL :sec SECOND) ORDER BY created_at DESC LIMIT 10");
+            $whereClause = "user_id = :uid AND created_at >= ";
         }
-        $stmt->execute([':uid' => $userId, ':sec' => $seconds]);
+        
+        if ($driver instanceof SQLiteDriver) {
+            $stmt = $db->prepare($whereClause . "datetime('now', '-' || :sec || ' seconds') ORDER BY created_at DESC LIMIT 10");
+        } else {
+            $stmt = $db->prepare($whereClause . "DATE_SUB(NOW(), INTERVAL :sec SECOND) ORDER BY created_at DESC LIMIT 10");
+        }
+        
+        $params = [':uid' => $userId, ':sec' => $seconds];
+        if ($boardId !== null && $boardId > 0) {
+            $params[':bid'] = $boardId;
+        }
+        
+        $stmt->execute($params);
         $expectedHash = md5($title . "\n" . $content);
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
             if (md5(($row['title'] ?? '') . "\n" . ($row['content'] ?? '')) === $expectedHash) {

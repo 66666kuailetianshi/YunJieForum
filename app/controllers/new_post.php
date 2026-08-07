@@ -62,8 +62,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $errors[] = t('newpost_error_title_too_long', '标题不能超过 255 个字符。');
         }
 
-        // 防止重复发帖：最近 30 秒内存在标题+内容完全相同的帖子则拒绝
-        if (has_recent_duplicate_post((int)$_SESSION['user_id'], $title, $content, 30)) {
+        // 防止重复发帖：最近 30 秒内存在标题 + 内容完全相同的帖子则拒绝（跨板块不检查）
+        if (has_recent_duplicate_post((int)$_SESSION['user_id'], $title, $content, 30, (int)$forumId)) {
             $errors[] = t('newpost_error_duplicate', '你刚刚发布过完全相同的帖子，请勿重复提交。');
         }
 

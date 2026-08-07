@@ -152,7 +152,11 @@ require_once dirname(__DIR__) . '/layout/header.php';
 
                     <div style="display:flex;gap:0.75rem;margin-top:1rem;flex-wrap:wrap;">
                         <button type="submit" class="btn btn-primary"><?php echo e(t('admin_pages_save_publish', '保存并发布')); ?></button>
-                        <a href="<?php echo e('/' . ($editingPage['slug'] === 'privacy' ? 'privacy' : ($editingPage['slug'] === 'disclaimer' ? 'disclaimer' : ($editingPage['slug'] === 'service' ? 'service' : 'terms')))); ?>"
+                        <?php 
+                        $previewSlug = $editingPage['slug'];
+                        $previewRoute = in_array($previewSlug, ['privacy', 'disclaimer', 'service', 'terms']) ? $previewSlug : 'home';
+                        ?>
+                        <a href="/index.php?route=<?php echo e($previewRoute); ?>"
                            target="_blank" class="btn btn-secondary" rel="noopener"><?php echo e(t('admin_pages_frontend_preview', '前台预览')); ?></a>
                     </div>
                 </form>

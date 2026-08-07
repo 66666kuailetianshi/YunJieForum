@@ -10,13 +10,13 @@
         <div class="container footer-inner">
             <p>&copy; <?php echo date('Y'); ?> <?php echo e(SITE_NAME); ?> · <?php echo e(t('all_rights_reserved', '保留所有权利')); ?></p>
             <p class="footer-links">
-                <a href="<?php echo site_url('service'); ?>"><?php echo e(t('footer_service', '服务协议')); ?></a>
+                <a href="/index.php?route=service"><?php echo e(t('footer_service', '服务协议')); ?></a>
                 <span class="footer-sep">·</span>
-                <a href="<?php echo site_url('terms'); ?>"><?php echo e(t('footer_terms', '用户协议')); ?></a>
+                <a href="/index.php?route=terms"><?php echo e(t('footer_terms', '用户协议')); ?></a>
                 <span class="footer-sep">·</span>
-                <a href="<?php echo site_url('privacy'); ?>"><?php echo e(t('footer_privacy', '隐私政策')); ?></a>
+                <a href="/index.php?route=privacy"><?php echo e(t('footer_privacy', '隐私政策')); ?></a>
                 <span class="footer-sep">·</span>
-                <a href="<?php echo site_url('disclaimer'); ?>"><?php echo e(t('footer_disclaimer', '免责声明')); ?></a>
+                <a href="/index.php?route=disclaimer"><?php echo e(t('footer_disclaimer', '免责声明')); ?></a>
             </p>
         </div>
     </footer>
