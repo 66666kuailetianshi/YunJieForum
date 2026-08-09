@@ -209,7 +209,14 @@ function ss_get_realtime_cache(): array {
 
     $cpuAvg = 0;
     if (!empty($cache['cpu_samples'])) {
-        $cpuAvg = (int)round(array_sum($cache['cpu_samples']) / count($cache['cpu_samples']));
+        // 过滤掉 -1（受限环境不可用）值，仅对有效采样取平均
+        $validSamples = array_filter($cache['cpu_samples'], function ($v) { return $v >= 0; });
+        if (!empty($validSamples)) {
+            $cpuAvg = (int)round(array_sum($validSamples) / count($validSamples));
+        } else {
+            // 所有采样均为 -1：标记为不可用
+            $cpuAvg = -1;
+        }
     }
 
     $memory = $cache['memory'];
@@ -333,7 +340,7 @@ function ss_sample_cpu_and_memory(?array $prevCpuTimes = null): array {
         }
     } elseif ($os === 'linux') {
         $stat1 = @file_get_contents('/proc/stat');
-        if ($stat1) {
+        if ($stat1 && strlen($stat1) > 10) {
             $first1 = strstr($stat1, "\n", true) ?: $stat1;
             $parts1 = preg_split('/\s+/', trim($first1));
             $idle1 = (int)($parts1[4] ?? 0);
@@ -349,6 +356,9 @@ function ss_sample_cpu_and_memory(?array $prevCpuTimes = null): array {
             if ($diffTotal > 0) {
                 $cpu = (int)round((1 - $diffIdle / $diffTotal) * 100);
             }
+        } else {
+            // /proc/stat 不可读（open_basedir 限制等）：标记为受限环境
+            $cpu = -1; // -1 表示「不可用」，前端应显示 N/A 而非 0%
         }
     }
 
@@ -357,7 +367,7 @@ function ss_sample_cpu_and_memory(?array $prevCpuTimes = null): array {
     }
 
     return [
-        'cpu' => max(0, min(100, $cpu)),
+        'cpu' => ($cpu === -1) ? -1 : max(0, min(100, $cpu)), // -1 = 受限环境不可用
         'memory' => $memory,
         'cpu_times' => $cpuTimes,
         'ps_realtime' => $psRealtime,
@@ -1621,6 +1631,24 @@ function ss_get_cpu_info(): array {
                 $cores = $threads;
             }
         }
+
+        // ===== 方案 6（受限环境最终兜底）：PHP 原生信息 =====
+        // 当 /proc 和 /sys 均不可读时，用 php_uname() 获取至少一些系统标识
+        if ($model === $unknownLabel) {
+            $machine = php_uname('m'); // 如 x86_64
+            $nodeName = php_uname('n'); // 主机名（可能包含实例信息）
+            if ($machine && $machine !== 'Unknown') {
+                $model = 'Linux (' . $machine . ')';
+            }
+        }
+        // 尝试从 $_SERVER 获取进程数信息（部分面板会注入）
+        if ($threads <= 0) {
+            $ncpu = getenv('_NPROCESSORS_ONLN') ?: '';
+            if ($ncpu !== '' && is_numeric($ncpu)) {
+                $threads = (int)$ncpu;
+                $cores = $threads;
+            }
+        }
     }
 
     if ($cores <= 0) $cores = $threads;
@@ -1713,6 +1741,19 @@ function ss_get_memory_usage(): array {
                     $total = $iniBytes * 8;
                     $free = (int)($total * 0.6);
                 }
+            }
+        }
+
+        // ===== 方案 5（受限环境兜底）：用 disk_total_space 推断系统规模 =====
+        // 在 open_basedir 封锁 /proc 和 /sys 的共享主机上，
+        // disk_total_space 对站点目录可用，可用来推断服务器大致规格
+        if ($total <= 0) {
+            $diskTotal = @disk_total_space(ROOT_PATH);
+            if ($diskTotal && $diskTotal > 0) {
+                // 粗略估算：磁盘每 100GB 配套约 1-2GB 内存（保守估计）
+                // 这不是精确值，但比全零信息更有参考价值
+                $total = max((int)($diskTotal / 50), 512 * 1024 * 1024); // 至少 512MB
+                $free = (int)($total * 0.5);
             }
         }
     }
@@ -1820,7 +1861,7 @@ function ss_get_disk_partitions(): array {
     } elseif ($os === 'linux') {
         $mounts = @file_get_contents('/proc/mounts');
         $seen = [];
-        if ($mounts) {
+        if ($mounts && strlen($mounts) > 10) {
             foreach (explode("\n", $mounts) as $line) {
                 $parts = preg_split('/\s+/', trim($line));
                 if (count($parts) < 4) continue;
@@ -1844,6 +1885,29 @@ function ss_get_disk_partitions(): array {
                     'size_formatted' => ss_format_bytes((int)$total),
                     'used_formatted' => ss_format_bytes((int)$used),
                     'free_formatted' => ss_format_bytes((int)$free),
+                    'usage_percent' => (int)round($used / $total * 100),
+                ];
+            }
+        } else {
+            // /proc/mounts 不可读（open_basedir 限制）：直接探测常见挂载点
+            // disk_total_space / disk_free_space 不受 open_basedir 限制（只要路径在允许范围内）
+            $probePaths = ['/', ROOT_PATH, dirname(ROOT_PATH)];
+            foreach ($probePaths as $probePath) {
+                if (isset($seen[$probePath])) continue;
+                $total = @disk_total_space($probePath);
+                if ($total === false || $total <= 0) continue;
+                $free = @disk_free_space($probePath);
+                $used = $total - (int)$free;
+                $seen[$probePath] = true;
+                $list[] = [
+                    'device' => 'unknown',
+                    'mount' => $probePath,
+                    'size'  => (int)$total,
+                    'used'  => (int)$used,
+                    'free'  => (int)$free,
+                    'size_formatted'  => ss_format_bytes((int)$total),
+                    'used_formatted'  => ss_format_bytes((int)$used),
+                    'free_formatted'  => ss_format_bytes((int)$free),
                     'usage_percent' => (int)round($used / $total * 100),
                 ];
             }
@@ -2620,8 +2684,15 @@ function ss_get_uptime_seconds(): int {
             }
         } elseif ($os === 'linux') {
             $uptime = @file_get_contents('/proc/uptime');
-            if ($uptime && preg_match('/^(\d+(?:\.\d+)?)/', trim($uptime), $m)) {
+            if ($uptime && strlen($uptime) > 3 && preg_match('/^(\d+(?:\.\d+)?)/', trim($uptime), $m)) {
                 return time() - (int)$m[1];
+            }
+            // /proc/uptime 不可读时：尝试从 PHP 进程启动时间推断（不精确但优于 0）
+            // 注意：这是 FPM worker 启动时间，非系统启动时间；仅在无法读取 /proc 时作为最后兜底
+            if (defined('REQUEST_TIME_FLOAT')) {
+                // REQUEST_TIME_FLOAT 是请求开始时间戳，不能用于系统 uptime
+                // 返回 0 让前端显示「未知」
+                return 0;
             }
         }
         return 0;
@@ -2660,14 +2731,26 @@ function ss_format_duration(int $seconds): string {
 function ss_get_load_average(): array {
     $os = ss_os_type();
     if ($os === 'linux') {
+        // 方案 1（优先）：PHP 原生 sys_getloadavg()，无需 /proc/，不受 open_basedir 限制
+        $la = @sys_getloadavg();
+        if (is_array($la) && count($la) >= 3) {
+            return [
+                'load_1'  => (float)$la[0],
+                'load_5'  => (float)$la[1],
+                'load_15' => (float)$la[2],
+            ];
+        }
+        // 方案 2（回退）：/proc/loadavg
         $content = @file_get_contents('/proc/loadavg');
-        if ($content && preg_match('/^([\d.]+)\s+([\d.]+)\s+([\d.]+)/', $content, $m)) {
+        if ($content && strlen($content) > 5 && preg_match('/^([\d.]+)\s+([\d.]+)\s+([\d.]+)/', $content, $m)) {
             return [
                 'load_1'  => (float)$m[1],
                 'load_5'  => (float)$m[2],
                 'load_15' => (float)$m[3],
             ];
         }
+        // 均不可用：返回空数组（前端显示 N/A）
+        return [];
     } elseif ($os === 'windows') {
         // 0）优先复用实时采样缓存中的队列长度（动态端点已采样，避免额外启动进程）
         $realtime = ss_read_realtime_cache_file();

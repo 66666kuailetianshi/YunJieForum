@@ -98,6 +98,7 @@ $dbSize = defined('DB_FILE') && is_file(DB_FILE) ? (int)filesize(DB_FILE) : 0;
 .progress-fill.low    { background: #10b981; }
 .progress-fill.medium { background: #f59e0b; }
 .progress-fill.high   { background: #ef4444; }
+.progress-fill.off    { background: #9ca3af; opacity: 0.5; } /* 受限环境不可用 */
 
 .bank-list {
     list-style: none;
@@ -668,16 +669,25 @@ $dbSize = defined('DB_FILE') && is_file(DB_FILE) ? (int)filesize(DB_FILE) : 0;
         }
 
         var cpuUsage = data.cpu_usage || 0;
-        setIfChanged(el.cpuUsageText, 'cpu_usage', cpuUsage + '%');
-        var cpuBarWidth = Math.min(100, Math.max(0, cpuUsage)) + '%';
-        if (lastValues.cpu_bar_w !== cpuBarWidth) {
-            lastValues.cpu_bar_w = cpuBarWidth;
-            el.cpuUsageBar.style.width = cpuBarWidth;
-        }
-        var cpuBarClass = 'progress-fill ' + barClass(cpuUsage);
-        if (lastValues.cpu_bar_c !== cpuBarClass) {
-            lastValues.cpu_bar_c = cpuBarClass;
-            el.cpuUsageBar.className = cpuBarClass;
+        // -1 表示受限环境（open_basedir 封锁 /proc）无法读取 CPU 使用率
+        if (cpuUsage === -1) {
+            setIfChanged(el.cpuUsageText, 'cpu_usage', <?php echo json_encode(t('admin_sys_unavailable', '不可用')); ?>);
+            var _ubar = '0%'; // 进度条归零
+            if (lastValues.cpu_bar_w !== _ubar) { lastValues.cpu_bar_w = _ubar; el.cpuUsageBar.style.width = _ubar; }
+            var _ubc = 'progress-fill off';
+            if (lastValues.cpu_bar_c !== _ubc) { lastValues.cpu_bar_c = _ubc; el.cpuUsageBar.className = _ubc; }
+        } else {
+            setIfChanged(el.cpuUsageText, 'cpu_usage', cpuUsage + '%');
+            var cpuBarWidth = Math.min(100, Math.max(0, cpuUsage)) + '%';
+            if (lastValues.cpu_bar_w !== cpuBarWidth) {
+                lastValues.cpu_bar_w = cpuBarWidth;
+                el.cpuUsageBar.style.width = cpuBarWidth;
+            }
+            var cpuBarClass = 'progress-fill ' + barClass(cpuUsage);
+            if (lastValues.cpu_bar_c !== cpuBarClass) {
+                lastValues.cpu_bar_c = cpuBarClass;
+                el.cpuUsageBar.className = cpuBarClass;
+            }
         }
 
         var mem = data.memory || {};

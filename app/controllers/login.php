@@ -20,92 +20,98 @@ $account = '';
 $credKey = get_remember_credentials_key();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // ---- 阶段 1：安全校验（CSRF + 验证码），仅收集错误，不阻断后续流程 ----
     if (!validate_csrf()) {
         $errors[] = t('login_security_verify_fail', '安全验证失败，请刷新页面重试。');
-    } elseif (captcha_enabled()) {
+    }
+    // 验证码校验（仅当验证码启用时检查）
+    if (captcha_enabled()) {
         if (!captcha_honeypot_ok($_POST)) {
             $errors[] = t('captcha_bot_detected', '验证未通过，请重试');
         } elseif (!captcha_passed($_POST['captcha_token'] ?? '')) {
             $errors[] = t('slider_captcha_fail', '请先完成人机验证。');
         }
-    } else {
-        $account = trim($_POST['account'] ?? '');
-        $password = $_POST['password'] ?? '';
-        $remember = !empty($_POST['remember']);
-        $agreeTerms = !empty($_POST['agree_terms']);
+    }
 
-        if (empty($account) || empty($password)) {
-            $errors[] = t('login_enter_account_password', '请输入账号和密码。');
-        } elseif (!$agreeTerms) {
-            $errors[] = t('login_agree_terms_required', '请阅读并同意用户协议与隐私政策。');
+    // ---- 阶段 2：表单数据提取与基本校验 ----
+    $account = trim($_POST['account'] ?? '');
+    $password = $_POST['password'] ?? '';
+    $remember = !empty($_POST['remember']);
+    $agreeTerms = !empty($_POST['agree_terms']);
+
+    if (empty($account) || empty($password)) {
+        $errors[] = t('login_enter_account_password', '请输入账号和密码。');
+    } elseif (!$agreeTerms) {
+        $errors[] = t('login_agree_terms_required', '请阅读并同意用户协议与隐私政策。');
+    }
+
+    // ---- 阶段 3：无错误时执行登录逻辑 ----
+    if (empty($errors)) {
+        $db = get_db();
+        $stmt = $db->prepare("SELECT * FROM users WHERE LOWER(username) = LOWER(:account1) OR LOWER(email) = LOWER(:account2) LIMIT 1");
+        $stmt->execute([':account1' => $account, ':account2' => $account]);
+        $user = $stmt->fetch();
+
+        if (!$user || !password_verify($password, $user['password'])) {
+            captcha_record_signal('login_fail');
+            $errors[] = t('login_account_password_error', '账号或密码错误。');
         } else {
-            $db = get_db();
-            $stmt = $db->prepare("SELECT * FROM users WHERE LOWER(username) = LOWER(:account1) OR LOWER(email) = LOWER(:account2) LIMIT 1");
-            $stmt->execute([':account1' => $account, ':account2' => $account]);
-            $user = $stmt->fetch();
-
-            if (!$user || !password_verify($password, $user['password'])) {
-                captcha_record_signal('login_fail');
-                $errors[] = t('login_account_password_error', '账号或密码错误。');
+            // 检查账号是否被封禁
+            if (is_user_banned((int)$user['id'])) {
+                $bannedUntilRaw = !empty($user['banned_until']) ? $user['banned_until'] : null;
+                $until = $bannedUntilRaw ? date('Y-m-d H:i', db_time($bannedUntilRaw)) : t('login_409752','永久');
+                $reason = !empty($user['status_reason']) ? $user['status_reason'] : '';
+                $_SESSION['banned_info'] = [
+                    'username' => $user['username'],
+                    'until'   => $until,
+                    'until_raw' => $bannedUntilRaw,
+                    'reason'  => $reason,
+                ];
+                redirect('/banned');
             } else {
-                // 检查账号是否被封禁
-                if (is_user_banned((int)$user['id'])) {
-                    $bannedUntilRaw = !empty($user['banned_until']) ? $user['banned_until'] : null;
-                    $until = $bannedUntilRaw ? date('Y-m-d H:i', db_time($bannedUntilRaw)) : t('login_409752','永久');
-                    $reason = !empty($user['status_reason']) ? $user['status_reason'] : '';
-                    $_SESSION['banned_info'] = [
-                        'username' => $user['username'],
-                        'until' => $until,
-                        'until_raw' => $bannedUntilRaw,
-                        'reason' => $reason,
-                    ];
-                    redirect('/banned');
-                } else {
-                    // 重新生成 session id，防止会话固定攻击
-                    session_regenerate_id(true);
-                    $_SESSION['user_id'] = (int)$user['id'];
-                    unset($_SESSION['user'], $_SESSION['banned_info']);
-                    // 轮换 CSRF token，防止登录前获取的 token 被复用
-                    rotate_csrf_token();
+                // 重新生成 session id，防止会话固定攻击
+                session_regenerate_id(true);
+                $_SESSION['user_id'] = (int)$user['id'];
+                unset($_SESSION['user'], $_SESSION['banned_info']);
+                // 轮换 CSRF token，防止登录前获取的 token 被复用
+                rotate_csrf_token();
 
-                    // 管理员重置密码后，强制用户先修改密码
-                    if (!empty($user['force_password_change'])) {
-                        redirect('/force_change_password');
-                    }
-
-                    if ($remember) {
-                        $token = bin2hex(random_bytes(32));
-                        $hash = hash('sha256', $token);
-                        // 记住我：默认 400 天，可通过 COOKIE_REMEMBER_DAYS 调整
-                        $expires = time() + COOKIE_REMEMBER_DAYS * 86400;
-                        setcookie('forum_remember', $token, [
-                            'expires' => $expires,
-                            'path' => '/',
-                            'secure' => COOKIE_SECURE,
-                            'httponly' => true,
-                            'samesite' => 'Lax',
-                        ]);
-                        try {
-                            $stmt = $db->prepare("UPDATE users SET remember_token = :hash WHERE id = :id");
-                            $stmt->execute([':hash' => $hash, ':id' => $user['id']]);
-                        } catch (Exception $e) {
-                            // 数据库写入失败时保留 cookie，下次登录会重新生成；仅记录日志避免阻断登录
-                            error_log('remember_token update failed: ' . $e->getMessage());
-                        }
-                    }
-
-                    set_flash(t('login_welcome_back', '欢迎回来，{name}！', ['name' => $user['username']]), 'success');
-
-                    captcha_clear_signals();
-
-                    $redirect = $_SESSION['redirect_after_login'] ?? 'index.php';
-                    unset($_SESSION['redirect_after_login']);
-                    // 防止开放重定向：仅允许相对路径
-                    if (strpos($redirect, '/') !== 0 || strpos($redirect, '//') === 0) {
-                        $redirect = 'index.php';
-                    }
-                    redirect($redirect);
+                // 管理员重置密码后，强制用户先修改密码
+                if (!empty($user['force_password_change'])) {
+                    redirect('/force_change_password');
                 }
+
+                if ($remember) {
+                    $token = bin2hex(random_bytes(32));
+                    $hash = hash('sha256', $token);
+                    // 记住我：默认 400 天，可通过 COOKIE_REMEMBER_DAYS 调整
+                    $expires = time() + COOKIE_REMEMBER_DAYS * 86400;
+                    setcookie('forum_remember', $token, [
+                        'expires'  => $expires,
+                        'path'     => '/',
+                        'secure'   => COOKIE_SECURE,
+                        'httponly' => true,
+                        'samesite' => 'Lax',
+                    ]);
+                    try {
+                        $stmt = $db->prepare("UPDATE users SET remember_token = :hash WHERE id = :id");
+                        $stmt->execute([':hash' => $hash, ':id' => $user['id']]);
+                    } catch (Exception $e) {
+                        error_log('remember_token update failed: ' . $e->getMessage());
+                    }
+                }
+
+                set_flash(t('login_welcome_back', '欢迎回来，{name}！', ['name' => $user['username']]), 'success');
+
+                captcha_clear_signals();
+
+                $redirect = $_SESSION['redirect_after_login'] ?? 'index.php';
+                unset($_SESSION['redirect_after_login']);
+                // 防止开放重定向：仅允许相对路径
+                if (strpos($redirect, '/') !== 0 || strpos($redirect, '//') === 0) {
+                    $redirect = 'index.php';
+                }
+                redirect($redirect);
             }
         }
     }

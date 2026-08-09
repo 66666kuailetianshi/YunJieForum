@@ -24,13 +24,30 @@
             'ban_appeals':    'ban_appeals',
             'password_reset_requests': 'password_reset'
         };
-        var INTERVAL = 1000; // 1 秒（pending_counts_ajax 服务端 1 秒缓存合并并发，不阻塞）
+        var INTERVAL = 5000; // 5 秒（pending_counts_ajax 服务端 1 秒缓存合并并发，不阻塞）
+        var BASE_INTERVAL = INTERVAL;
+        var maxInterval = 30000; // 错误时最大退避 30 秒
+        var failCount = 0;
+        var timerId = null;
+
+        function scheduleNext(delay) {
+            if (timerId) clearTimeout(timerId);
+            timerId = setTimeout(updateBadges, delay);
+        }
 
         function updateBadges() {
             try {
                 fetch('<?php echo site_url('admin/api/pending_counts_ajax'); ?>&_=' + Date.now(), { credentials: 'same-origin' })
-                    .then(function (r) { return r.json(); })
+                    .then(function (r) {
+                        // 非 2xx 响应（418 WAF 拦截、5xx 等）触发退避
+                        if (!r.ok) { throw new Error('HTTP ' + r.status); }
+                        return r.json();
+                    })
                     .then(function (data) {
+                        // 成功：重置退避计数器
+                        failCount = 0;
+                        scheduleNext(BASE_INTERVAL);
+
                         if (!data || data.error) return;
                         Object.keys(BADGE_MAP).forEach(function (menuKey) {
                             var dataKey = BADGE_MAP[menuKey];
@@ -47,11 +64,19 @@
                             }
                         });
                     })
-                    .catch(function () {});
-            } catch (e) {}
+                    .catch(function () {
+                        // 失败：指数退避，避免被 WAF/CDN 进一步拦截
+                        failCount++;
+                        var backoff = Math.min(BASE_INTERVAL * Math.pow(2, failCount), maxInterval);
+                        scheduleNext(backoff);
+                    });
+            } catch (e) {
+                scheduleNext(BASE_INTERVAL);
+            }
         }
 
-        setInterval(updateBadges, INTERVAL);
+        // 首次立即执行一次，之后按间隔轮询
+        updateBadges();
     })();
 
     // 菜单分组折叠/展开

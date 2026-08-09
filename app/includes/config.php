@@ -8,7 +8,7 @@ if (!defined('ROOT_PATH')) {
 }
 
 define('APP_NAME', t('common_bb1a21','云界论坛'));
-define('APP_VERSION', '1.3.5-beta');
+define('APP_VERSION', '1.3.6-beta');
 define('SITE_URL', ''); // 留空则自动检测
 
 define('DATA_PATH', ROOT_PATH . 'data' . DIRECTORY_SEPARATOR);

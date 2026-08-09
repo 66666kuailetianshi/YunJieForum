@@ -98,6 +98,37 @@ try {
 /* ====================== 函数实现 ====================== */
 
 /**
+ * 心跳输出：在长时操作中定期调用，防止 Nginx/CDN/代理因连接空闲超时断开 HTTP/2。
+ *
+ * 原理：多数反向代理（Nginx/CDN）有 proxy_read_timeout（通常 60s），
+ * 如果在这段时间内客户端↔代理之间没有数据传输，代理会主动断开连接，
+ * 浏览器报 ERR_HTTP2_PING_FAILED / Failed to fetch。
+ * 本函数每隔一定次数调用时输出一个空白注释并 flush，维持连接活跃。
+ */
+$_heartbeat_counter = 0;
+function heartbeat(int $every = 50): void {
+    global $_heartbeat_counter;
+    $_heartbeat_counter++;
+    if ($_heartbeat_counter % $every !== 0) return;
+    // 输出一个 JSON 注释风格的保持活字节，不影响最终 json_decode
+    echo " \n";
+    if (ob_get_level() > 0) @ob_flush();
+    @flush();
+}
+
+/**
+ * 启用心跳模式：发送反缓冲头，确保后续 heartbeat() 能即时到达客户端。
+ */
+function startHeartbeat(): void {
+    header('X-Accel-Buffering: no');       // 关闭 Nginx 缓冲
+    header('Cache-Control: no-cache');       // 禁止任何缓存
+    if (ob_get_level() > 0) { @ob_end_clean(); }
+    // 输出一个初始 JSON 数组开始标记——导入过程将输出多个心跳，
+    // 最终由实际响应关闭数组。但为了兼容现有 r.json() 客户端，
+    // 我们改用纯空白心跳方式，不改变响应结构。
+}
+
+/**
  * 返回白名单业务表及各自的行数
  */
 function listTables(array $whitelist): void {
@@ -496,6 +527,7 @@ function importData(array $whitelist, string $format): void {
     $mode = ($_POST['mode'] ?? 'overwrite') === 'merge' ? 'merge' : 'overwrite';
 
     set_time_limit(600);
+    startHeartbeat(); // 启用心跳，防止长时导入被代理超时断连
 
     $db = get_db();
     $driver = get_db_driver();
@@ -553,6 +585,7 @@ function importData(array $whitelist, string $format): void {
                 if (!is_array($row)) {
                     continue;
                 }
+                heartbeat(30); // 每插入 30 行发送一次心跳，维持 HTTP/2 连接
                 $cols = array_keys($row);
                 if (empty($cols)) {
                     continue;
@@ -633,6 +666,7 @@ function restoreForeignKeys(PDO $db, bool $isSqlite): void {
  */
 function importSQL(string $sqlContent): void {
     set_time_limit(600);
+    startHeartbeat(); // 启用心跳，防止长时 SQL 导入被代理超时断连
 
     // 创建快照
     $snapshotName = '';
@@ -686,6 +720,7 @@ function importSQL(string $sqlContent): void {
                 try {
                     $db->exec($stmtSql);
                     $executedCount++;
+                    heartbeat(20); // 每执行 20 条 SQL 发送一次心跳
                 } catch (\Throwable $e) {
                     $errorMessages[] = 'Line ' . ($lineNum + 1) . ': ' . $e->getMessage();
                 }
@@ -721,6 +756,7 @@ function importSQL(string $sqlContent): void {
  */
 function importZipBackup(string $tmpPath, array $whitelist): void {
     set_time_limit(600);
+    startHeartbeat(); // 启用心跳，防止 ZIP 解压+导入被代理超时断连
 
     $tmpExtract = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'mig_extract_' . uniqid() . DIRECTORY_SEPARATOR;
     if (!mkdir($tmpExtract, 0755, true) && !is_dir($tmpExtract)) {
@@ -748,14 +784,15 @@ function importZipBackup(string $tmpPath, array $whitelist): void {
         $dir = dirname($dest);
         if (!is_dir($dir)) { mkdir($dir, 0755, true); }
         $stream = $zip->getStream($name);
-        if ($stream) {
-            $f = fopen($dest, 'wb');
-            if ($f) {
-                stream_copy_to_stream($stream, $f);
-                fclose($f);
-                $extractedCount++;
-            }
-            fclose($stream);
+            if ($stream) {
+                $f = fopen($dest, 'wb');
+                if ($f) {
+                    stream_copy_to_stream($stream, $f);
+                    fclose($f);
+                    $extractedCount++;
+                    heartbeat(50); // 每解压 50 个文件发送一次心跳
+                }
+                fclose($stream);
         }
     }
     $zip->close();
@@ -783,6 +820,7 @@ function importZipBackup(string $tmpPath, array $whitelist): void {
                 if (!is_dir($targetDir)) { mkdir($targetDir, 0755, true); }
                 if (copy($file->getPathname(), $uploadsDest . $relative)) {
                     $restoredFiles++;
+                    heartbeat(50); // 每还原 50 个上传文件发送一次心跳
                 }
             }
         }

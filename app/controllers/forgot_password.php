@@ -52,6 +52,7 @@ if ($step === 'security' && $pendingEmail !== '') {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // 阶段 1：收集 CSRF + 验证码错误（仅追加 $errors，不阻断后续主逻辑）
     if (!validate_csrf()) {
         $errors[] = t('forgot_security_verify_fail', '安全验证失败，请刷新页面重试。');
     } elseif (captcha_enabled()) {
@@ -60,7 +61,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif (!captcha_passed($_POST['captcha_token'] ?? '')) {
             $errors[] = t('slider_captcha_fail', '请先完成人机验证。');
         }
-    } elseif ($step === 'email') {
+    }
+
+    // 阶段 2：仅当上述校验通过时，按当前步骤执行主逻辑（无论验证码是否启用都会执行）
+    if (empty($errors)) {
+    if ($step === 'email') {
         $email = trim($_POST['email'] ?? '');
         if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
             $errors[] = t('forgot_email_invalid', '请输入有效的邮箱地址。');
@@ -144,6 +149,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $errors[] = t('forgot_security_answer_wrong', '密保答案不正确。');
             }
         }
+    }
     }
 }
 

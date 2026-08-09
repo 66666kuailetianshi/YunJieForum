@@ -46,6 +46,7 @@ if ($token !== '' && $email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL))
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $valid) {
+    // 阶段 1：收集 CSRF + 验证码错误（仅追加 $errors，不阻断后续主逻辑）
     if (!validate_csrf()) {
         $errors[] = t('reset_security_verify_fail', '安全验证失败，请刷新页面重试。');
     } elseif (captcha_enabled()) {
@@ -54,7 +55,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $valid) {
         } elseif (!captcha_passed($_POST['captcha_token'] ?? '')) {
             $errors[] = t('slider_captcha_fail', '请先完成人机验证。');
         }
-    } else {
+    }
+
+    // 阶段 2：仅当上述校验通过时，执行密码重置主逻辑（无论验证码是否启用都会执行）
+    if (empty($errors)) {
         $password = $_POST['password'] ?? '';
         $passwordConfirm = $_POST['password_confirm'] ?? '';
 
