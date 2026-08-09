@@ -28,6 +28,7 @@ $menuItems = [
     'sensitive_words'         => ['icon' => 'shield',         'label' => t('menu_sensitive_words', '敏感词管理'),   'url' => '/admin/sensitive_words'],
     'mail_center'             => ['icon' => 'mail',           'label' => t('menu_mail_center', '邮件中心'),     'url' => '/admin/mail_center'],
     'backup'                  => ['icon' => 'backup',         'label' => t('menu_backup', '数据备份'),     'url' => '/admin/backup'],
+    'data_migration'          => ['icon' => 'migration',       'label' => t('menu_data_migration', '数据迁移'),   'url' => '/admin/data_migration'],
     'settings'                => ['icon' => 'settings',       'label' => t('menu_settings', '站点设置'),     'url' => '/admin/site_settings'],
     'captcha_debug'           => ['icon' => 'shield',         'label' => t('menu_captcha_debug', '验证码调试'),   'url' => '/admin/captcha_debug'],
     'site_pages'              => ['icon' => 'document',       'label' => t('menu_site_pages', '协议页面管理'), 'url' => '/admin/site_pages'],
@@ -39,7 +40,7 @@ $menuGroups = [
     'users'     => [t('menu_group_users', '用户管理'),     ['users', 'user_groups', 'roles', 'medals']],
     'content'   => [t('menu_group_content', '内容管理'),     ['posts', 'replies', 'reports', 'ban_appeals', 'password_reset_requests', 'forums', 'announcements', 'sensitive_words']],
     'mail'      => [t('menu_group_mail', '邮件中心'),     ['mail_center']],
-    'settings'  => [t('menu_group_settings', '系统设置'),     ['backup', 'settings', 'captcha_debug', 'site_pages']],
+    'settings'  => [t('menu_group_settings', '系统设置'),     ['backup', 'data_migration', 'settings', 'captcha_debug', 'site_pages']],
 ];
 
 /**
@@ -65,6 +66,7 @@ function admin_menu_icon(string $key): string {
         'send'          => '<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>',
         'mail'          => '<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>',
         'backup'        => '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>',
+        'migration'     => '<path d="M16 3h5v5"/><path d="M21 3l-7 7"/><path d="M8 21H3v-5"/><path d="M3 21l7-7"/><line x1="21" y1="8" x2="13" y2="16"/><line x1="11" y1="8" x2="3" y2="16"/>',
         'settings'      => '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
         'document'      => '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>',
     ];
