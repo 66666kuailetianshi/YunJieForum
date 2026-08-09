@@ -32,7 +32,8 @@ $menuItems = [
     'settings'                => ['icon' => 'settings',       'label' => t('menu_settings', '站点设置'),     'url' => '/admin/site_settings'],
     'captcha_debug'           => ['icon' => 'shield',         'label' => t('menu_captcha_debug', '验证码调试'),   'url' => '/admin/captcha_debug'],
     'site_pages'              => ['icon' => 'document',       'label' => t('menu_site_pages', '协议页面管理'), 'url' => '/admin/site_pages'],
-];
+    'update_center'           => ['icon' => 'update',          'label' => t('menu_update_center', '系统更新'), 'url' => '/admin/update_center'],
+    ];
 
 // 菜单分组定义：key => [组名, [菜单项 key 列表]]
 $menuGroups = [
@@ -40,7 +41,7 @@ $menuGroups = [
     'users'     => [t('menu_group_users', '用户管理'),     ['users', 'user_groups', 'roles', 'medals']],
     'content'   => [t('menu_group_content', '内容管理'),     ['posts', 'replies', 'reports', 'ban_appeals', 'password_reset_requests', 'forums', 'announcements', 'sensitive_words']],
     'mail'      => [t('menu_group_mail', '邮件中心'),     ['mail_center']],
-    'settings'  => [t('menu_group_settings', '系统设置'),     ['backup', 'data_migration', 'settings', 'captcha_debug', 'site_pages']],
+    'settings'  => [t('menu_group_settings', '系统设置'),     ['backup', 'data_migration', 'settings', 'captcha_debug', 'site_pages', 'update_center']],
 ];
 
 /**
@@ -69,6 +70,7 @@ function admin_menu_icon(string $key): string {
         'migration'     => '<path d="M16 3h5v5"/><path d="M21 3l-7 7"/><path d="M8 21H3v-5"/><path d="M3 21l7-7"/><line x1="21" y1="8" x2="13" y2="16"/><line x1="11" y1="8" x2="3" y2="16"/>',
         'settings'      => '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
         'document'      => '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>',
+        'update'        => '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
     ];
     $path = $icons[$key] ?? $icons['dashboard'];
     return '<svg class="admin-menu-svg" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' . $path . '</svg>';
