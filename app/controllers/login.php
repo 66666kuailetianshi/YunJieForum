@@ -219,7 +219,11 @@ include APP_ROOT . 'app/includes/header.php';
                 return bytes;
             }
 
+            // 检测浏览器是否支持 Web Crypto API（需要 HTTPS 或 localhost）
+            var cryptoSupported = typeof crypto !== 'undefined' && typeof crypto.subtle !== 'undefined' && typeof TextEncoder !== 'undefined';
+
             function getKey() {
+                if (!cryptoSupported) return Promise.reject(new Error('crypto.subtle 不可用'));
                 var enc = new TextEncoder();
                 return crypto.subtle.digest('SHA-256', enc.encode(rawKey)).then(function (hash) {
                     return crypto.subtle.importKey('raw', hash, {name: 'AES-GCM'}, false, ['encrypt', 'decrypt']);
@@ -248,6 +252,7 @@ include APP_ROOT . 'app/includes/header.php';
 
             function saveCredentials() {
                 if (!rememberCheckbox || !rememberCheckbox.checked) return Promise.resolve();
+                if (!cryptoSupported) return Promise.resolve(); // 不可用时跳过加密存储
                 var account = accountInput.value;
                 var password = passwordInput.value;
                 if (!account || !password) return Promise.resolve();
@@ -265,6 +270,7 @@ include APP_ROOT . 'app/includes/header.php';
             }
 
             function loadCredentials() {
+                if (!cryptoSupported) return; // 不可用时跳过加载
                 var stored = localStorage.getItem(storageKey);
                 if (!stored) return;
                 getKey().then(function (key) {
