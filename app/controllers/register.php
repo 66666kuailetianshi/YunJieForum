@@ -64,8 +64,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
-        if (captcha_enabled() && !captcha_passed($_POST['captcha_token'] ?? '')) {
-            $errors[] = t('slider_captcha_fail', '请先完成人机验证。');
+        if (captcha_enabled()) {
+            if (!captcha_honeypot_ok($_POST)) {
+                $errors[] = t('captcha_bot_detected', '验证未通过，请重试');
+            } elseif (!captcha_passed($_POST['captcha_token'] ?? '')) {
+                $errors[] = t('slider_captcha_fail', '请先完成人机验证。');
+            }
         }
 
         if (empty($errors)) {

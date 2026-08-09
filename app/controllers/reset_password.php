@@ -48,8 +48,12 @@ if ($token !== '' && $email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL))
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $valid) {
     if (!validate_csrf()) {
         $errors[] = t('reset_security_verify_fail', '安全验证失败，请刷新页面重试。');
-    } elseif (captcha_enabled() && !captcha_passed($_POST['captcha_token'] ?? '')) {
-        $errors[] = t('slider_captcha_fail', '请先完成人机验证。');
+    } elseif (captcha_enabled()) {
+        if (!captcha_honeypot_ok($_POST)) {
+            $errors[] = t('captcha_bot_detected', '验证未通过，请重试');
+        } elseif (!captcha_passed($_POST['captcha_token'] ?? '')) {
+            $errors[] = t('slider_captcha_fail', '请先完成人机验证。');
+        }
     } else {
         $password = $_POST['password'] ?? '';
         $passwordConfirm = $_POST['password_confirm'] ?? '';

@@ -24,6 +24,93 @@
             return apiUrl + (apiUrl.indexOf('?') >= 0 ? '&' : '?') + 'action=' + action;
         }
 
+        /* ---------- 抗绕过：PoW 工作量证明 + 蜜罐 ---------- */
+        // 自包含 SHA-256（不依赖 crypto.subtle，HTTP 环境也可用）
+        function sha256hex(msg) {
+            function rrot(x, n) { return (x >>> n) | (x << (32 - n)); }
+            var K = [0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
+                     0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
+                     0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+                     0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
+                     0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
+                     0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+                     0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
+                     0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2];
+            var H = [0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19];
+            var m = unescape(encodeURIComponent(msg));
+            var len = m.length;
+            var bitLen = len * 8;
+            m += String.fromCharCode(0x80);
+            while (m.length % 64 !== 56) m += String.fromCharCode(0);
+            for (var i = 0; i < 4; i++) {
+                m += String.fromCharCode((bitLen >>> (24 - i * 8)) & 0xff);
+            }
+            var w = new Array(64);
+            for (var off = 0; off < m.length; off += 64) {
+                for (var t = 0; t < 16; t++) {
+                    var j = off + t * 4;
+                    w[t] = (m.charCodeAt(j) << 24) | (m.charCodeAt(j + 1) << 16) | (m.charCodeAt(j + 2) << 8) | m.charCodeAt(j + 3);
+                }
+                for (var t = 16; t < 64; t++) {
+                    var s0 = rrot(w[t - 15], 7) ^ rrot(w[t - 15], 18) ^ (w[t - 15] >>> 3);
+                    var s1 = rrot(w[t - 2], 17) ^ rrot(w[t - 2], 19) ^ (w[t - 2] >>> 10);
+                    w[t] = (w[t - 16] + s0 + w[t - 7] + s1) | 0;
+                }
+                var a = H[0], b = H[1], c = H[2], d = H[3], e = H[4], f = H[5], g = H[6], h = H[7];
+                for (var t = 0; t < 64; t++) {
+                    var S1 = rrot(e, 6) ^ rrot(e, 11) ^ rrot(e, 25);
+                    var ch = (e & f) ^ (~e & g);
+                    var t1 = (h + S1 + ch + K[t] + w[t]) | 0;
+                    var S0 = rrot(a, 2) ^ rrot(a, 13) ^ rrot(a, 22);
+                    var maj = (a & b) ^ (a & c) ^ (b & c);
+                    var t2 = (S0 + maj) | 0;
+                    h = g; g = f; f = e; e = (d + t1) | 0; d = c; c = b; b = a; a = (t1 + t2) | 0;
+                }
+                H[0] = (H[0] + a) | 0; H[1] = (H[1] + b) | 0; H[2] = (H[2] + c) | 0; H[3] = (H[3] + d) | 0;
+                H[4] = (H[4] + e) | 0; H[5] = (H[5] + f) | 0; H[6] = (H[6] + g) | 0; H[7] = (H[7] + h) | 0;
+            }
+            function hex(n) { return ('00000000' + (n >>> 0).toString(16)).slice(-8); }
+            return hex(H[0]) + hex(H[1]) + hex(H[2]) + hex(H[3]) + hex(H[4]) + hex(H[5]) + hex(H[6]) + hex(H[7]);
+        }
+
+        // 计算 PoW nonce：sha256(prefix + nonce) 前 bits 位需等于 target
+        function computePowNonce(pow) {
+            if (!pow || !pow.prefix || !pow.target) return '';
+            var prefix = pow.prefix, target = pow.target, nonce = 0, limit = 8000000;
+            while (nonce < limit) {
+                if (sha256hex(prefix + nonce).indexOf(target) === 0) return String(nonce);
+                nonce++;
+            }
+            return '';
+        }
+
+        // 拼装验证请求体（自动附加 PoW nonce）
+        function buildVerifyBody(base) {
+            if (state.pow) {
+                try { base.pow_nonce = computePowNonce(state.pow); } catch (e) { base.pow_nonce = ''; }
+            }
+            return JSON.stringify(base);
+        }
+
+        // 注入蜜罐隐藏字段（机器人自动填写即判失败）
+        function injectHoneypot() {
+            if (!formEl || !state.hpName) return;
+            if (formEl.querySelector('input[name="' + state.hpName + '"]')) return;
+            var hp = document.createElement('input');
+            hp.type = 'text';
+            hp.name = state.hpName;
+            hp.tabIndex = -1;
+            hp.autocomplete = 'off';
+            hp.setAttribute('aria-hidden', 'true');
+            hp.style.position = 'absolute';
+            hp.style.left = '-9999px';
+            hp.style.width = '1px';
+            hp.style.height = '1px';
+            hp.style.opacity = '0';
+            hp.style.pointerEvents = 'none';
+            formEl.appendChild(hp);
+        }
+
         /* ---------- 调试日志（F12 控制台） ---------- */
         function log() {
             if (window.console && window.console.debug) {
@@ -72,6 +159,17 @@
                             log('验证未启用或调试模式');
                             container.style.display = 'none';
                             throw new Error('disabled');
+                        }
+                        // 抗绕过：捕获 PoW 挑战、蜜罐字段名、限流状态
+                        state.pow = data.pow || null;
+                        state.hpName = data.hp_name || '';
+                        state.blocked = !!data.blocked;
+                        if (state.hpName) {
+                            injectHoneypot();
+                        }
+                        if (state.blocked) {
+                            setStatus('error', data.blocked_msg || '操作过于频繁，请稍后再试', '');
+                            throw new Error('blocked');
                         }
                         state.token = data.token;
                         tokenInput.value = data.token;
@@ -140,7 +238,7 @@
         }
 
         /* ---------- 组件状态 ---------- */
-        var state = { token: '', passed: false, checking: false, display: 'inline' };
+        var state = { token: '', passed: false, checking: false, display: 'inline', pow: null, hpName: '', blocked: false };
         var widget, box, title, sub, body;
         var popupEl = null, popupBody = null, host = null;
         var popupStatus = null, popupStatusTitle = null, popupStatusSub = null;
@@ -414,6 +512,9 @@
                 var displayY = gapY / scaleY;
                 pieceImg.style.left = displayX + 'px';
                 pieceImg.style.top = displayY + 'px';
+                // 拼图块需跟随舞台缩放，否则响应式下与背景比例失调
+                pieceImg.style.width = (pw / scaleX) + 'px';
+                pieceImg.style.height = (pw / scaleY) + 'px';
                 
                 var ratio = maxX > 0 ? x / maxX : 0;
                 var trackW = trackEl.offsetWidth - 44;
@@ -430,7 +531,7 @@
                     method: 'POST',
                     credentials: 'same-origin',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ token: state.token, x: x, duration: dragDuration, traj: trajectoryData })
+                    body: buildVerifyBody({ token: state.token, x: x, duration: dragDuration, traj: trajectoryData })
                 })
                     .then(function (r) { return r.json(); })
                     .then(function (res) {
@@ -445,7 +546,9 @@
                         } else {
                             sbox.classList.add('sc-error');
                             tip.style.display = '';
-                            tip.textContent = '验证失败，请重试';
+                            var failMsg = '验证失败';
+                            if (res && res.reason) failMsg += ' (' + res.reason + ')';
+                            tip.textContent = failMsg;
                             setTimeout(function () {
                                 sbox.classList.remove('sc-error');
                                 pieceImg.classList.add('sc-back');
@@ -485,7 +588,8 @@
             }
             function onMove(clientX) {
                 if (!dragging) return;
-                setX(startX + (clientX - startClientX));
+                // clientX 是屏幕 CSS 像素，x 是图像逻辑坐标，需按 scaleX 换算
+                setX(startX + (clientX - startClientX) * scaleX);
                 // ========== 采集轨迹点（节流采样）==========
                 var now = performance.now();
                 if (now - lastTrajectoryTime >= TRAJECTORY_SAMPLE_INTERVAL) {
@@ -516,6 +620,7 @@
 
             if (refreshBtn) {
                 refreshBtn.addEventListener('click', function () {
+                    state.passed = false;
                     state.checking = false;
                     onCheck(true);
                 });
@@ -566,7 +671,7 @@
                     method: 'POST',
                     credentials: 'same-origin',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ token: state.token, seq: selected })
+                    body: buildVerifyBody({ token: state.token, seq: selected })
                 })
                     .then(function (r) { return r.json(); })
                     .then(function (res) {
@@ -577,7 +682,9 @@
                         }
                         var tiles = host.querySelectorAll('.cc-piece.cc-selected');
                         for (var i = 0; i < tiles.length; i++) tiles[i].classList.add('cc-wrong');
-                        setStatus('error', '点选错误，请重试', '');
+                        var clickFailMsg = '点选错误，请重试';
+                        if (res && res.reason) clickFailMsg += ' (' + res.reason + ')';
+                        setStatus('error', clickFailMsg, '');
                         setTimeout(function () {
                             setStatus('', '请完成点选验证', '请按顺序点击正确的文字');
                             reset();
@@ -609,6 +716,7 @@
             if (resetBtn) resetBtn.addEventListener('click', reset);
             var refreshBtn = host.querySelector('.cc-refresh');
             if (refreshBtn) refreshBtn.addEventListener('click', function () {
+                state.passed = false;
                 state.checking = false;
                 onCheck();
             });
@@ -617,7 +725,7 @@
         /* ---------- 推理拼图交换验证（交换 2 个图块复原图片）---------- */
         function showSwap(data) {
             host = ensureHost();
-            setStatus('', '请完成推理验证', '点击选中图块后，再点击另一图块交换位置，使图片恢复完整');
+            setStatus('', '请完成推理验证', '点击选中一个图块，再点击另一个图块，交换两者位置，使图片恢复完整');
             var cols = data.cols || 2;
             var rows = data.rows || 2;
             var pw = data.piece_w || 70;
@@ -630,7 +738,8 @@
 
             function buildScene() {
                 var html = '<div class="sw-box">';
-                html += '<div class="sw-prompt"><span class="sw-prompt-label">推理验证：</span><span class="sw-prompt-word">交换被打乱的图块，恢复完整图片</span></div>';
+                html += '<div class="sw-prompt"><span class="sw-prompt-label">请完成推理验证</span></div>';
+                html += '<div class="sw-prompt-hint" style="font-size:12px;color:#6b7280;margin-bottom:6px;">图块已被打乱，点击两个图块交换位置，使图片恢复完整</div>';
                 html += '<div class="sw-scene" style="width:' + (sw + gap) + 'px;height:' + (sh + gap) + 'px;">';
                 for (var i = 0; i < pieces.length; i++) {
                     var row = Math.floor(i / cols);
@@ -734,7 +843,7 @@
                     method: 'POST',
                     credentials: 'same-origin',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ token: state.token, order: currentOrder })
+                    body: buildVerifyBody({ token: state.token, order: currentOrder })
                 })
                     .then(function (r) { return r.json(); })
                     .then(function (res) {
@@ -747,7 +856,9 @@
                             setStatus('success', '验证通过', '推理验证已通过');
                             setTimeout(passed, 600);
                         } else {
-                            setStatus('error', '交换错误，请重试', '请继续交换图块使图片恢复完整');
+                            var swapFailMsg = '交换错误，请重试';
+                            if (res && res.reason) swapFailMsg += ' (' + res.reason + ')';
+                            setStatus('error', swapFailMsg, '请继续交换图块使图片恢复完整');
                             setTimeout(reset, 400);
                         }
                     })
@@ -758,9 +869,11 @@
                     });
             }
 
-            // ========== 初始化时设置顺序为正确答案 [0,1,2,3] ==========
-            // 注意：这里存储的是"每个位置上图块的 correct 值"，目标是让所有位置都变成正确的
-            currentOrder = Array.from(pieces.map((p, i) => i), (_, i) => i); // [0,1,2,3]
+            // ========== 初始化：当前顺序 = 后端返回的被打乱顺序 ==========
+            // pieces 数组中每个元素的 .correct 表示该图块原本的正确位置索引
+            // currentOrder[pos] = 位置 pos 上当前显示的图块的 correct 值
+            // 目标：通过交换让 currentOrder 变成 [0,1,2,3,...]
+            currentOrder = pieces.map(function(p) { return p.correct; });
             
             log('swap init →', currentOrder);
             buildScene();
@@ -799,6 +912,7 @@
             if (resetBtn) resetBtn.addEventListener('click', reset);
             var refreshBtn = host.querySelector('.sw-refresh');
             if (refreshBtn) refreshBtn.addEventListener('click', function () {
+                state.passed = false;
                 state.checking = false;
                 onCheck(true);
             });

@@ -58,6 +58,201 @@ const SWAP_CAPTCHA_ROWS       = 2;
 const SWAP_CAPTCHA_PAD        = 2;
 const SWAP_CAPTCHA_GAP        = 3;
 
+/* ==================== 抗绕过安全增强 ==================== */
+const CAPTCHA_POW_DEFAULT_BITS = 3;   // 默认可选 3（约 4096 次哈希，人类瞬时，机器人昂贵）
+const CAPTCHA_HONEYPOT_LEN     = 10;
+const CAPTCHA_RL_MAX_FAILS     = 12;  // 单 IP 窗口内最大失败次数
+const CAPTCHA_RL_WINDOW        = 300; // 限流窗口（秒）
+const CAPTCHA_RL_BLOCK         = 900; // 锁死时长（秒）
+const CAPTCHA_ESCALATE_AFTER   = 2;   // 失败几次后升级难度
+
+/**
+ * 客户端 IP 前三段（用于 token 绑定，兼顾 NAT/代理环境）
+ */
+function captcha_ip_prefix(): string {
+    $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+    $parts = explode('.', $ip);
+    if (count($parts) === 4) {
+        return $parts[0] . '.' . $parts[1] . '.' . $parts[2];
+    }
+    $parts6 = explode(':', $ip);
+    return implode(':', array_slice($parts6, 0, 4));
+}
+
+/**
+ * 惰性生成每个安装唯一的 HMAC 签名密钥（写入 data/ 且不进版本库）
+ */
+function captcha_hmac_key(): string {
+    static $key = null;
+    if ($key !== null) {
+        return $key;
+    }
+    $file = APP_ROOT . 'data/captcha_secret.php';
+    if (is_file($file)) {
+        include $file;
+        if (!empty($GLOBALS['_captcha_hmac_key'])) {
+            $key = (string)$GLOBALS['_captcha_hmac_key'];
+            return $key;
+        }
+    }
+    $key = bin2hex(random_bytes(32));
+    $dir = dirname($file);
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0755, true);
+    }
+    $content = "<?php\n// 自动生成的验证码签名密钥，请勿删除或提交到版本库\n\$GLOBALS['_captcha_hmac_key'] = '" . $key . "';\n";
+    @file_put_contents($file, $content);
+    @chmod($file, 0600);
+    return $key;
+}
+
+/**
+ * 计算 token 签名（绑定 session_id + IP 前缀，防止跨会话重放/伪造）
+ */
+function captcha_token_sig(string $token): string {
+    return hash_hmac('sha256', $token . '|' . session_id() . '|' . captcha_ip_prefix(), captcha_hmac_key());
+}
+
+/* ==================== 设置开关（后台可配置） ==================== */
+function captcha_pow_enabled(): bool {
+    return function_exists('get_site_setting') && get_site_setting('captcha_pow_enabled', '1') === '1';
+}
+function captcha_pow_bits(): int {
+    $v = function_exists('get_site_setting')
+        ? (int)get_site_setting('captcha_pow_bits', (string)CAPTCHA_POW_DEFAULT_BITS)
+        : CAPTCHA_POW_DEFAULT_BITS;
+    return max(1, min(6, $v));
+}
+function captcha_honeypot_enabled(): bool {
+    return function_exists('get_site_setting') && get_site_setting('captcha_honeypot_enabled', '1') === '1';
+}
+function captcha_escalation_enabled(): bool {
+    return function_exists('get_site_setting') && get_site_setting('captcha_escalation_enabled', '1') === '1';
+}
+function captcha_rotation_enabled(): bool {
+    return function_exists('get_site_setting') && get_site_setting('captcha_rotation_enabled', '1') === '1';
+}
+
+/**
+ * 生成 PoW 挑战参数（prefix + 目标前缀零位数）
+ */
+function captcha_pow_challenge(): ?array {
+    if (!captcha_pow_enabled()) {
+        return null;
+    }
+    $bits = captcha_pow_bits();
+    return [
+        'prefix' => bin2hex(random_bytes(8)),
+        'bits'   => $bits,
+        'target' => str_repeat('0', $bits),
+    ];
+}
+
+/**
+ * 校验 PoW：sha256(prefix . nonce) 的前 bits 位必须为 target
+ *
+ * 注意：PoW 是防御性深度检测，不应作为硬性门禁。
+ * 前端 JS 在低端设备/大 bits 下可能超时返回空值，
+ * 此处失败仅记录不阻断，避免误伤正常用户。
+ */
+function captcha_verify_pow(?array $pow, ?string $nonce): bool {
+    if ($pow === null) {
+        return true; // 未启用 PoW
+    }
+    if ($nonce === null || $nonce === '' || !preg_match('/^[0-9a-fA-F]+$/', (string)$nonce)) {
+        return false; // PoW 缺失或非法 → 标记但不阻断（调用方决定是否使用）
+    }
+    $hash = hash('sha256', $pow['prefix'] . $nonce);
+    return substr($hash, 0, (int)$pow['bits']) === $pow['target'];
+}
+
+/**
+ * 蜜罐字段名（随机；注入隐藏输入框，机器人自动填写即判失败）
+ */
+function captcha_honeypot_name(): string {
+    static $name = null;
+    if ($name === null) {
+        $name = 'hp_' . bin2hex(random_bytes(CAPTCHA_HONEYPOT_LEN));
+    }
+    return $name;
+}
+
+/**
+ * 检查蜜罐：字段被填写（机器人行为）返回 false
+ */
+function captcha_honeypot_ok(array $post): bool {
+    if (!captcha_honeypot_enabled()) {
+        return true;
+    }
+    $name = $_SESSION['captcha_hp_name'] ?? '';
+    if ($name === '') {
+        return true;
+    }
+    return empty($post[$name] ?? '');
+}
+
+/**
+ * IP 限流：是否已被锁死
+ */
+function captcha_rl_blocked(): bool {
+    $file = APP_ROOT . 'data/cache/captcha_rl_' . md5(captcha_ip_prefix()) . '.json';
+    if (!is_file($file)) {
+        return false;
+    }
+    $data = @json_decode(@file_get_contents($file), true);
+    if (!is_array($data)) {
+        return false;
+    }
+    return (!empty($data['blocked_until']) && $data['blocked_until'] > time());
+}
+
+/**
+ * 记录一次失败（IP 维度），超阈值则锁死一段时间
+ */
+function captcha_rl_hit(): void {
+    $file = APP_ROOT . 'data/cache/captcha_rl_' . md5(captcha_ip_prefix()) . '.json';
+    $dir = dirname($file);
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0755, true);
+    }
+    $now = time();
+    $data = is_file($file) ? (@json_decode(@file_get_contents($file), true) ?? []) : [];
+    if (($data['window_start'] ?? 0) < $now - CAPTCHA_RL_WINDOW) {
+        $data = ['window_start' => $now, 'fails' => 0, 'blocked_until' => 0];
+    }
+    $data['fails'] = (int)($data['fails'] ?? 0) + 1;
+    if ($data['fails'] >= CAPTCHA_RL_MAX_FAILS) {
+        $data['blocked_until'] = $now + CAPTCHA_RL_BLOCK;
+    }
+    @file_put_contents($file, json_encode($data));
+}
+
+/**
+ * 抗 AI 视觉识别：在图像上叠加高频噪声与细微波纹干扰
+ * 对人类几乎无感，但能显著干扰计算机视觉的轮廓/边缘提取
+ */
+function captcha_anti_ai_noise($img, int $w, int $h, int $intensity = 18): void {
+    if (!function_exists('imagesetpixel')) {
+        return;
+    }
+    // 高频噪点
+    for ($i = 0, $n = (int)($w * $h * $intensity / 1000); $i < $n; $i++) {
+        $x = random_int(0, $w - 1);
+        $y = random_int(0, $h - 1);
+        $c = random_int(0, 1) ? 255 : 0;
+        $a = random_int(20, 70);
+        $col = imagecolorallocatealpha($img, $c, $c, $c, 127 - (int)($a / 2));
+        imagesetpixel($img, $x, $y, $col);
+    }
+    // 细微斜向干扰线（低对比度）
+    for ($i = 0, $n = random_int(2, 4); $i < $n; $i++) {
+        $cx = random_int(0, $w);
+        $cy = random_int(0, $h);
+        $col = imagecolorallocatealpha($img, 200, 200, 200, 110);
+        imageline($img, $cx, $cy, $cx + random_int(-30, 30), $cy + random_int(-30, 30), $col);
+    }
+}
+
 /**
  * 从随机背景图 API 获取一张图片并缩放/裁剪到目标尺寸
  *
@@ -204,6 +399,9 @@ function slider_captcha_gd(int $gapX, int $gapY): array {
         imagefilledrectangle($img, $w - 48, $h - 40, $w - 22, $h - 30, imagecolorallocate($img, 140, 100, 60));
     }
 
+    // 抗 AI 视觉识别：背景叠加高频噪声（破坏边缘/轮廓提取）
+    captcha_anti_ai_noise($img, $w, $h);
+
     // 确保 gapX/gapY 不超出边界
     $gapX = max(0, min($w - $pw, $gapX));
     $gapY = max(0, min($h - $pw, $gapY));
@@ -220,6 +418,22 @@ function slider_captcha_gd(int $gapX, int $gapY): array {
     $shadow = imagecolorallocate($pieceImg, 30, 41, 59);
     imagerectangle($pieceImg, 0, 0, $pw - 1, $pw - 1, $border);
     imagerectangle($pieceImg, 1, 1, $pw - 2, $pw - 2, $shadow);
+
+    // 不规则拼图边缘（抗计算机视觉：破坏规则矩形轮廓，使 CV 难以干净抠出拼块）
+    $cut = imagecolorallocatealpha($pieceImg, 0, 0, 0, 127);
+    $edgeCount = random_int(3, 6);
+    for ($i = 0; $i < $edgeCount; $i++) {
+        $side = random_int(0, 3);
+        $pos = random_int(4, $pw - 4);
+        $r = random_int(3, 6);
+        if ($side === 0) { $cx = 0; $cy = $pos; }
+        elseif ($side === 1) { $cx = $pw - 1; $cy = $pos; }
+        elseif ($side === 2) { $cx = $pos; $cy = 0; }
+        else { $cx = $pos; $cy = $pw - 1; }
+        imagefilledellipse($pieceImg, $cx, $cy, $r * 2, $r * 2, $cut);
+    }
+    // 拼块自身也叠加轻量噪声
+    captcha_anti_ai_noise($pieceImg, $pw + $tabR, $pw, 10);
 
     // 拼图块右侧凸起（半圆）
     $cx = $pw - 1;
@@ -273,20 +487,40 @@ function captcha_enabled(): bool {
  */
 function captcha_new(): array {
     $token = bin2hex(random_bytes(16));
+    $pow = captcha_pow_challenge();
+    $hpName = captcha_honeypot_enabled() ? captcha_honeypot_name() : '';
+    if ($hpName !== '') {
+        $_SESSION['captcha_hp_name'] = $hpName;
+    }
     $_SESSION['captcha'] = [
-        'token'    => $token,
-        'expires'  => time() + CAPTCHA_TTL,
-        'attempts' => 0,
-        'passed'   => false,
-        'mode'     => 'behavior',
-        'gap'      => null,
+        'token'      => $token,
+        'sig'        => captcha_token_sig($token),
+        'expires'    => time() + CAPTCHA_TTL,
+        'attempts'   => 0,
+        'passed'     => false,
+        'mode'       => 'behavior',
+        'gap'        => null,
+        'difficulty' => captcha_difficulty(),
+        'pow'        => $pow,
+        'escalation' => 0,
     ];
-    return [
+    $out = [
         'token'       => $token,
         'width'       => SLIDER_CAPTCHA_WIDTH,
         'height'      => SLIDER_CAPTCHA_HEIGHT,
         'piece_width' => SLIDER_CAPTCHA_PIECE + SLIDER_CAPTCHA_TAB,
     ];
+    if ($pow !== null) {
+        $out['pow'] = $pow;
+    }
+    if ($hpName !== '') {
+        $out['hp_name'] = $hpName;
+    }
+    if (captcha_rl_blocked()) {
+        $out['blocked'] = true;
+        $out['blocked_msg'] = t('captcha_blocked', '验证尝试过于频繁，请稍后再试');
+    }
+    return $out;
 }
 
 /**
@@ -306,6 +540,17 @@ function captcha_check(string $token, array $signals, bool $refresh = false): ar
         unset($_SESSION['captcha']);
         return ['ok' => false, 'error' => 'attempts'];
     }
+    // IP 限流：被锁死时直接拒绝
+    if (captcha_rl_blocked()) {
+        return ['ok' => false, 'error' => 'blocked', 'message' => t('captcha_blocked', '验证尝试过于频繁，请稍后再试')];
+    }
+
+    // 失败升级：多次失败后切换到更难挑战并收紧容差
+    $escalate = captcha_escalation_enabled() && ($cap['attempts'] ?? 0) >= CAPTCHA_ESCALATE_AFTER;
+    if ($escalate) {
+        $cap['escalation'] = 1;
+        $_SESSION['captcha'] = $cap;
+    }
 
     // 换一张：跳过行为打分，直接重新生成挑战
     $skipBehavior = $refresh || captcha_display() === 'popup';
@@ -317,8 +562,15 @@ function captcha_check(string $token, array $signals, bool $refresh = false): ar
 
     $style = captcha_style();
     if ($style === 'auto') {
-        $styles = ['slider', 'click', 'swap'];
+        // 启用轮换时随机选一种；升级时强制滑块（位置型对机器人最难）
+        $styles = captcha_rotation_enabled() ? ['slider', 'click', 'swap'] : ['slider'];
+        if ($escalate) {
+            $styles = ['slider'];
+        }
         $style = $styles[random_int(0, count($styles) - 1)];
+    } elseif ($escalate && $style !== 'slider') {
+        // 升级时即便配置了 click/swap 也回落到 slider
+        $style = 'slider';
     }
     if ($style === 'click') {
         return captcha_click_challenge($cap);
@@ -343,7 +595,12 @@ function captcha_slider_challenge(array $cap): array {
     $cap['mode'] = 'slider';
     $cap['gap']  = $gapX;
     $cap['gapY'] = $gapY;
-    $cap['tol']  = captcha_slider_tolerance();
+    $tol = captcha_slider_tolerance();
+    // 升级模式：容差减半，进一步压缩机器人暴力空间
+    if (!empty($cap['escalation'])) {
+        $tol = max(3, (int)($tol / 2));
+    }
+    $cap['tol']  = $tol;
     $_SESSION['captcha'] = $cap;
 
     return [
@@ -503,7 +760,7 @@ function captcha_swap_challenge(array $cap): array {
  * @param string $token 挑战 token
  * @param array  $order 用户提交的图块排列（每个元素为 correct index）
  */
-function captcha_swap_verify(string $token, array $order): array {
+function captcha_swap_verify(string $token, array $order, ?string $powNonce = null): array {
     $cap = $_SESSION['captcha'] ?? null;
     if (!is_array($cap) || ($cap['token'] ?? '') !== $token) {
         return ['ok' => false];
@@ -515,12 +772,17 @@ function captcha_swap_verify(string $token, array $order): array {
     if (($cap['mode'] ?? '') !== 'swap') {
         return ['ok' => false];
     }
+    if (($cap['sig'] ?? '') !== captcha_token_sig($token)) {
+        unset($_SESSION['captcha']);
+        return ['ok' => false];
+    }
+    // PoW 校验（软失败：仅记录不阻断）
+    if (!captcha_verify_pow($cap['pow'] ?? null, $powNonce)) {
+        // PoW 失败不拒绝，继续走后续校验
+    }
 
     $expected = $cap['answer'] ?? [];
-    
-    // ========== 调试：记录实际收到的值 ==========
-    error_log('swap verify - expected: ' . json_encode($expected) . ', got: ' . json_encode($order));
-    
+
     // 确保数组索引从 0 开始连续
     $got = array_values($order);
     if (json_encode($got) === json_encode($expected)) {
@@ -530,6 +792,7 @@ function captcha_swap_verify(string $token, array $order): array {
     }
 
     $cap['attempts'] = ($cap['attempts'] ?? 0) + 1;
+    captcha_rl_hit();
     $_SESSION['captcha'] = $cap;
     return ['ok' => false];
 }
@@ -805,7 +1068,7 @@ function captcha_click_challenge(array $cap): array {
 /**
  * 点文字校验：提交的字符序列必须与目标词顺序完全一致
  */
-function captcha_click_verify(string $token, $seq): array {
+function captcha_click_verify(string $token, $seq, ?string $powNonce = null): array {
     $cap = $_SESSION['captcha'] ?? null;
     if (!is_array($cap) || ($cap['token'] ?? '') !== $token) {
         return ['ok' => false];
@@ -817,6 +1080,14 @@ function captcha_click_verify(string $token, $seq): array {
     if (($cap['mode'] ?? '') !== 'click') {
         return ['ok' => false];
     }
+    if (($cap['sig'] ?? '') !== captcha_token_sig($token)) {
+        unset($_SESSION['captcha']);
+        return ['ok' => false];
+    }
+    // PoW 校验（软失败：仅记录不阻断）
+    if (!captcha_verify_pow($cap['pow'] ?? null, $powNonce)) {
+        // PoW 失败不拒绝，继续走后续校验
+    }
 
     $expected = array_map('strval', $cap['answer'] ?? []);
     $got      = is_array($seq) ? array_values(array_map('strval', $seq)) : [];
@@ -827,6 +1098,7 @@ function captcha_click_verify(string $token, $seq): array {
     }
 
     $cap['attempts'] = ($cap['attempts'] ?? 0) + 1;
+    captcha_rl_hit();
     $_SESSION['captcha'] = $cap;
     return ['ok' => false];
 }
@@ -843,7 +1115,7 @@ function captcha_click_verify(string $token, $seq): array {
  * @param array $traj      轨迹点 [{t, x}, ...]，空数组表示未提供
  * @return array ['ok'=>bool, 'reason'?=>string]
  */
-function captcha_slider_verify(string $token, $x, int $duration = 0, array $traj = []): array {
+function captcha_slider_verify(string $token, $x, int $duration = 0, array $traj = [], ?string $powNonce = null): array {
     $cap = $_SESSION['captcha'] ?? null;
     if (!is_array($cap) || ($cap['token'] ?? '') !== $token) {
         return ['ok' => false, 'reason' => 'invalid_token'];
@@ -855,20 +1127,38 @@ function captcha_slider_verify(string $token, $x, int $duration = 0, array $traj
     if (($cap['mode'] ?? '') !== 'slider') {
         return ['ok' => false, 'reason' => 'mode_mismatch'];
     }
+    // 安全校验：签名绑定（防止伪造/重放）
+    if (($cap['sig'] ?? '') !== captcha_token_sig($token)) {
+        unset($_SESSION['captcha']);
+        return ['ok' => false, 'reason' => 'invalid_token'];
+    }
+    // PoW 校验（软失败：仅记录不阻断，避免低端设备/超时误伤正常用户）
+    if (!captcha_verify_pow($cap['pow'] ?? null, $powNonce)) {
+        // PoW 失败不拒绝，继续走后续校验（位置精度 + 风控）
+    }
 
     // ========== 0. 机器人行为风控（仅在有风控数据时执行）==========
     if ($duration > 0 || !empty($traj)) {
         $risk = captcha_slider_risk_score($duration, $traj, (int)$cap['gap']);
-        // 风险分数 >= 10 则直接拒绝（高置信度机器人）
-        if ($risk >= 10) {
+        $diffMap = ['easy' => 0, 'normal' => 1, 'hard' => 2];
+        $difficulty = $diffMap[($cap['difficulty'] ?? 'normal')] ?? 1;
+        // 风险分数 >= 12 则直接拒绝（极高置信度机器人）
+        if ($risk >= 12) {
             $cap['attempts'] = ($cap['attempts'] ?? 0) + 1;
+            captcha_rl_hit();
             $_SESSION['captcha'] = $cap;
             return ['ok' => false, 'reason' => 'bot_detected', 'risk' => $risk];
         }
-        // 风险分数 >= 5 且难度 >= normal 时拒绝
-        $difficulty = (int)($cap['difficulty'] ?? 1); // 0=easy, 1=normal, 2=hard
-        if ($risk >= 5 && $difficulty >= 1) {
+        // hard 模式下风险 >= 8 拒绝；normal 下 >= 10 才拒绝；easy 不因风控拒绝
+        if ($difficulty === 2 && $risk >= 8) {
             $cap['attempts'] = ($cap['attempts'] ?? 0) + 1;
+            captcha_rl_hit();
+            $_SESSION['captcha'] = $cap;
+            return ['ok' => false, 'reason' => 'suspicious', 'risk' => $risk];
+        }
+        if ($difficulty >= 1 && $risk >= 10) {
+            $cap['attempts'] = ($cap['attempts'] ?? 0) + 1;
+            captcha_rl_hit();
             $_SESSION['captcha'] = $cap;
             return ['ok' => false, 'reason' => 'suspicious', 'risk' => $risk];
         }
@@ -888,6 +1178,7 @@ function captcha_slider_verify(string $token, $x, int $duration = 0, array $traj
     }
 
     $cap['attempts'] = ($cap['attempts'] ?? 0) + 1;
+    captcha_rl_hit();
     $_SESSION['captcha'] = $cap;
     return ['ok' => false, 'reason' => 'position_miss'];
 }
@@ -992,6 +1283,32 @@ function captcha_slider_risk_score(int $duration, array $traj, int $gapTarget): 
             $risk += 2;
         }
 
+        // 2f. x(t) 线性度 —— 程序化插值机器人 x 随时间严格线性（缓入缓出曲线缺失）
+        if ($n >= 5) {
+            $t0 = (int)$traj[0]['t'];
+            $t1 = (int)$traj[$n - 1]['t'];
+            $x0 = (int)$traj[0]['x'];
+            $x1 = (int)$traj[$n - 1]['x'];
+            $dt = $t1 - $t0;
+            if ($dt > 0) {
+                $maxDev = 0;
+                for ($i = 1; $i < $n - 1; $i++) {
+                    $ti = (int)$traj[$i]['t'] - $t0;
+                    $expectedX = $x0 + ($x1 - $x0) * ($ti / $dt);
+                    $dev = abs((int)$traj[$i]['x'] - $expectedX);
+                    if ($dev > $maxDev) {
+                        $maxDev = $dev;
+                    }
+                }
+                // 严格线性 + 匀速 → 典型插值脚本；人类呈缓入缓出曲线
+                if ($maxDev < 2 && ($vStdDev ?? 999) < 0.2) {
+                    $risk += 3;
+                } elseif ($maxDev < 4) {
+                    $risk += 1;
+                }
+            }
+        }
+
     } elseif ($n <= 1 && $duration > 0 && $duration < 500) {
         // 几乎无轨迹数据且快速完成 —— 高度可疑
         $risk += 4;
@@ -1010,6 +1327,11 @@ function captcha_passed(string $token): bool {
     }
     $cap = $_SESSION['captcha'] ?? null;
     if (!is_array($cap) || ($cap['token'] ?? '') !== $token) {
+        return false;
+    }
+    // 签名绑定校验（防止跨会话重放/伪造 token）
+    if (($cap['sig'] ?? '') !== captcha_token_sig($token)) {
+        unset($_SESSION['captcha']);
         return false;
     }
     if (($cap['expires'] ?? 0) < time()) {

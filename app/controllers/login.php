@@ -22,8 +22,12 @@ $credKey = get_remember_credentials_key();
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!validate_csrf()) {
         $errors[] = t('login_security_verify_fail', '安全验证失败，请刷新页面重试。');
-    } elseif (captcha_enabled() && !captcha_passed($_POST['captcha_token'] ?? '')) {
-        $errors[] = t('slider_captcha_fail', '请先完成人机验证。');
+    } elseif (captcha_enabled()) {
+        if (!captcha_honeypot_ok($_POST)) {
+            $errors[] = t('captcha_bot_detected', '验证未通过，请重试');
+        } elseif (!captcha_passed($_POST['captcha_token'] ?? '')) {
+            $errors[] = t('slider_captcha_fail', '请先完成人机验证。');
+        }
     } else {
         $account = trim($_POST['account'] ?? '');
         $password = $_POST['password'] ?? '';

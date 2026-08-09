@@ -67,7 +67,8 @@ try {
             $in['token'] ?? '',
             $in['x'] ?? null,
             (int)($in['duration'] ?? 0),
-            is_array($in['traj'] ?? null) ? $in['traj'] : []
+            is_array($in['traj'] ?? null) ? $in['traj'] : [],
+            isset($in['pow_nonce']) ? (string)$in['pow_nonce'] : null
         ));
     } elseif ($action === 'click') {
         $raw = file_get_contents('php://input');
@@ -75,7 +76,11 @@ try {
         if (!is_array($in)) {
             $in = [];
         }
-        $resp = array_merge($resp, captcha_click_verify($in['token'] ?? '', $in['seq'] ?? null));
+        $resp = array_merge($resp, captcha_click_verify(
+            $in['token'] ?? '',
+            $in['seq'] ?? null,
+            isset($in['pow_nonce']) ? (string)$in['pow_nonce'] : null
+        ));
     } elseif ($action === 'swap') {
         $raw = file_get_contents('php://input');
         $in  = json_decode($raw ?: '', true);
@@ -83,7 +88,11 @@ try {
             $in = [];
         }
         $order = is_array($in['order'] ?? null) ? $in['order'] : [];
-        $resp = array_merge($resp, captcha_swap_verify($in['token'] ?? '', $order));
+        $resp = array_merge($resp, captcha_swap_verify(
+            $in['token'] ?? '',
+            $order,
+            isset($in['pow_nonce']) ? (string)$in['pow_nonce'] : null
+        ));
     } else {
         $resp['error'] = 'unknown_action';
     }

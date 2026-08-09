@@ -24,6 +24,17 @@ $captchaDisplay = get_site_setting('captcha_display', 'inline');
 $captchaDifficulty = get_site_setting('captcha_difficulty', 'normal');
 $captchaTriggerMode = get_site_setting('captcha_trigger_mode', 'suspicious');
 $captchaSkipCooldown = get_site_setting('captcha_skip_cooldown', '600');
+// 强化防机器人：工作量证明（PoW）
+$captchaPowEnabled = get_site_setting('captcha_pow_enabled', '1') === '1';
+$captchaPowBits    = (int)get_site_setting('captcha_pow_bits', '3');
+if ($captchaPowBits < 1) $captchaPowBits = 1;
+if ($captchaPowBits > 6) $captchaPowBits = 6;
+// 强化防机器人：蜜罐字段（诱导机器人自曝）
+$captchaHoneypotEnabled = get_site_setting('captcha_honeypot_enabled', '1') === '1';
+// 强化防机器人：失败升级（多次失败切换更严挑战）
+$captchaEscalationEnabled = get_site_setting('captcha_escalation_enabled', '1') === '1';
+// 强化防机器人：挑战轮换（跨请求随机挑战类型，抗行为画像）
+$captchaRotationEnabled = get_site_setting('captcha_rotation_enabled', '0') === '1';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && validate_csrf()) {
     $newName   = trim($_POST['site_name'] ?? '');
@@ -122,6 +133,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && validate_csrf()) {
             // 调试模式：开启后前台跳过验证
             $captchaDebug = !empty($_POST['captcha_debug']) ? '1' : '0';
             set_site_setting('captcha_debug', $captchaDebug);
+            // 强化防机器人：工作量证明（PoW）开启与难度
+            $captchaPowEnabled = !empty($_POST['captcha_pow_enabled']) ? '1' : '0';
+            set_site_setting('captcha_pow_enabled', $captchaPowEnabled);
+            $captchaPowBits = (int)($_POST['captcha_pow_bits'] ?? '3');
+            if ($captchaPowBits < 1) $captchaPowBits = 1;
+            if ($captchaPowBits > 6) $captchaPowBits = 6;
+            set_site_setting('captcha_pow_bits', (string)$captchaPowBits);
+            // 强化防机器人：蜜罐字段
+            $captchaHoneypotEnabled = !empty($_POST['captcha_honeypot_enabled']) ? '1' : '0';
+            set_site_setting('captcha_honeypot_enabled', $captchaHoneypotEnabled);
+            // 强化防机器人：失败升级
+            $captchaEscalationEnabled = !empty($_POST['captcha_escalation_enabled']) ? '1' : '0';
+            set_site_setting('captcha_escalation_enabled', $captchaEscalationEnabled);
+            // 强化防机器人：挑战轮换
+            $captchaRotationEnabled = !empty($_POST['captcha_rotation_enabled']) ? '1' : '0';
+            set_site_setting('captcha_rotation_enabled', $captchaRotationEnabled);
             set_flash(t('settings_save_success', '站点设置已保存。'), 'success');
             redirect('/admin/site_settings');
         } else {
@@ -228,6 +255,31 @@ if ($flash): ?>
             <label class="form-label" for="captcha_skip_cooldown" style="margin-top: 0.75rem;"><?php echo e(t('settings_captcha_skip_cooldown', '冷却期（秒）')); ?></label>
             <input type="number" class="form-control" id="captcha_skip_cooldown" name="captcha_skip_cooldown" value="<?php echo e($captchaSkipCooldown); ?>" min="60" max="86400" style="max-width: 200px;">
             <p class="form-hint"><?php echo e(t('settings_captcha_skip_cooldown_hint', '用户通过验证后，在此期间内不会再被要求验证。建议 600-1800 秒。')); ?></p>
+            <hr class="form-divider" style="margin: 1rem 0;">
+            <p class="text-muted mb-1" style="font-weight:600;"><?php echo e(t('settings_captcha_hardening', '强化防机器人（抗跳过 / 抗 AI 识别）')); ?></p>
+            <label class="flex items-center gap-1" style="margin-top: 0.5rem; cursor: pointer;">
+                <input type="checkbox" id="captcha_pow_enabled" name="captcha_pow_enabled" value="1" <?php echo $captchaPowEnabled ? 'checked' : ''; ?>>
+                <span><?php echo e(t('settings_captcha_pow', '启用工作量证明（PoW）')); ?></span>
+            </label>
+            <p class="form-hint"><?php echo e(t('settings_captcha_pow_hint', '验证时浏览器需在前端计算一个满足「哈希前 N 位为零」的 nonce 才允许提交。这能消耗自动化脚本的算力、防止直接 POST 跳过验证，且对真人几乎无感（毫秒级）。')); ?></p>
+            <label class="form-label" for="captcha_pow_bits" style="margin-top: 0.75rem;"><?php echo e(t('settings_captcha_pow_bits', 'PoW 难度（前导零位数 1-6）')); ?></label>
+            <input type="number" class="form-control" id="captcha_pow_bits" name="captcha_pow_bits" value="<?php echo e($captchaPowBits); ?>" min="1" max="6" style="max-width: 200px;">
+            <p class="form-hint"><?php echo e(t('settings_captcha_pow_bits_hint', '位数越高，前端求解耗时越长。普通 3、严格 4-5。设置过高会明显拖慢正常用户提交，请谨慎。')); ?></p>
+            <label class="flex items-center gap-1" style="margin-top: 0.75rem; cursor: pointer;">
+                <input type="checkbox" id="captcha_honeypot_enabled" name="captcha_honeypot_enabled" value="1" <?php echo $captchaHoneypotEnabled ? 'checked' : ''; ?>>
+                <span><?php echo e(t('settings_captcha_honeypot', '启用蜜罐字段')); ?></span>
+            </label>
+            <p class="form-hint"><?php echo e(t('settings_captcha_honeypot_hint', '在表单中埋入一个对真人隐藏、仅机器人会自动填写的输入框。一旦被填写即判定为机器并直接拒绝，专门克制「识别验证码后自动 POST」的脚本。')); ?></p>
+            <label class="flex items-center gap-1" style="margin-top: 0.75rem; cursor: pointer;">
+                <input type="checkbox" id="captcha_escalation_enabled" name="captcha_escalation_enabled" value="1" <?php echo $captchaEscalationEnabled ? 'checked' : ''; ?>>
+                <span><?php echo e(t('settings_captcha_escalation', '失败自动升级挑战')); ?></span>
+            </label>
+            <p class="form-hint"><?php echo e(t('settings_captcha_escalation_hint', '同一会话连续验证失败后，自动切换为更严苛的挑战并收紧容差（滑块容差减半、强制滑块），显著增加机器人撞库成本。')); ?></p>
+            <label class="flex items-center gap-1" style="margin-top: 0.75rem; cursor: pointer;">
+                <input type="checkbox" id="captcha_rotation_enabled" name="captcha_rotation_enabled" value="1" <?php echo $captchaRotationEnabled ? 'checked' : ''; ?>>
+                <span><?php echo e(t('settings_captcha_rotation', '启用挑战轮换')); ?></span>
+            </label>
+            <p class="form-hint"><?php echo e(t('settings_captcha_rotation_hint', '在「智能混合」基础上，同一会话每隔几次验证随机切换挑战类型，防止机器人针对单一验证方式建立行为模型。')); ?></p>
             <label class="flex items-center gap-1" style="margin-top: 0.75rem; cursor: pointer;">
                 <input type="checkbox" id="captcha_debug" name="captcha_debug" value="1" <?php echo $captchaDebug ? 'checked' : ''; ?>>
                 <span style="font-weight:600;"><?php echo e(t('settings_captcha_debug', '调试模式（前台绕过验证）')); ?></span>
