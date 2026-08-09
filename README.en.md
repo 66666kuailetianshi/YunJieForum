@@ -48,6 +48,7 @@
 | Content Moderation | Sensitive-word filtering engine (Trie + Aho-Corasick), supporting exact / whole-word / regex matching, whitelist, three-level handling (replace / block / manual review), hit logs; user reports, ban appeals, mute |
 | Email | Native SMTP sender implemented with `fsockopen` (no third-party dependencies), supports SSL/TLS, mail logs, bounce handling, mail statistics and notifications |
 | Ops & Monitoring | Traffic statistics (visit records), system status, database backup, automatic schema migration, installation/error logs |
+| System Update | "System Update Center" supports manual/automatic update checking and applying: download → verify SHA256 hash → auto-backup → overwrite upgrade, see [Section 10.3](#103-system-update-center-update_center) |
 | Multi-language | Built-in `Simplified Chinese / Traditional Chinese / English`, auto-detected by URL, Cookie, config, and browser language |
 | Themes | Light/dark dual themes based on CSS variables (light / dark), customizable colors and skins |
 | CAPTCHA | Supports "slider jigsaw", "click text", and "reasoning swap" challenge modes with one-click switching or smart mixing; display modes include inline embedding and popup; behavioral scoring allows seamless verification for legitimate users |
@@ -90,7 +91,7 @@ index.php  ── 路由解析（route / s / REQUEST_URI）→ 分发
 
 ## 3. Directory Structure
 
-> The tree below is **measured from the actual project layout** (`app/` contains 118 PHP files + assets). Lines with `#` are files that actually exist in this project.
+> The tree below is **measured from the actual project layout** (`app/` contains 121 PHP files + assets). Lines with `#` are files that actually exist in this project.
 
 ```
 Cloud Forum/
@@ -99,7 +100,7 @@ Cloud Forum/
 ├── LICENSE                    # Open-source license text
 ├── README.md / README.en.md / README.zh-TW.md   # Tri-lingual project docs
 │
-├── app/                       # Application core (118 PHP files)
+├── app/                       # Application core (121 PHP files)
 │   ├── controllers/           # Front-end page controllers (26 files, each maps to one route)
 │   │   ├── home.php           # Home (stats/announcements/forums/trending)
 │   │   ├── forum.php          # Forum thread list
@@ -117,7 +118,7 @@ Cloud Forum/
 │   │   └── privacy.php / terms.php / disclaimer.php / service.php   # Site pages (editable in admin)
 │   │
 │   ├── admin/                 # Admin panel (entry prefix /admin)
-│   │   ├── controllers/       # Admin pages (25 files)
+│   │   ├── controllers/       # Admin pages (26 files)
 │   │   │   ├── index.php              # Dashboard home
 │   │   │   ├── system_status.php      # System status monitor (CPU/memory/temp/network/disk/GPU)
 │   │   │   ├── traffic_monitor.php     # Traffic monitor
@@ -129,8 +130,9 @@ Cloud Forum/
 │   │   │   ├── sensitive_words.php / sensitive_word_logs.php
 │   │   │   ├── medals.php / mail_center.php / backup.php
 │   │   │   ├── data_migration.php       # Data migration & restore (export/import, ZIP with avatars)
+│   │   │   ├── update_center.php        # System Update Center (check/manual update/auto-update settings)
 │   │   │   └── captcha_debug.php       # CAPTCHA debug console
-│   │   ├── api/               # Admin AJAX endpoints (20 files, named *_ajax.php)
+│   │   ├── api/               # Admin AJAX endpoints (21 files, named *_ajax.php)
 │   │   │   ├── system_status_ajax.php   # System status poller (with ?diag=1 diagnostics)
 │   │   │   ├── traffic_ajax.php / pending_counts_ajax.php
 │   │   │   ├── posts_ajax.php / replies_ajax.php / reports_ajax.php
@@ -139,6 +141,7 @@ Cloud Forum/
 │   │   │   ├── ban_appeals_ajax.php / sensitive_words_ajax.php / sensitive_logs_ajax.php
 │   │   │   ├── backup_ajax.php / mail_stats_ajax.php / mail_notify_ajax.php
 │   │   │   ├── bounce_ajax.php / diag_auth.php / data_migration_ajax.php
+│   │   │   ├── update_ajax.php          # System Update Center (check/download/verify/update)
 │   │   │   └── (others — see Section 11)
 │   │   └── layout/            # Admin layout
 │   │       ├── admin-init.php # Admin auth & init (required by each admin page)
@@ -159,6 +162,7 @@ Cloud Forum/
 │   │   ├── mailer.php         # Native fsockopen SMTP sender + mail log
 │   │   ├── bounce_processor.php  # Bounce handling
 │   │   ├── backup_manager.php    # DB backup
+│   │   ├── update_center.php    # System Update Center (check/download/verify/backup/overwrite shared logic)
 │   │   ├── compat.php         # Fallback layer when mbstring is absent
 │   │   └── header.php / footer.php
 │   │
@@ -367,7 +371,7 @@ Entry: `/admin` (corresponds to `app/admin/controllers/`, layout in `app/admin/l
 | Review & compliance | `reports.php`, `ban_appeals.php`, `password_reset_requests.php`, `sensitive_words.php`, `sensitive_word_logs.php` |
 | Medals | `medals.php` |
 | Email | `mail_center.php` (logs/statistics/notifications/bounce config) |
-| Ops | `backup.php`, `data_migration.php` (data migration & restore) |
+| Ops | `backup.php`, `data_migration.php` (data migration & restore), `update_center.php` (System Update Center) |
 
 Many admin operations are handled through `app/admin/api/*_ajax.php`, returning JSON for asynchronous frontend calls, with auxiliary endpoints for pending counts (`pending_counts_ajax.php`), user risk details (`user_risk_detail_ajax.php`), and system diagnostics (`diag_auth.php`).
 
@@ -420,6 +424,33 @@ Entry `/admin/data_migration`, rendered by `app/admin/controllers/data_migration
 - **Pre-import snapshot**: a database snapshot is created automatically before every import, so a failed import can be rolled back.
 - **Progress indicator**: a staged progress bar is shown during import (ZIP: upload → parse → restore assets → snapshot → write to DB; others: upload → parse → snapshot → write to DB).
 
+### 10.3 System Update Center (update_center)
+
+Entry `/admin/update_center`, rendered by `app/admin/controllers/update_center.php` and served by `app/admin/api/update_ajax.php`, with core logic in `app/includes/update_center.php`. Used to check for and apply Yunjie Forum version updates online, supporting both **manual** and **automatic** methods.
+
+**Update settings**
+
+| Setting | Description |
+| --- | --- |
+| Update source URL | Two formats: ① Directory URL (e.g. `https://example.com/updates`) → auto-appends `/{channel}/version.json`; ② Direct file link (ending in `.json/.txt/.yml/.yaml`) → used directly as version info (JSON or plain-text version). Left empty, update checks are disabled. |
+| Update channel | `stable` / `beta` / `dev`. |
+| Strict SSL verification | Off by default. Keep off when the update source uses a self-signed certificate (e.g. a personal server); enable only when the source is signed by a trusted CA. |
+| Skip hash verification | SHA256/SHA1 hash of the update package is verified by force by default to prevent tampering; only enable skipping when the source cannot provide `package_hash` AND you fully trust it (risk of a tampered package overwriting the site). |
+| Enable auto-update | When on, the system checks automatically at the "auto-update interval" and, upon finding a new version, downloads, backs up, and overwrites to upgrade. |
+| Auto-update interval (hours) | After this many hours since the last check, visiting the admin panel again triggers an automatic check and install. Recommended 24 (once a day). |
+
+**Update flow (security-first)**
+
+Both a manual "Update now" click and an automatic trigger go through the same atomic flow; any step failure rolls back and never leaves a half-applied state:
+
+1. **Check**: fetch `{base}/{channel}/version.json`, parse the latest version (JSON or plain text supported); `version_compare` decides availability.
+2. **Download**: stream the package to `data/tmp/` with live progress (front-end progress bar: preparing → downloading → verifying → backing up → extracting → done).
+3. **Verify**: after download, strictly compare `package_hash` (SHA256/SHA1); on mismatch the package is discarded and the update is cancelled.
+4. **Backup**: before upgrading, back up the current code (`app/`, `public/`, and entry files) as a ZIP to `data/backups/update_pre_{timestamp}.zip`, restorable anytime from "Backup".
+5. **Overwrite**: extract the package to the install root; **path traversal is forbidden** and **overwriting `data/` is forbidden** (preserves user data, config, and the database).
+
+> Auto-update also goes through the full "verify + backup + overwrite" flow; if the source provides no `package_url`, name the package `update.zip` and place it under the `{channel}/` directory so the system derives it automatically.
+
 ---
 
 ## 11. API Endpoints
@@ -435,7 +466,7 @@ Entry `/admin/data_migration`, rendered by `app/admin/controllers/data_migration
 | `check_ban_status.php` | Current user's ban/mute status |
 | `upload_image.php` | Image upload |
 
-**Admin endpoints** (`app/admin/api/`, `*_ajax.php`): backup, ban_appeals, bounce, data_migration, diag_auth, mail_notify, mail_stats, pending_counts, posts, replies, reports, sensitive_logs, sensitive_words, system_status, traffic, user_detail, user_risk_detail, users, users_bulk, users_export_csv.
+**Admin endpoints** (`app/admin/api/`, `*_ajax.php`): backup, ban_appeals, bounce, data_migration, update, diag_auth, mail_notify, mail_stats, pending_counts, posts, replies, reports, sensitive_logs, sensitive_words, system_status, traffic, user_detail, user_risk_detail, users, users_bulk, users_export_csv.
 
 > Endpoints generally use `realtime_cache($key, $ttl, $callback)` for short caching, avoiding high-frequency polling from overwhelming the database.
 

@@ -48,6 +48,7 @@
 | 內容審核 | 敏感詞過濾引擎（Trie + Aho-Corasick），支持精確/整詞/正則三種匹配、白名單、三級處理（替換 / 攔截 / 人工審核）、命中日誌；用戶舉報、封禁申訴、禁言 |
 | 郵件 | 原生 `fsockopen` 實現的 SMTP 發送器（無第三方依賴），支持 SSL/TLS，郵件日誌、退信處理（bounce）、郵件統計與通知 |
 | 運維監控 | 流量統計（訪問記錄）、系統狀態、資料庫備份、自動 Schema 遷移、安裝/錯誤日誌 |
+| 系統更新 | 「系統更新中心」支援手動/自動檢查並應用版本更新：下載 → 校驗 SHA256 雜湊 → 自動備份 → 覆蓋升級，詳見[第 10.3 節](#103-系統更新中心-update_center) |
 | 多語言 | 內置 `簡體中文 / 繁體中文 / English`，按 URL、Cookie、配置、瀏覽器語言自動識別 |
 | 主題 | 基於 CSS 變量的明暗雙主題（light / dark），可改色與換膚 |
 - **人機驗證**：
@@ -93,7 +94,7 @@ index.php  ── 路由解析（route / s / REQUEST_URI）→ 分發
 
 ## 3. 目錄結構
 
-> 下方樹為**實測得**的專案佈局（`app/` 含 118 個 PHP 檔案 + 各資源檔案）。帶 `#` 註釋的為本專案實際存在的檔案。
+> 下方樹為**實測得**的專案佈局（`app/` 含 121 個 PHP 檔案 + 各資源檔案）。帶 `#` 註釋的為本專案實際存在的檔案。
 
 ```
 雲界論壇/
@@ -102,7 +103,7 @@ index.php  ── 路由解析（route / s / REQUEST_URI）→ 分發
 ├── LICENSE                    # 開源許可證文字
 ├── README.md / README.en.md / README.zh-TW.md   # 三語專案文件
 │
-├── app/                       # 應用核心（118 個 PHP）
+├── app/                       # 應用核心（121 個 PHP）
 │   ├── controllers/           # 前臺頁面控制器（26 個，每個對應一條前臺路由）
 │   │   ├── home.php           # 首頁（聚合統計/公告/版塊/熱門）
 │   │   ├── forum.php          # 版塊帖子列表
@@ -120,7 +121,7 @@ index.php  ── 路由解析（route / s / REQUEST_URI）→ 分發
 │   │   └── privacy.php / terms.php / disclaimer.php / service.php   # 站點頁面（可後臺編輯）
 │   │
 │   ├── admin/                 # 後臺（獨立入口前綴 /admin）
-│   │   ├── controllers/       # 後臺頁面（25 個）
+│   │   ├── controllers/       # 後臺頁面（26 個）
 │   │   │   ├── index.php              # 控制台首頁
 │   │   │   ├── system_status.php      # 系統狀態監控（CPU/記憶體/溫度/網路/磁碟/顯卡）
 │   │   │   ├── traffic_monitor.php     # 流量監控
@@ -132,8 +133,9 @@ index.php  ── 路由解析（route / s / REQUEST_URI）→ 分發
 │   │   │   ├── sensitive_words.php / sensitive_word_logs.php
 │   │   │   ├── medals.php / mail_center.php / backup.php
 │   │   │   ├── data_migration.php       # 數據遷移與還原（匯出/匯入，支援 ZIP 含頭像）
+│   │   │   ├── update_center.php        # 系統更新中心（檢查/手動更新/自動更新設定）
 │   │   │   └── captcha_debug.php       # 人機驗證偵錯台
-│   │   ├── api/               # 後臺 AJAX 接口（20 個，命名 *_ajax.php）
+│   │   ├── api/               # 後臺 AJAX 接口（21 個，命名 *_ajax.php）
 │   │   │   ├── system_status_ajax.php   # 系統狀態輪詢採集（含診斷 ?diag=1）
 │   │   │   ├── traffic_ajax.php / pending_counts_ajax.php
 │   │   │   ├── posts_ajax.php / replies_ajax.php / reports_ajax.php
@@ -142,6 +144,7 @@ index.php  ── 路由解析（route / s / REQUEST_URI）→ 分發
 │   │   │   ├── ban_appeals_ajax.php / sensitive_words_ajax.php / sensitive_logs_ajax.php
 │   │   │   ├── backup_ajax.php / mail_stats_ajax.php / mail_notify_ajax.php
 │   │   │   ├── bounce_ajax.php / diag_auth.php / data_migration_ajax.php
+│   │   │   ├── update_ajax.php          # 系統更新中心（檢查/下載/校驗/更新）
 │   │   │   └── (其餘見第 11 節)
 │   │   └── layout/            # 後臺佈局
 │   │       ├── admin-init.php # 後臺鑑權與初始化（被各後臺頁面 require）
@@ -162,6 +165,7 @@ index.php  ── 路由解析（route / s / REQUEST_URI）→ 分發
 │   │   ├── mailer.php         # 原生 fsockopen SMTP 發送器 + 郵件日誌
 │   │   ├── bounce_processor.php  # 退信處理
 │   │   ├── backup_manager.php    # 資料庫備份
+│   │   ├── update_center.php    # 系統更新中心（檢查/下載/校驗/備份/覆蓋 共享邏輯）
 │   │   ├── compat.php         # 無 mbstring 時的兼容層
 │   │   └── header.php / footer.php
 │   │
@@ -370,7 +374,7 @@ location ~ \.php$ {
 | 審核與合規 | `reports.php`、`ban_appeals.php`、`password_reset_requests.php`、`sensitive_words.php`、`sensitive_word_logs.php` |
 | 勳章 | `medals.php` |
 | 郵件 | `mail_center.php`（日誌/統計/通知/退信配置） |
-| 運維 | `backup.php`、`data_migration.php`（數據遷移與還原） |
+| 運維 | `backup.php`、`data_migration.php`（數據遷移與還原）、`update_center.php`（系統更新中心） |
 
 後臺大量操作通過 `app/admin/api/*_ajax.php` 以 JSON 返回，前端異步調用，並提供待辦計數（`pending_counts_ajax.php`）、用戶風險詳情（`user_risk_detail_ajax.php`）、系統診斷（`diag_auth.php`）等輔助接口。
 
@@ -423,6 +427,33 @@ location ~ \.php$ {
 - **匯入前快照**：每次匯入前自動建立資料庫快照，失敗可回滾。
 - **進度提示**：匯入過程顯示階段性進度條（ZIP：上傳 → 解析 → 還原資源 → 快照 → 寫入資料庫；其他：上傳 → 解析 → 快照 → 寫入資料庫）。
 
+### 10.3 系統更新中心（update_center）
+
+入口 `/admin/update_center`，由 `app/admin/controllers/update_center.php` 渲染、`app/admin/api/update_ajax.php` 提供檢查/更新接口，核心邏輯位於 `app/includes/update_center.php`。用於在線檢查並應用雲界論壇的版本更新，支援**手動**與**自動**兩種方式。
+
+**更新設定**
+
+| 設定項 | 說明 |
+| --- | --- |
+| 更新源位址 | 兩種格式：① 目錄位址（如 `https://example.com/updates`）→ 自動拼接 `/{通道}/version.json`；② 直鏈檔案（`.json/.txt/.yml/.yaml` 結尾）→ 直接作為版本資訊讀取（JSON 或純文字版本號）。留空則無法檢查更新。 |
+| 更新通道 | `stable`（穩定版）/ `beta`（測試版）/ `dev`（開發版）。 |
+| 嚴格校驗 SSL 憑證 | 預設關閉。更新源使用自簽名憑證（如個人伺服器）時應保持關閉；僅正規 CA 簽發時才開啟。 |
+| 跳過雜湊校驗 | 預設強制校驗更新包 SHA256/SHA1 雜湊以防篡改；僅當更新源無法提供 `package_hash` 且完全信任該源時，才可開啟跳過（有被篡改覆蓋的風險）。 |
+| 啟用自動更新 | 開啟後按「自動更新間隔」自動檢查，並在發現新版本時自動下載、備份並覆蓋升級。 |
+| 自動更新間隔（小時） | 距上次檢查超過該小時數後，再次訪問後臺即觸發自動檢查與安裝。建議 24（每天一次）。 |
+
+**更新流程（安全優先）**
+
+手動點擊「立即更新」或自動更新觸發後，均走同一套原子化流程，任意一步失敗都會回退、絕不留下半成品：
+
+1. **檢查**：拉取 `{base}/{通道}/version.json`，解析最新版本（支援 JSON 與純文字格式）；`version_compare` 判斷是否可用。
+2. **下載**：串流下載更新包到 `data/tmp/`，即時回傳進度（前端進度條：準備 → 下載 → 校驗 → 備份 → 解壓覆蓋 → 完成）。
+3. **校驗**：下載完成後嚴格比對 `package_hash`（SHA256/SHA1），不符則立即丟棄並取消更新。
+4. **備份**：升級前對現有程式碼（`app/`、`public/` 及入口檔案）整包備份到 `data/backups/update_pre_{時間戳}.zip`，可隨時從「資料備份」恢復。
+5. **覆蓋**：解壓更新包到安裝根目錄，期間**禁止路徑穿越**、**禁止覆蓋 `data/`**（保留用戶資料、配置與資料庫）。
+
+> 自動更新同樣走「校驗 + 備份 + 覆蓋」全流程；若更新源未提供 `package_url`，可將更新包命名為 `update.zip` 放在「{通道}/」目錄下由系統自動推導。
+
 ---
 
 ## 11. API 接口
@@ -438,7 +469,7 @@ location ~ \.php$ {
 | `check_ban_status.php` | 當前用戶封禁/禁言狀態 |
 | `upload_image.php` | 圖片上傳 |
 
-**後臺接口**（`app/admin/api/`，`*_ajax.php`）：backup、ban_appeals、bounce、data_migration、diag_auth、mail_notify、mail_stats、pending_counts、posts、replies、reports、sensitive_logs、sensitive_words、system_status、traffic、user_detail、user_risk_detail、users、users_bulk、users_export_csv。
+**後臺接口**（`app/admin/api/`，`*_ajax.php`）：backup、ban_appeals、bounce、data_migration、update、diag_auth、mail_notify、mail_stats、pending_counts、posts、replies、reports、sensitive_logs、sensitive_words、system_status、traffic、user_detail、user_risk_detail、users、users_bulk、users_export_csv。
 
 > 接口普遍使用 `realtime_cache($key, $ttl, $callback)` 做短緩存，避免高頻輪詢壓垮資料庫。
 
