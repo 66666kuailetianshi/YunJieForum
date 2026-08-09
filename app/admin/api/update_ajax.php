@@ -53,6 +53,15 @@ if ($action === 'update') {
     exit;
 }
 
+if ($action === 'progress') {
+    // 轮询更新进度（无需 CSRF，只读）
+    $prog = uc_progress_read();
+    ob_end_clean();
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode($prog, JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 ob_end_clean();
 http_response_code(400);
 header('Content-Type: application/json; charset=utf-8');

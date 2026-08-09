@@ -47,12 +47,14 @@ if (!function_exists('uc_get_current_version')) {
             curl_setopt_array($ch, [
                 CURLOPT_RETURNTRANSFER => true,
                 CURLOPT_TIMEOUT        => $timeout,
-                CURLOPT_CONNECTTIMEOUT => 10,
+                CURLOPT_CONNECTTIMEOUT => 30,
                 CURLOPT_USERAGENT      => $ua,
                 CURLOPT_SSL_VERIFYPEER => $sslVerify,
                 CURLOPT_SSL_VERIFYHOST => $sslVerify ? 2 : 0,
                 CURLOPT_FOLLOWLOCATION => true,
-                CURLOPT_MAXREDIRS      => 3,
+                CURLOPT_MAXREDIRS      => 5,
+                CURLOPT_ENCODING       => '',          // 支持压缩传输
+                CURLOPT_HTTPHEADER     => ['Accept: */*'],
             ]);
             $data = curl_exec($ch);
             $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -78,8 +80,9 @@ if (!function_exists('uc_get_current_version')) {
      * HTTP 下载二进制到文件（优先 curl 流式写入）
      *
      * @param bool $sslVerify 是否严格校验 SSL 证书
+     * @param callable|null $progressCallback 进度回调 function($downloadedBytes, $totalBytes): void
      */
-    function uc_http_download(string $url, string $dest, int $timeout = 600, bool $sslVerify = false): array {
+    function uc_http_download(string $url, string $dest, int $timeout = 600, bool $sslVerify = false, $progressCallback = null): array {
         $ua = 'YunjieForum-Updater/' . uc_get_current_version();
         if ($sslVerify === null) {
             $sslVerify = uc_get_setting('update_ssl_verify', '0') === '1';
@@ -90,16 +93,26 @@ if (!function_exists('uc_get_current_version')) {
                 return ['ok' => false, 'error' => 'cannot_create_tmp:' . $dest];
             }
             $ch = curl_init($url);
-            curl_setopt_array($ch, [
+            $opts = [
                 CURLOPT_FILE            => $fp,
                 CURLOPT_TIMEOUT         => $timeout,
-                CURLOPT_CONNECTTIMEOUT => 10,
+                CURLOPT_CONNECTTIMEOUT => 30,
                 CURLOPT_USERAGENT       => $ua,
                 CURLOPT_SSL_VERIFYPEER  => $sslVerify,
                 CURLOPT_SSL_VERIFYHOST  => $sslVerify ? 2 : 0,
-                CURLOPT_FOLLOWLOCATION => true,
-                CURLOPT_MAXREDIRS       => 3,
-            ]);
+                CURLOPT_FOLLOWLOCATION  => true,
+                CURLOPT_MAXREDIRS       => 5,
+                CURLOPT_ENCODING        => '',
+                CURLOPT_HTTPHEADER      => ['Accept: */*'],
+                CURLOPT_NOPROGRESS      => false,
+                CURLOPT_PROGRESSFUNCTION => function ($resource, $downloadSize, $downloaded, $uploadSize, $uploaded) use ($progressCallback) {
+                    if ($progressCallback && is_callable($progressCallback)) {
+                        call_user_func($progressCallback, $downloaded, $downloadSize);
+                    }
+                    return 0;
+                },
+            ];
+            curl_setopt_array($ch, $opts);
             curl_exec($ch);
             $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
             $err  = curl_error($ch);
@@ -147,6 +160,36 @@ if (!function_exists('uc_get_current_version')) {
     }
 
     /**
+     * 解析更新包下载地址
+     *
+     * 优先级：
+     *   1. metadata 显式提供的 package_url（绝对地址，最高优先）
+     *   2. 目录基础模式（update_source_url 以目录形式配置）→ 自动推导
+     *      {base}/{channel}/version.json 的同级目录下的 update.zip
+     *      （即 {base}/{channel}/update.zip）
+     *   3. 直链文件模式（version.txt/json 直链）→ 无法推导，必须显式提供 package_url
+     *
+     * 这样即使 metadata 只写了版本号，只要把更新包按约定命名放在对应目录，
+     * 系统也能自动定位并远程拉取，避免出现 no_package_url。
+     */
+    function uc_resolve_package_url(array $meta): string {
+        if (!empty($meta['package_url']) && is_string($meta['package_url'])) {
+            return trim($meta['package_url']);
+        }
+        $metaUrl = uc_metadata_url();
+        if ($metaUrl === '') {
+            return '';
+        }
+        // 直链文件模式：路径无法推导包地址，必须显式提供 package_url
+        if (preg_match('/\.(json|txt|yml|yaml)$/i', $metaUrl)) {
+            return '';
+        }
+        // 目录基础模式：去掉末尾的 version.json，拼接 update.zip
+        $dir = preg_replace('#/[^/]*$#', '', rtrim($metaUrl, '/'));
+        return $dir . '/update.zip';
+    }
+
+    /**
      * 拉取并解析 metadata
      * 支持 JSON 格式和纯文本格式（每行 key=value 或仅版本号）
      */
@@ -166,6 +209,16 @@ if (!function_exists('uc_get_current_version')) {
         // 标准 JSON 格式
         if (is_array($json) && !empty($json['version'])) {
             return ['ok' => true, 'meta' => $json];
+        }
+
+        // 容错：body 前面可能有 "version=X.Y.Z" 或 "version:X.Y.Z" 等前缀（如某些网盘自动追加）
+        // 尝试从第一个 { 或 [ 开始提取 JSON 部分
+        if (($pos = strpos($body, '{')) !== false || ($pos = strpos($body, '[')) !== false) {
+            $jsonPart = substr($body, $pos);
+            $json2 = json_decode($jsonPart, true);
+            if (is_array($json2) && !empty($json2['version'])) {
+                return ['ok' => true, 'meta' => $json2];
+            }
         }
 
         // 纯文本格式：尝试解析 "version=1.3.6" 或裸版本号 "1.3.6"
@@ -214,7 +267,7 @@ if (!function_exists('uc_get_current_version')) {
             'channel'         => uc_get_setting('update_channel', 'stable'),
             'release_date'    => $meta['release_date'] ?? '',
             'changelog'       => $meta['changelog'] ?? '',
-            'package_url'     => $meta['package_url'] ?? '',
+            'package_url'     => uc_resolve_package_url($meta),
             'package_hash'    => $meta['package_hash'] ?? '',
             'hash_algo'       => strtolower($meta['hash_algo'] ?? 'sha256'),
             'size'            => (int)($meta['size'] ?? 0),
@@ -222,6 +275,40 @@ if (!function_exists('uc_get_current_version')) {
             'requires_php'    => $meta['requires_php'] ?? '',
             'checked_at'      => time(),
         ];
+    }
+
+    /**
+     * 更新进度管理（基于临时 JSON 文件，供前端轮询）
+     *
+     * 进度文件路径：data/tmp/update_progress.json
+     * 结构：{ stage, stage_label, progress(0-100), total, downloaded, message, error, done }
+     */
+
+    /** 获取进度文件路径 */
+    function uc_progress_path(): string {
+        return DATA_PATH . 'tmp' . DIRECTORY_SEPARATOR . 'update_progress.json';
+    }
+
+    /** 初始化/写入进度 */
+    function uc_progress_write(array $data): void {
+        $dir = DATA_PATH . 'tmp' . DIRECTORY_SEPARATOR;
+        if (!is_dir($dir)) { @mkdir($dir, 0755, true); }
+        @file_put_contents(uc_progress_path(), json_encode($data, JSON_UNESCAPED_UNICODE), LOCK_EX);
+    }
+
+    /** 读取进度（供轮询接口使用） */
+    function uc_progress_read(): array {
+        $path = uc_progress_path();
+        if (!is_file($path)) { return ['stage' => '', 'done' => true]; }
+        $raw = @file_get_contents($path);
+        if ($raw === false) { return ['stage' => '', 'done' => true]; }
+        $j = json_decode($raw, true);
+        return is_array($j) ? $j : ['stage' => '', 'done' => true];
+    }
+
+    /** 清除进度文件 */
+    function uc_progress_clear(): void {
+        @unlink(uc_progress_path());
     }
 
     /**
@@ -327,10 +414,15 @@ if (!function_exists('uc_get_current_version')) {
 
     /**
      * 执行一次完整更新：检查 → 下载 → 校验 → 备份 → 覆盖
+     * 各阶段写入进度文件供前端轮询
      */
     function uc_perform_update(): array {
+        // 阶段 0：准备
+        uc_progress_write(['stage' => 'preparing', 'stage_label' => 'preparing', 'progress' => 0, 'total' => 0, 'downloaded' => 0, 'message' => '', 'error' => null, 'done' => false]);
+
         $check = uc_check_for_update();
         if (!empty($check['success']) && empty($check['update_available'])) {
+            uc_progress_write(['stage' => 'error', 'stage_label' => 'error', 'progress' => 0, 'total' => 0, 'downloaded' => 0, 'message' => '', 'error' => 'no_update_available', 'done' => true]);
             return [
                 'success' => false,
                 'error'   => 'no_update_available',
@@ -339,13 +431,27 @@ if (!function_exists('uc_get_current_version')) {
             ];
         }
         if (empty($check['package_url'])) {
-            return ['success' => false, 'error' => 'no_package_url'];
+            uc_progress_write(['stage' => 'error', 'stage_label' => 'error', 'progress' => 0, 'total' => 0, 'downloaded' => 0, 'message' => '', 'error' => 'no_package_url', 'done' => true]);
+            return [
+                'success' => false,
+                'error'   => 'no_package_url',
+                'hint'    => '更新源未提供更新包地址。请提供以下任一方式：① 在 version.json 中加入 package_url 字段（绝对下载地址）；② 将更新源配置为目录地址，并把更新包命名为 update.zip 放在「{通道}/」目录下。',
+            ];
         }
         if (!uc_is_safe_url($check['package_url'])) {
+            uc_progress_write(['stage' => 'error', 'stage_label' => 'error', 'progress' => 0, 'total' => 0, 'downloaded' => 0, 'message' => '', 'error' => 'invalid_package_url', 'done' => true]);
             return ['success' => false, 'error' => 'invalid_package_url'];
         }
         if (empty($check['package_hash'])) {
-            return ['success' => false, 'error' => 'no_package_hash'];
+            // 默认强制要求哈希；若管理员显式开启「跳过哈希校验」且信任该更新源，则放行
+            if (uc_get_setting('update_skip_hash', '0') !== '1') {
+                uc_progress_write(['stage' => 'error', 'stage_label' => 'error', 'progress' => 0, 'total' => 0, 'downloaded' => 0, 'message' => '', 'error' => 'no_package_hash', 'done' => true]);
+                return [
+                    'success' => false,
+                    'error'   => 'no_package_hash',
+                    'hint'    => '更新包缺少哈希校验值（package_hash）。为安全起见默认禁止无校验更新。请在 version.json 中加入 package_hash（sha256 值）后重试，或在下方「更新设置」中开启「跳过哈希校验」（仅在信任该更新源时开启）。',
+                ];
+            }
         }
 
         $tmpDir = DATA_PATH . 'tmp' . DIRECTORY_SEPARATOR;
@@ -355,36 +461,65 @@ if (!function_exists('uc_get_current_version')) {
         $safeVer = preg_replace('/[^a-z0-9.]/i', '_', $check['latest']);
         $pkgPath = $tmpDir . 'update_pkg_' . $safeVer . '.zip';
 
-        $dl = uc_http_download($check['package_url'], $pkgPath, 600);
+        // 阶段 1：下载（0% → 80%，支持进度回调）
+        uc_progress_write(['stage' => 'downloading', 'stage_label' => 'downloading', 'progress' => 1, 'total' => ($check['size'] > 0 ? (int)$check['size'] : 0), 'downloaded' => 0, 'message' => '', 'error' => null, 'done' => false]);
+        $dlTotalSize = 0;
+        $dlDownloaded = 0;
+        $dl = uc_http_download($check['package_url'], $pkgPath, 600, false, function ($downloaded, $total) use (&$dlDownloaded, &$dlTotalSize) {
+            $dlDownloaded = $downloaded;
+            $dlTotalSize = $total > 0 ? $total : $dlTotalSize;
+            // 下载阶段占 1%-80%
+            $pct = ($dlTotalSize > 0) ? min(79, max(1, (int)(($downloaded / $dlTotalSize) * 79))) : min(79, 1 + (int)($downloaded / (512 * 1024))); // 无大小时按每 512KB 进度
+            uc_progress_write([
+                'stage'       => 'downloading',
+                'stage_label' => 'downloading',
+                'progress'    => $pct,
+                'total'       => $dlTotalSize,
+                'downloaded'  => $downloaded,
+                'message'     => '',
+                'error'       => null,
+                'done'        => false,
+            ]);
+        });
         if (!$dl['ok']) {
             @unlink($pkgPath);
+            uc_progress_write(['stage' => 'error', 'stage_label' => 'error', 'progress' => 0, 'total' => $dlTotalSize, 'downloaded' => $dlDownloaded, 'message' => '', 'error' => 'download_failed: ' . ($dl['error'] ?? ''), 'done' => true]);
             return ['success' => false, 'error' => 'download_failed: ' . ($dl['error'] ?? '')];
         }
 
-        // 校验哈希
-        $algo   = ($check['hash_algo'] === 'sha1') ? 'sha1' : 'sha256';
-        $actual = hash_file($algo, $pkgPath);
-        if ($actual === false || strcasecmp($actual, $check['package_hash']) !== 0) {
-            @unlink($pkgPath);
-            return [
-                'success' => false,
-                'error'   => 'hash_mismatch',
-                'expected'=> $check['package_hash'],
-                'actual'  => $actual,
-            ];
+        // 阶段 2：校验哈希（80% → 85%）
+        uc_progress_write(['stage' => 'verifying', 'stage_label' => 'verifying', 'progress' => 80, 'total' => $dlTotalSize, 'downloaded' => $dlDownloaded, 'message' => '', 'error' => null, 'done' => false]);
+        $skipHash = ($check['package_hash'] === '');
+        if (!$skipHash) {
+            $algo   = ($check['hash_algo'] === 'sha1') ? 'sha1' : 'sha256';
+            $actual = hash_file($algo, $pkgPath);
+            if ($actual === false || strcasecmp($actual, $check['package_hash']) !== 0) {
+                @unlink($pkgPath);
+                uc_progress_write(['stage' => 'error', 'stage_label' => 'error', 'progress' => 80, 'total' => $dlTotalSize, 'downloaded' => $dlDownloaded, 'message' => '', 'error' => 'hash_mismatch', 'done' => true]);
+                return [
+                    'success' => false,
+                    'error'   => 'hash_mismatch',
+                    'expected'=> $check['package_hash'],
+                    'actual'  => $actual,
+                ];
+            }
         }
 
-        // 备份当前代码
+        // 阶段 3：备份当前代码（85% → 95%）
+        uc_progress_write(['stage' => 'backing_up', 'stage_label' => 'backing_up', 'progress' => 85, 'total' => $dlTotalSize, 'downloaded' => $dlDownloaded, 'message' => '', 'error' => null, 'done' => false]);
         $backup = uc_backup_files();
         if (!$backup['ok']) {
             @unlink($pkgPath);
+            uc_progress_write(['stage' => 'error', 'stage_label' => 'error', 'progress' => 85, 'total' => $dlTotalSize, 'downloaded' => $dlDownloaded, 'message' => '', 'error' => 'backup_failed: ' . ($backup['error'] ?? ''), 'done' => true]);
             return ['success' => false, 'error' => 'backup_failed: ' . ($backup['error'] ?? '')];
         }
 
-        // 覆盖解包
+        // 阶段 4：解压覆盖（95% → 100%）
+        uc_progress_write(['stage' => 'extracting', 'stage_label' => 'extracting', 'progress' => 95, 'total' => $dlTotalSize, 'downloaded' => $dlDownloaded, 'message' => '', 'error' => null, 'done' => false]);
         $extract = uc_extract_package($pkgPath);
         @unlink($pkgPath);
         if (!$extract['ok']) {
+            uc_progress_write(['stage' => 'error', 'stage_label' => 'error', 'progress' => 95, 'total' => $dlTotalSize, 'downloaded' => $dlDownloaded, 'message' => '', 'error' => 'extract_failed: ' . ($extract['error'] ?? ''), 'done' => true]);
             return [
                 'success' => false,
                 'error'   => 'extract_failed: ' . ($extract['error'] ?? ''),
@@ -396,6 +531,7 @@ if (!function_exists('uc_get_current_version')) {
             set_site_setting('update_last_version', $check['latest']);
             set_site_setting('update_last_check', (string)time());
         }
+        uc_progress_write(['stage' => 'done', 'stage_label' => 'done', 'progress' => 100, 'total' => $dlTotalSize, 'downloaded' => $dlTotalSize, 'message' => '', 'error' => null, 'done' => true]);
         return [
             'success' => true,
             'from'    => $check['current'],

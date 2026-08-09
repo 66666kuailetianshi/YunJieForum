@@ -19,6 +19,7 @@ $updateChannel      = uc_get_setting('update_channel', 'stable');
 $updateAutoEnabled  = uc_get_setting('update_auto_enabled', '0') === '1';
 $updateAutoInterval = (int)uc_get_setting('update_auto_interval', '24');
 $updateSslVerify    = uc_get_setting('update_ssl_verify', '0') === '1';
+$updateSkipHash     = uc_get_setting('update_skip_hash', '0') === '1';
 $updateLastCheck    = (int)uc_get_setting('update_last_check', '0');
 $updateLastVersion  = uc_get_setting('update_last_version', '');
 $currentVersion     = uc_get_current_version();
@@ -37,6 +38,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && validate_csrf()) {
     $updateAutoEnabled  = !empty($_POST['update_auto_enabled']) ? '1' : '0';
     $updateAutoInterval = (int)($_POST['update_auto_interval'] ?? '24');
     $updateSslVerify    = !empty($_POST['update_ssl_verify']) ? '1' : '0';
+    $updateSkipHash     = !empty($_POST['update_skip_hash']) ? '1' : '0';
     if ($updateAutoInterval < 1)  $updateAutoInterval = 1;
     if ($updateAutoInterval > 720) $updateAutoInterval = 720;
 
@@ -45,6 +47,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && validate_csrf()) {
     set_site_setting('update_auto_enabled', $updateAutoEnabled);
     set_site_setting('update_auto_interval', (string)$updateAutoInterval);
     set_site_setting('update_ssl_verify', $updateSslVerify);
+    set_site_setting('update_skip_hash', $updateSkipHash);
 
     set_flash(t('update_settings_saved', '更新中心设置已保存。'), 'success');
     redirect('/admin/update_center');
@@ -93,6 +96,19 @@ require_once dirname(__DIR__) . '/layout/header.php';
 
     <div id="updateStatus" class="update-status" style="display:none;"></div>
 
+    <!-- 更新进度条 -->
+    <div id="updateProgress" class="update-progress-wrap" style="display:none;">
+        <div class="update-progress-header">
+            <span class="update-progress-spinner">⟳</span>
+            <span id="updateProgressStage" class="update-progress-stage"><?php echo e(t('update_progress_preparing', '准备中…')); ?></span>
+            <span id="updateProgressPct" class="update-progress-pct">0%</span>
+        </div>
+        <div class="update-progress-bar-outer">
+            <div class="update-progress-bar-inner" id="updateProgressBar" style="width:0%"></div>
+        </div>
+        <div id="updateProgressDetail" class="update-progress-detail"></div>
+    </div>
+
     <div class="update-actions mt-2">
         <button type="button" class="btn btn-secondary" id="checkBtn"><?php echo e(t('update_check_now', '检查更新')); ?></button>
         <button type="button" class="btn btn-primary" id="updateBtn" disabled><?php echo e(t('update_update_now', '立即更新')); ?></button>
@@ -129,6 +145,14 @@ require_once dirname(__DIR__) . '/layout/header.php';
                 <span style="font-weight:600;"><?php echo e(t('update_ssl_verify', '严格校验 SSL 证书')); ?></span>
             </label>
             <p class="form-hint"><?php echo e(t('update_ssl_verify_hint', '若更新源使用自签名证书（如大部分个人服务器），请保持关闭。仅在更新源由正规 CA 签发证书时才需开启。默认关闭。')); ?></p>
+        </div>
+
+        <div class="form-group">
+            <label class="flex items-center gap-1" style="cursor: pointer;">
+                <input type="checkbox" id="update_skip_hash" name="update_skip_hash" value="1" <?php echo $updateSkipHash ? 'checked' : ''; ?>>
+                <span style="font-weight:600;"><?php echo e(t('update_skip_hash', '跳过哈希校验（不推荐）')); ?></span>
+            </label>
+            <p class="form-hint"><?php echo e(t('update_skip_hash_hint', '默认强制校验更新包 SHA256 哈希以防篡改。若你的更新源（如网盘）不方便提供哈希值，且仅在完全信任该源时，可开启此选项跳过校验。开启后存在被篡改的更新包覆盖本站的风险。')); ?></p>
         </div>
 
         <div class="form-group">
@@ -218,12 +242,80 @@ require_once dirname(__DIR__) . '/layout/header.php';
             });
     });
 
+    // ===== 进度条相关 =====
+    var progressWrap = document.getElementById('updateProgress');
+    var progressBar  = document.getElementById('updateProgressBar');
+    var progressStage = document.getElementById('updateProgressStage');
+    var progressPct   = document.getElementById('updateProgressPct');
+    var progressDetail = document.getElementById('updateProgressDetail');
+    var progTimer     = null;
+
+    function showProgress() {
+        progressWrap.style.display = '';
+        progressBar.style.width = '0%';
+        progressBar.className = 'update-progress-bar-inner';
+        progressDetail.innerHTML = '';
+    }
+    function hideProgress() {
+        progressWrap.style.display = 'none';
+        if (progTimer) { clearInterval(progTimer); progTimer = null; }
+    }
+    function updateProgressUI(p) {
+        var pct = Math.min(100, Math.max(0, p.progress || 0));
+        progressBar.style.width = pct + '%';
+        progressPct.textContent = pct + '%';
+        // 阶段文案映射
+        var stageMap = {
+            preparing:   '<?php echo e(t('update_progress_preparing', '准备中…')); ?>',
+            downloading: '<?php echo e(t('update_progress_downloading', '下载更新包…')); ?>',
+            verifying:   '<?php echo e(t('update_progress_verifying', '校验文件完整性…')); ?>',
+            backing_up:  '<?php echo e(t('update_progress_backing_up', '备份当前代码…')); ?>',
+            extracting:  '<?php echo e(t('update_progress_extracting', '解压并覆盖文件…')); ?>',
+            done:        '<?php echo e(t('update_progress_done', '更新完成')); ?>',
+            error:       '<?php echo e(t('update_progress_error', '出错')); ?>'
+        };
+        progressStage.textContent = stageMap[p.stage] || p.stage || '';
+        // 下载详情
+        if (p.stage === 'downloading' && p.total > 0) {
+            progressDetail.textContent = fmtSize(p.downloaded || 0) + ' / ' + fmtSize(p.total);
+        } else {
+            progressDetail.textContent = '';
+        }
+        // 完成变绿 / 出错变红
+        if (p.done && p.stage === 'done') {
+            progressBar.classList.add('is-done');
+            progressStage.classList.add('is-done');
+        } else if (p.done && p.stage === 'error') {
+            progressBar.classList.add('is-error');
+            progressStage.classList.add('is-error');
+        }
+    }
+    function startProgressPolling() {
+        showProgress();
+        // 立即拉一次
+        fetch('/index.php?route=admin/api/update_ajax&action=progress')
+            .then(function(r){return r.json();}).then(updateProgressUI).catch(function(){});
+        // 每 800ms 轮询
+        progTimer = setInterval(function () {
+            fetch('/index.php?route=admin/api/update_ajax&action=progress')
+                .then(function (r) { return r.json(); })
+                .then(function (p) {
+                    updateProgressUI(p);
+                    if (p.done) { hideProgress(); }
+                })
+                .catch(function () {});
+        }, 800);
+    }
+
     updateBtn.addEventListener('click', function () {
         if (!confirm('<?php echo e(t('update_confirm', '确定要立即更新吗？系统将先备份当前代码再覆盖升级。')); ?>')) {
             return;
         }
         updateBtn.disabled = true;
         updateBtn.innerHTML = '<?php echo e(t('update_updating', '更新中…')); ?>';
+        statusBox.style.display = 'none';
+        // 启动进度轮询（后端 uc_perform_update 会写进度文件）
+        startProgressPolling();
         var form = new FormData();
         form.append('action', 'update');
         form.append('csrf_token', '<?php echo csrf_token(); ?>');
@@ -233,6 +325,8 @@ require_once dirname(__DIR__) . '/layout/header.php';
         })
             .then(function (r) { return r.json(); })
             .then(function (res) {
+                // 停止轮询，确保最终状态同步
+                hideProgress();
                 if (res.success) {
                     showStatus('<?php echo e(t('update_success', '更新成功：')); ?>' + escapeHtml(res.from) + ' → ' + escapeHtml(res.to)
                         + '<br><?php echo e(t('update_backup_at', '备份文件')); ?>：' + escapeHtml(res.backup ? res.backup.split(/[\\/]/).pop() : '') + ''
@@ -242,15 +336,19 @@ require_once dirname(__DIR__) . '/layout/header.php';
                 } else {
                     var msg = '<?php echo e(t('update_failed', '更新失败')); ?>';
                     if (res.error === 'no_update_available') msg = '<?php echo e(t('update_none', '当前已是最新，无需更新。')); ?>';
+                    else if (res.error === 'no_package_url') msg = '<?php echo e(t('update_no_package_url', '更新源未提供更新包地址（package_url）。请将更新包命名为 update.zip 放到「{通道}/」目录下，或在 version.json 中加入 package_url 字段。')); ?>';
+                    else if (res.error === 'no_package_hash') msg = '<?php echo e(t('update_no_package_hash', '更新包缺少哈希校验值（package_hash）。为安全起见默认禁止无校验更新。请在 version.json 中加入 package_hash（sha256 值）后重试，或在「更新设置」中开启「跳过哈希校验」。')); ?>';
                     else if (res.error === 'hash_mismatch') msg = '<?php echo e(t('update_hash_fail', '更新包校验失败（哈希不匹配），已自动取消以保障安全。')); ?>';
                     else if (res.error === 'backup_failed') msg = '<?php echo e(t('update_backup_err', '更新前备份失败，已取消更新以防数据丢失。')); ?>';
                     else msg += '：' + escapeHtml(res.error || '');
+                    if (res.hint) msg += '<br><small style="color:var(--text-muted);word-break:break-word">' + escapeHtml(res.hint) + '</small>';
                     if (res.backup) msg += '<br><?php echo e(t('update_backup_kept', '已保留备份')); ?>：' + escapeHtml(res.backup.split(/[\\/]/).pop()) + '';
                     showStatus(msg, 'error');
                     updateBtn.disabled = false;
                 }
             })
             .catch(function () {
+                hideProgress();
                 showStatus('<?php echo e(t('update_network_fail', '网络错误，更新失败。')); ?>', 'error');
                 updateBtn.disabled = false;
             })
@@ -276,6 +374,21 @@ require_once dirname(__DIR__) . '/layout/header.php';
 .update-changelog pre { white-space: pre-wrap; word-break: break-word; background: rgba(0,0,0,.03); padding: .6rem; border-radius: 6px; max-height: 220px; overflow: auto; margin: 0; }
 .update-req { margin-top: .4rem; font-size: .85rem; color: #92400e; }
 .update-actions { display: flex; gap: .75rem; }
+
+/* 更新进度条 */
+.update-progress-wrap { margin: .75rem 0; padding: 1rem; border-radius: 8px; border: 1px solid var(--border, #ddd); background: var(--bg-card, #fff); }
+.update-progress-header { display: flex; align-items: center; gap: .5rem; margin-bottom: .5rem; }
+.update-progress-spinner { display: inline-block; animation: spin 1s linear infinite; font-size: 1.1rem; color: var(--primary, #3b82f6); }
+.update-progress-stage { font-size: .9rem; font-weight: 600; color: var(--text, #333); flex: 1; }
+.update-progress-stage.is-done { color: #16a34a; }
+.update-progress-stage.is-error { color: #dc2626; }
+.update-progress-pct { font-size: .85rem; color: var(--muted, #888); min-width: 36px; text-align: right; }
+.update-progress-bar-outer { width: 100%; height: 10px; background: rgba(0,0,0,.08); border-radius: 5px; overflow: hidden; }
+.update-progress-bar-inner { height: 100%; width: 0%; background: linear-gradient(90deg, #3b82f6, #60a5fa); border-radius: 5px; transition: width .3s ease; }
+.update-progress-bar-inner.is-done { background: linear-gradient(90deg, #16a34a, #22c55e); }
+.update-progress-bar-inner.is-error { background: linear-gradient(90deg, #dc2626, #ef4444); }
+.update-progress-detail { margin-top: .25rem; font-size: .78rem; color: var(--muted, #888); text-align: right; }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 </style>
 
 <?php require_once dirname(__DIR__) . '/layout/footer.php'; ?>
