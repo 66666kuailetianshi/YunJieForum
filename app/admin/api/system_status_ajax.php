@@ -236,12 +236,23 @@ function ss_sample_cpu_and_memory(?array $prevCpuTimes = null): array {
 
         // ===== CPU 使用率 =====
         // 方案 1（优先）：COM Win32_Processor.LoadPercentage（即时值）
+        // 注意：多路 CPU 系统返回多行，需取平均值以反映整体负载
         $comCpuSuccess = false;
         if (ss_com_available()) {
-            $cpuRow = ss_wmi_query_first('SELECT LoadPercentage FROM Win32_Processor', 'root/cimv2', ['LoadPercentage']);
-            if ($cpuRow && isset($cpuRow['LoadPercentage']) && is_numeric($cpuRow['LoadPercentage'])) {
-                $cpu = (int)$cpuRow['LoadPercentage'];
-                $comCpuSuccess = true;
+            $cpuRows = ss_wmi_query('SELECT LoadPercentage FROM Win32_Processor', 'root/cimv2', ['LoadPercentage']);
+            if (!empty($cpuRows)) {
+                $totalLoad = 0;
+                $validCount = 0;
+                foreach ($cpuRows as $cpuRow) {
+                    if (isset($cpuRow['LoadPercentage']) && is_numeric($cpuRow['LoadPercentage'])) {
+                        $totalLoad += (int)$cpuRow['LoadPercentage'];
+                        $validCount++;
+                    }
+                }
+                if ($validCount > 0) {
+                    $cpu = (int)round($totalLoad / $validCount);
+                    $comCpuSuccess = true;
+                }
             }
         }
 
@@ -1463,19 +1474,32 @@ function ss_get_cpu_info(): array {
     $model = $unknownLabel;
     $cores = 0;
     $threads = 0;
+    $sockets = 0;
 
     if ($os === 'windows') {
         // COM 进程内查询 WMI，使用直接字段访问（比 Properties_ 遍历更稳定）
+        // 注意：双路/多路 CPU 系统会返回多行 Win32_Processor（每颗物理 CPU 一行）
         if (ss_com_available()) {
-            $row = ss_wmi_query_first(
+            $rows = ss_wmi_query(
                 'SELECT Name,NumberOfCores,NumberOfLogicalProcessors FROM Win32_Processor',
                 'root/cimv2',
                 ['Name', 'NumberOfCores', 'NumberOfLogicalProcessors']
             );
-            if ($row) {
-                if (!empty($row['Name'])) $model = trim((string)$row['Name']);
-                if (is_numeric($row['NumberOfCores'] ?? '')) $cores = (int)$row['NumberOfCores'];
-                if (is_numeric($row['NumberOfLogicalProcessors'] ?? '')) $threads = (int)$row['NumberOfLogicalProcessors'];
+            if (!empty($rows)) {
+                $sockets = count($rows);
+                $firstModel = '';
+                foreach ($rows as $row) {
+                    if (!empty($row['Name']) && $firstModel === '') {
+                        $firstModel = trim((string)$row['Name']);
+                    }
+                    if (is_numeric($row['NumberOfCores'] ?? '')) $cores += (int)$row['NumberOfCores'];
+                    if (is_numeric($row['NumberOfLogicalProcessors'] ?? '')) $threads += (int)$row['NumberOfLogicalProcessors'];
+                }
+                if ($firstModel !== '') $model = $firstModel;
+                // 多路 CPU 时在型号前标注数量
+                if ($sockets > 1) {
+                    $model = $sockets . ' x ' . $model;
+                }
             }
         }
 
@@ -1532,6 +1556,7 @@ function ss_get_cpu_info(): array {
         'model' => $model,
         'cores' => $cores,
         'threads' => $threads,
+        'sockets' => $sockets > 0 ? $sockets : 1,
     ];
 }
 
@@ -1824,6 +1849,97 @@ function ss_get_temperatures(): array {
                     $name = preg_replace('/_+$/', '', trim($parts[0]));
                     $list[] = [
                         'name' => $name ?: t('admin_ajax_temp_sensor', '温度传感器'),
+                        'temp' => (float)trim($parts[1]),
+                        'unit' => '°C',
+                    ];
+                }
+            }
+        }
+
+        // 方案 6（服务器硬件）：COM 查询 Win32_TemperatureProbe（部分服务器/主板厂商提供）
+        if (empty($list) && ss_com_available()) {
+            $rows = ss_wmi_query(
+                'SELECT Caption,CurrentReading FROM Win32_TemperatureProbe',
+                'root/cimv2',
+                ['Caption', 'CurrentReading']
+            );
+            foreach ($rows as $r) {
+                $val = (int)($r['CurrentReading'] ?? 0);
+                if ($val <= 0 || $val > 200) continue;
+                $name = trim((string)($r['Caption'] ?? t('admin_ajax_temp_sensor', '温度传感器')));
+                $list[] = [
+                    'name' => $name,
+                    'temp' => round($val, 1),
+                    'unit' => '°C',
+                ];
+            }
+        }
+
+        // 方案 7（硬盘 SMART 温度）：通过 MSStorageDriver_ATAPISmartData 读取硬盘温度
+        //     SMART 属性 194 (Temperature) 或 190 (Airflow Temperature)
+        if (empty($list) && ss_com_available()) {
+            $smartRows = ss_wmi_query(
+                'SELECT DeviceId,VendorSpecific FROM MSStorageDriver_ATAPISmartData',
+                'root/wmi',
+                ['DeviceId', 'VendorSpecific']
+            );
+            foreach ($smartRows as $smart) {
+                $deviceId = trim((string)($smart['DeviceId'] ?? ''));
+                // VendorSpecific 是字节数组，需要解析 SMART 属性
+                $raw = $smart['VendorSpecific'] ?? null;
+                if ($raw === null || (!is_array($raw) && !is_string($raw))) continue;
+
+                // 将数组/原始数据转为字节序列
+                $bytes = [];
+                if (is_array($raw)) {
+                    foreach ($raw as $b) {
+                        if (is_numeric($b)) $bytes[] = (int)$b;
+                    }
+                } elseif (is_string($raw)) {
+                    for ($i = 0; $i < strlen($raw); $i++) $bytes[] = ord($raw[$i]);
+                }
+                if (count($bytes) < 12 * 30) continue; // SMART 数据至少需要 12 字节 x 30 属性
+
+                // SMART 属性表：每属性 12 字节，偏移 2=ID, 偏移 5=Raw值低字节, 偏移 9-10=Raw值(小端)
+                $tempVal = null;
+                for ($attrIdx = 0; $attrIdx < 30; $attrIdx++) {
+                    $off = $attrIdx * 12;
+                    if ($off + 11 >= count($bytes)) break;
+                    $attrId = $bytes[$off + 2];
+                    // SMART ID 194 = Temperature / 190 = Drive Temperature
+                    if ($attrId === 194 || $attrId === 190) {
+                        // Raw value at offset 9-10 (little-endian), or offset 5 for some formats
+                        $rawTemp = $bytes[$off + 9] | ($bytes[$off + 10] << 8);
+                        if ($rawTemp === 0) $rawTemp = $bytes[$off + 5]; // fallback to single byte
+                        if ($rawTemp > 0 && $rawTemp <= 200) {
+                            $tempVal = $rawTemp;
+                            break;
+                        }
+                    }
+                }
+                if ($tempVal !== null && $tempVal > 0 && $tempVal <= 200) {
+                    // 提取盘符或设备名
+                    $driveName = preg_replace(['/^\\\\\\.\\//', '/PHYSICALDRIVE/i'], ['', ''], $deviceId);
+                    if ($driveName === '') $driveName = t('admin_ajax_disk_drive', '硬盘');
+                    $list[] = [
+                        'name' => $driveName . ' (' . t('admin_ajax_smart_temp', 'SMART') . ')',
+                        'temp' => round($tempVal, 1),
+                        'unit' => '°C',
+                    ];
+                }
+            }
+        }
+
+        // 方案 8（兜底）：PowerShell CIM 查询 Win32_TemperatureProbe
+        if (empty($list)) {
+            $ps = ss_powershell_exec("\$tp = Get-CimInstance -ClassName Win32_TemperatureProbe -ErrorAction SilentlyContinue; if (\$tp) { foreach (\$t in \$tp) { \$v = \$t.CurrentReading; if (\$v -gt 0 -and \$v -lt 200) { '{0}|{1}' -f \$t.Caption, \$v } } } else { '' }");
+            if (!empty($ps)) {
+                foreach (explode("\n", trim($ps)) as $line) {
+                    $line = trim($line);
+                    if ($line === '' || strpos($line, '|') === false) continue;
+                    $parts = explode('|', $line, 2);
+                    $list[] = [
+                        'name' => trim($parts[0]) ?: t('admin_ajax_temp_sensor', '温度传感器'),
                         'temp' => (float)trim($parts[1]),
                         'unit' => '°C',
                     ];
@@ -3296,6 +3412,7 @@ if ($wantStatic) {
             'model' => $info['model'],
             'cores' => $info['cores'],
             'threads' => $info['threads'],
+            'sockets' => $info['sockets'] ?? 1,
         ];
     }, 3600);
 

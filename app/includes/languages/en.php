@@ -760,4 +760,12 @@ Users assigned this role will lose corresponding permissions.',
     
     'slider_captcha_fail' => 'Please complete human verification first.',
     'captcha_not_required' => 'No verification required for this operation',
+
+    // System Status - Multi-socket CPU
+    'admin_sys_cpu_sockets' => ' Sockets',
+
+    // System Status - Temperature Monitoring
+    'admin_ajax_temp_sensor' => 'Temperature Sensor',
+    'admin_ajax_disk_drive' => 'Disk',
+    'admin_ajax_smart_temp' => 'SMART',
 ];

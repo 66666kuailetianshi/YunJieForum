@@ -547,7 +547,11 @@ $dbSize = defined('DB_FILE') && is_file(DB_FILE) ? (int)filesize(DB_FILE) : 0;
 
         var cpu = data.cpu_static || {};
         el.cpuModel.textContent = cpu.model || '--';
-        el.cpuCores.textContent = (cpu.cores || 0) + <?php echo json_encode(t('admin_sys_cpu_cores', ' 核 ')); ?> + (cpu.threads || 0) + <?php echo json_encode(t('admin_sys_cpu_threads', ' 线程')); ?>;
+        var coresText = (cpu.cores || 0) + <?php echo json_encode(t('admin_sys_cpu_cores', ' 核 ')); ?> + (cpu.threads || 0) + <?php echo json_encode(t('admin_sys_cpu_threads', ' 线程')); ?>;
+        if ((cpu.sockets || 0) > 1) {
+            coresText += ' · ' + cpu.sockets + <?php echo json_encode(t('admin_sys_cpu_sockets', ' 路处理器')); ?>;
+        }
+        el.cpuCores.textContent = coresText;
 
         var banksHtml = '';
         var banks = data.memory_banks || [];

@@ -1,12 +1,12 @@
 # 云界论坛 (Cloud Forum)
 
-> **Current Status: Beta** (v1.3.4-beta) | Lightweight community forum · PHP + SQLite · Out-of-the-box
+> **Current Status: Beta** (v1.3.5-beta) | Lightweight community forum · PHP + SQLite · Out-of-the-box
 
 **[简体中文](README.md) · [繁體中文](README.zh-TW.md)**
 
 `Cloud Forum` is a lightweight community forum (BBS) system written entirely in PHP. It uses a SQLite file database by default, so it can run without a standalone database server — suitable for personal blog communities, interest groups, intranet knowledge bases, and similar scenarios. The system includes a built-in user system, forums/posts/replies, private messages, notifications, daily check-ins with points, medals and roles, content moderation (sensitive words), email and traffic statistics, and provides a visual installation wizard and admin panel.
 
-- **Current Version:** `1.3.4-beta`
+- **Current Version:** `1.3.5-beta`
 - **Language:** PHP 7.4+
 - **Default Database:** SQLite (also supports MySQL / PostgreSQL)
 - **Frontend:** Native HTML + CSS + a small amount of native JS, no frontend build step
@@ -90,57 +90,117 @@ index.php  ── 路由解析（route / s / REQUEST_URI）→ 分发
 
 ## 3. Directory Structure
 
+> The tree below is **measured from the actual project layout** (`app/` contains 116 PHP files + assets). Lines with `#` are files that actually exist in this project.
+
 ```
-云界论坛/
-├── index.php                  # 前台入口 / 路由分发
-├── install.php                # 安装向导（4 步 + 语言/授权前置）
-├── app/
-│   ├── controllers/           # 前台页面控制器（26 个）
-│   │   ├── home.php           # 首页
-│   │   ├── forum.php          # 版块帖子列表
-│   │   ├── post.php           # 主题帖详情
-│   │   ├── new_post.php       # 发帖
-│   │   ├── login.php / register.php / logout.php
+Cloud Forum/
+├── index.php                  # Front controller / router (single entry; parses route/s/REQUEST_URI)
+├── install.php                # Installation wizard (DB → env check → site config → done; language & license pre-steps)
+├── LICENSE                    # Open-source license text
+├── README.md / README.en.md / README.zh-TW.md   # Tri-lingual project docs
+│
+├── app/                       # Application core (116 PHP files)
+│   ├── controllers/           # Front-end page controllers (26 files, each maps to one route)
+│   │   ├── home.php           # Home (stats/announcements/forums/trending)
+│   │   ├── forum.php          # Forum thread list
+│   │   ├── post.php           # Topic detail (quote / pagination)
+│   │   ├── new_post.php       # Create post
+│   │   ├── login.php          # Login (with Web Crypto encrypted "remember me")
+│   │   ├── register.php / logout.php
 │   │   ├── profile.php / favorites.php / search.php
-│   │   ├── pm.php / notifications.php
-│   │   ├── checkin.php        # 签到
-│   │   ├── report.php / appeal.php / banned.php
+│   │   ├── pm.php             # Private message conversations
+│   │   ├── notifications.php / notification_read.php   # Notifications / mark-as-read
+│   │   ├── checkin.php        # Daily check-in
+│   │   ├── report.php / appeal.php / banned.php   # Report / appeal / ban notice
 │   │   ├── forgot_password.php / reset_password.php / force_change_password.php
-│   │   ├── send_email_code.php / send_password_change_code.php
-│   │   ├── privacy.php / terms.php / disclaimer.php / service.php   # 站点页面
-│   │   └── ...
-│   ├── admin/
-│   │   ├── controllers/       # 后台页面（站点设置、用户、版块、帖子、举报、邮件、备份、统计…）
-│   │   ├── api/               # 后台 AJAX 接口（*_ajax.php）
-│   │   └── layout/           # 后台布局（header / footer / admin-init）
-│   ├── includes/
-│   │   ├── config.php         # 全局配置常量、多语言、安全响应头
-│   │   ├── functions.php      # 全局函数（鉴权、CSRF、格式化、积分、邮件码、BBCode…）
-│   │   ├── db.php             # 建表/迁移/初始化/默认数据（核心 Schema）
-│   │   ├── database/          # 数据库驱动抽象（见架构）
-│   │   ├── languages/         # 语言包 zh-CN.php / zh-TW.php / en.php
-│   │   ├── mailer.php         # SMTP 发送器 + 邮件日志
-│   │   ├── bounce_processor.php  # 退信处理
-│   │   ├── backup_manager.php    # 数据库备份
-│   │   ├── compat.php         # 无 mbstring 时的兼容层
+│   │   ├── send_email_code.php / send_password_change_code.php   # Email code senders
+│   │   └── privacy.php / terms.php / disclaimer.php / service.php   # Site pages (editable in admin)
+│   │
+│   ├── admin/                 # Admin panel (entry prefix /admin)
+│   │   ├── controllers/       # Admin pages (24 files)
+│   │   │   ├── index.php              # Dashboard home
+│   │   │   ├── system_status.php      # System status monitor (CPU/memory/temp/network/disk/GPU)
+│   │   │   ├── traffic_monitor.php     # Traffic monitor
+│   │   │   ├── site_settings.php / site_pages.php
+│   │   │   ├── forums.php / posts.php / replies.php / announcements.php
+│   │   │   ├── users.php / user_edit.php / user_groups.php / roles.php
+│   │   │   ├── user_ban.php / user_mute.php
+│   │   │   ├── reports.php / ban_appeals.php / password_reset_requests.php
+│   │   │   ├── sensitive_words.php / sensitive_word_logs.php
+│   │   │   ├── medals.php / mail_center.php / backup.php
+│   │   │   └── captcha_debug.php       # CAPTCHA debug console
+│   │   ├── api/               # Admin AJAX endpoints (19 files, named *_ajax.php)
+│   │   │   ├── system_status_ajax.php   # System status poller (with ?diag=1 diagnostics)
+│   │   │   ├── traffic_ajax.php / pending_counts_ajax.php
+│   │   │   ├── posts_ajax.php / replies_ajax.php / reports_ajax.php
+│   │   │   ├── users_ajax.php / users_bulk_ajax.php / users_export_csv.php
+│   │   │   ├── user_detail_ajax.php / user_risk_detail_ajax.php
+│   │   │   ├── ban_appeals_ajax.php / sensitive_words_ajax.php / sensitive_logs_ajax.php
+│   │   │   ├── backup_ajax.php / mail_stats_ajax.php / mail_notify_ajax.php
+│   │   │   ├── bounce_ajax.php / diag_auth.php
+│   │   │   └── (others — see Section 11)
+│   │   └── layout/            # Admin layout
+│   │       ├── admin-init.php # Admin auth & init (required by each admin page)
+│   │       ├── header.php / footer.php
+│   │
+│   ├── includes/              # Global support code
+│   │   ├── config.php         # Global config constants, i18n loader, security headers, business params
+│   │   ├── functions.php      # Global functions (auth/CSRF/format/points/mail-code/BBCode…)
+│   │   ├── db.php             # Core schema, table migration/init/default data
+│   │   ├── database/          # Database driver abstraction layer
+│   │   │   ├── DatabaseFactory.php    # Creates driver by DB_TYPE
+│   │   │   ├── AbstractDriver.php     # PDO wrapper, cross-DB helpers, reconnection
+│   │   │   ├── SQLiteDriver.php / MySQLDriver.php / PostgreSQLDriver.php
+│   │   ├── languages/         # Language packs
+│   │   │   ├── zh-CN.php / zh-TW.php / en.php   # Main packs (core keys)
+│   │   │   └── extras/        # Batched extension packs (per-language subdirs, merged at load)
+│   │   │       ├── zh-CN/  zh-TW/  en/          # Per-language extras (admin_ajax/batch_*/mail_center…)
+│   │   ├── mailer.php         # Native fsockopen SMTP sender + mail log
+│   │   ├── bounce_processor.php  # Bounce handling
+│   │   ├── backup_manager.php    # DB backup
+│   │   ├── compat.php         # Fallback layer when mbstring is absent
 │   │   └── header.php / footer.php
-│   └── components/
-│       └── sensitive_filter/  # 敏感词过滤引擎（SensitiveFilter.php + helper.php）
-├── public/
-│   ├── api/                   # 公共 JSON 接口（轮询/上传等）
-│   ├── css/                   # 样式（style / base / dark / tokens / header / pm / profile / utilities）
-│   ├── js/                    # main.js / editor.js / lightbox.js
-│   └── images/                # logo.svg 等
-├── data/                      # 运行时目录（安装时创建，需可写）
-│   ├── site_config.php        # 安装生成的配置（DB / SITE / SMTP 常量）
-│   ├── installed.lock         # 安装锁（存在表示已安装）
-│   ├── forum.db               # SQLite 数据库（默认）
-│   ├── error.log
-│   └── db_version.lock        # Schema 迁移版本锁
-└── uploads/                   # 上传文件（头像 avatars/、图片 images/）
+│   │
+│   ├── components/
+│   │   └── sensitive_filter/  # Sensitive-word filtering engine
+│   │       ├── SensitiveFilter.php   # Trie + Aho-Corasick matching core
+│   │       └── helper.php            # Helpers
+│   │
+│   └── captcha/               # CAPTCHA module (no 3rd-party deps; GD-generated assets)
+│       ├── core.php           # Validation logic, challenge generation & verification
+│       ├── api.php            # Challenge session / token dispatch
+│       ├── serve.php          # Asset entry (captcha.js / captcha.css / background images)
+│       ├── captcha.js         # Front-end interaction (slider / click / swap)
+│       └── captcha.css        # CAPTCHA component styles
+│
+├── public/                    # Web-accessible static assets & public APIs
+│   ├── api/                   # Public JSON endpoints (6 files; polling / upload)
+│   │   ├── home_realtime.php / pm_unread.php / pm_poll.php
+│   │   ├── post_replies_count.php / check_ban_status.php / upload_image.php
+│   ├── css/                   # Stylesheets (8 files)
+│   │   ├── tokens.css         # CSS variables (colors/radius/spacing) — theme skinning here
+│   │   ├── style.css / base.css / dark.css   # Main / base / dark theme
+│   │   ├── header.css / pm.css / profile.css / utilities.css
+│   ├── js/                    # Scripts (3 files)
+│   │   ├── main.js            # Global interactions (nav/validation/alerts/dropdown)
+│   │   ├── editor.js          # Post editor (BBCode/upload)
+│   │   └── lightbox.js        # Image lightbox
+│   └── images/
+│       └── logo.svg           # Site logo
+│
+├── data/                      # Runtime dir (created on install; must be writable)
+│   ├── site_config.php        # Install-generated config (DB_*/SITE_*/SMTP_* constants)
+│   ├── installed.lock         # Install lock (presence = installed)
+│   ├── forum.db               # SQLite database (default)
+│   ├── error.log              # Error log
+│   └── db_version.lock        # Schema migration version lock
+│
+└── uploads/                   # Uploaded files (created on install; must be writable)
+    ├── avatars/               # User avatars
+    └── images/                # Post images
 ```
 
-> `data/` and `uploads/` are created on first installation. **They must be writable by the web server process.** Please verify their permissions (e.g. `chmod 755 data uploads`).
+> `data/` and `uploads/` are created on first installation. **They must be writable by the web server process.** Verify permissions (e.g. `chmod 755 data uploads`). `app/`, `public/`, `index.php`, `install.php` need no write access.
 
 ---
 
@@ -310,6 +370,33 @@ Entry: `/admin` (corresponds to `app/admin/controllers/`, layout in `app/admin/l
 
 Many admin operations are handled through `app/admin/api/*_ajax.php`, returning JSON for asynchronous frontend calls, with auxiliary endpoints for pending counts (`pending_counts_ajax.php`), user risk details (`user_risk_detail_ajax.php`), and system diagnostics (`diag_auth.php`).
 
+### 10.1 System Status Monitor (system_status)
+
+Entry `/admin/system_status`, rendered by `app/admin/controllers/system_status.php` and collected by `app/admin/api/system_status_ajax.php`. The front-end pulls three data types in parallel via AJAX polling:
+
+| Data type | Endpoint param | Poll interval | Collector function |
+| --- | --- | --- | --- |
+| Static info | `?static=1` | first load only (1h cache) | `ss_get_cpu_info()` / `ss_get_memory_banks()` / `ss_get_disk_hardware()` / `ss_get_gpu_info()` / `ss_get_motherboard_info()` / `ss_get_network_interfaces()` / `ss_get_php_info()` |
+| Dynamic data | default | 2 seconds | `ss_sample_cpu_and_memory()` (CPU load + memory usage) |
+| Temperature | `?temps=1` | 3 seconds | `ss_get_temperatures()` |
+
+**Multi-socket CPU**: the collector uses `ss_wmi_query()` to fetch **all** `Win32_Processor` rows (one row per physical CPU on dual/multi-socket servers), aggregates `NumberOfCores` and `NumberOfLogicalProcessors`, and labels the socket count (e.g. `2 x Intel Xeon E5-2673 v4`). Real-time CPU load is the average of each socket's `LoadPercentage`. The response includes a `sockets` field; the front-end shows "X sockets".
+
+**Temperature collection chain** (Windows, priority-ordered fallback, 8 layers total):
+
+1. `root/OpenHardwareMonitor` WMI (most accurate; requires OpenHardwareMonitor installed)
+2. `wmic` command-line OpenHardwareMonitor
+3. `MSAcpi_ThermalZoneTemperature` COM (ACPI thermal zone, tenths-of-Kelvin conversion)
+4. `wmic` command-line `MSAcpi_ThermalZoneTemperature`
+5. PowerShell CIM `MSAcpi_ThermalZoneTemperature`
+6. `Win32_TemperatureProbe` (provided by some server/mainboard vendors)
+7. `MSStorageDriver_ATAPISmartData` (parse HDD/SSD SMART attribute 194/190 for drive temperature)
+8. PowerShell CIM `Win32_TemperatureProbe` fallback
+
+> If all fail, the temperature card shows "Unable to read temperature data (requires hardware support or OpenHardwareMonitor installed)". On server BMC/IPMI setups, installing OpenHardwareMonitor enables the most complete sensor readings.
+
+Diagnostic endpoint: `/admin/api/system_status_ajax?diag=1` returns the availability of each collection channel (COM/FFI/PowerShell), raw CPU/GPU/memory data, and the cache-file manifest, for troubleshooting collection failures.
+
 ---
 
 ## 11. API Endpoints
@@ -338,7 +425,8 @@ Many admin operations are handled through `app/admin/api/*_ajax.php`, returning 
 - **Page styles**: `style.css`, `base.css`, `header.css`, `pm.css`, `profile.css`, `utilities.css`.
 - **Scripts**: `public/js/main.js` (global interactions), `editor.js` (posting editor), `lightbox.js` (image lightbox).
 - **Icons**: forum icons and UI icons use SVG / Emoji (generated by functions such as `ui_icon()`, `forum_icon()`).
-- **Language packs**: `app/includes/languages/*.php`, array-style key-value pairs; to add a language, simply add a new pack file and register it in `get_available_languages()` in `config.php`.
+- **Language packs**: `app/includes/languages/*.php`, array-style key-value pairs. At load time the main pack (e.g. `zh-CN.php`) is `require`d first, then extension keys from `extras/{code}/*.php` (e.g. `admin_ajax.php`, `batch_b01.php`, `mail_center.php`) are merged per module for easier maintenance and on-demand loading. To add a language: copy `zh-CN.php` into `xx.php` as the main pack, drop extension packs under `extras/xx/`, then register it in `get_available_languages()` in `config.php`.
+- **Translation function**: `t($key, $default, $vars)` fetches text from the global `$LANG`; when missing it falls back to `$default`, then to the key itself; supports `{var}` placeholder substitution (e.g. `t('welcome', 'Welcome, {name}', ['name' => $u])`).
 
 ---
 
@@ -441,7 +529,7 @@ In "Site Settings → CAPTCHA Settings", find the "Display Mode" dropdown and se
 
 ---
 
-> Documentation compiled from the project source (`index.php`, `install.php`, `app/includes/*`, `public/*`), version `1.3.4-beta`.
+> Documentation compiled from the project source (`index.php`, `install.php`, `app/includes/*`, `public/*`), version `1.3.5-beta`.
 > If it differs from the actual implementation, please follow the code and the installation wizard prompts.
 
 

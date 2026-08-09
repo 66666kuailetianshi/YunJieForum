@@ -1,12 +1,12 @@
 # 云界论坛 (Cloud Forum)
 
-> **当前状态：Beta 测试版**（`v1.3.4-beta`）｜ 轻量级社区论坛系统 · PHP + SQLite · 开箱即用
+> **当前状态：Beta 测试版**（`v1.3.5-beta`）｜ 轻量级社区论坛系统 · PHP + SQLite · 开箱即用
 
 **[English](README.en.md) · [繁體中文](README.zh-TW.md)**
 
 `云界论坛` 是一套纯 PHP 编写的轻量级社区论坛（BBS）系统，默认使用 SQLite 文件数据库，无需独立部署数据库服务器即可运行，适合个人博客社区、兴趣小组、内网知识库等场景。系统内置用户体系、版块/帖子/回复、私信、通知、签到积分、勋章角色、内容审核（敏感词）、邮件与流量统计等完整功能，并提供可视化的安装向导与后台管理。
 
-- **当前版本：** `1.3.4-beta`
+- **当前版本：** `1.3.5-beta`
 - **开发语言：** PHP 7.4+
 - **默认数据库：** SQLite（同时支持 MySQL / PostgreSQL）
 - **前端：** 原生 HTML + CSS + 少量原生 JS，无前端构建步骤
@@ -47,7 +47,7 @@
 | 权限 / 角色 | 基于 `roles` 的权限组（`has_permission`），支持超级管理员、版主等；与按积分自动晋升的**用户组**分离 |
 | 内容审核 | 敏感词过滤引擎（Trie + Aho-Corasick），支持精确/整词/正则三种匹配、白名单、三级处理（替换 / 拦截 / 人工审核）、命中日志；用户举报、封禁申诉、禁言 |
 | 邮件 | 原生 `fsockopen` 实现的 SMTP 发送器（无第三方依赖），支持 SSL/TLS，邮件日志、退信处理（bounce）、邮件统计与通知 |
-| 运维监控 | 流量统计（访问记录）、系统状态、数据库备份、自动 Schema 迁移、安装/错误日志 |
+| 运维监控 | 流量统计（访问记录）、系统状态（CPU/内存/温度/网络/磁盘/显卡，详见[第 10.1 节](#101-系统状态监控-system_status)）、数据库备份、自动 Schema 迁移、安装/错误日志 |
 | 多语言 | 内置 `简体中文 / 繁體中文 / English`，按 URL、Cookie、配置、浏览器语言自动识别 |
 | 主题 | 基于 CSS 变量的明暗双主题（light / dark），可改色与换肤 |
 | 人机验证 | 内置「滑块拼图」「点选文字」与「推理交换」三种模式人机验证，支持行为打分、触发模式（始终显示/可疑触发/高风险触发）与显示方式（内嵌式/弹窗式/触发式），GD 生成背景图，无需第三方服务 |
@@ -90,57 +90,117 @@ index.php  ── 路由解析（route / s / REQUEST_URI）→ 分发
 
 ## 3. 目录结构
 
+> 下方树为**实测绘得**的项目布局（`app/` 含 116 个 PHP 文件 + 各资源文件）。带 `#` 注释的为本项目实际存在的文件。
+
 ```
 云界论坛/
-├── index.php                  # 前台入口 / 路由分发
-├── install.php                # 安装向导（4 步 + 语言/授权前置）
-├── app/
-│   ├── controllers/           # 前台页面控制器（26 个）
-│   │   ├── home.php           # 首页
+├── index.php                  # 前台入口 / 路由分发（单一入口，解析 route/s/REQUEST_URI）
+├── install.php               # 安装向导（数据库→环境检测→站点配置→完成，前置语言与授权协议）
+├── LICENSE                    # 开源许可证文本
+├── README.md / README.en.md / README.zh-TW.md   # 三语项目文档
+│
+├── app/                       # 应用核心（116 个 PHP）
+│   ├── controllers/           # 前台页面控制器（26 个，每个对应一条前台路由）
+│   │   ├── home.php           # 首页（聚合统计/公告/版块/热门）
 │   │   ├── forum.php          # 版块帖子列表
-│   │   ├── post.php           # 主题帖详情
+│   │   ├── post.php           # 主题帖详情（引用/分页）
 │   │   ├── new_post.php       # 发帖
-│   │   ├── login.php / register.php / logout.php
+│   │   ├── login.php          # 登录（含记住密码 Web Crypto 加密）
+│   │   ├── register.php / logout.php
 │   │   ├── profile.php / favorites.php / search.php
-│   │   ├── pm.php / notifications.php
-│   │   ├── checkin.php        # 签到
-│   │   ├── report.php / appeal.php / banned.php
+│   │   ├── pm.php             # 私信会话
+│   │   ├── notifications.php / notification_read.php   # 通知列表 / 标记已读
+│   │   ├── checkin.php        # 每日签到
+│   │   ├── report.php / appeal.php / banned.php   # 举报 / 申诉 / 封禁提示
 │   │   ├── forgot_password.php / reset_password.php / force_change_password.php
-│   │   ├── send_email_code.php / send_password_change_code.php
-│   │   ├── privacy.php / terms.php / disclaimer.php / service.php   # 站点页面
-│   │   └── ...
-│   ├── admin/
-│   │   ├── controllers/       # 后台页面（站点设置、用户、版块、帖子、举报、邮件、备份、统计…）
-│   │   ├── api/               # 后台 AJAX 接口（*_ajax.php）
-│   │   └── layout/           # 后台布局（header / footer / admin-init）
-│   ├── includes/
-│   │   ├── config.php         # 全局配置常量、多语言、安全响应头
-│   │   ├── functions.php      # 全局函数（鉴权、CSRF、格式化、积分、邮件码、BBCode…）
-│   │   ├── db.php             # 建表/迁移/初始化/默认数据（核心 Schema）
-│   │   ├── database/          # 数据库驱动抽象（见架构）
-│   │   ├── languages/         # 语言包 zh-CN.php / zh-TW.php / en.php
-│   │   ├── mailer.php         # SMTP 发送器 + 邮件日志
+│   │   ├── send_email_code.php / send_password_change_code.php   # 邮箱验证码发送
+│   │   └── privacy.php / terms.php / disclaimer.php / service.php   # 站点页面（可后台编辑）
+│   │
+│   ├── admin/                 # 后台（独立入口前缀 /admin）
+│   │   ├── controllers/       # 后台页面（24 个）
+│   │   │   ├── index.php              # 控制台首页
+│   │   │   ├── system_status.php      # 系统状态监控（CPU/内存/温度/网络/磁盘/显卡）
+│   │   │   ├── traffic_monitor.php     # 流量监控
+│   │   │   ├── site_settings.php / site_pages.php
+│   │   │   ├── forums.php / posts.php / replies.php / announcements.php
+│   │   │   ├── users.php / user_edit.php / user_groups.php / roles.php
+│   │   │   ├── user_ban.php / user_mute.php
+│   │   │   ├── reports.php / ban_appeals.php / password_reset_requests.php
+│   │   │   ├── sensitive_words.php / sensitive_word_logs.php
+│   │   │   ├── medals.php / mail_center.php / backup.php
+│   │   │   └── captcha_debug.php       # 人机验证调试台
+│   │   ├── api/               # 后台 AJAX 接口（19 个，命名 *_ajax.php）
+│   │   │   ├── system_status_ajax.php   # 系统状态轮询采集（含诊断 ?diag=1）
+│   │   │   ├── traffic_ajax.php / pending_counts_ajax.php
+│   │   │   ├── posts_ajax.php / replies_ajax.php / reports_ajax.php
+│   │   │   ├── users_ajax.php / users_bulk_ajax.php / users_export_csv.php
+│   │   │   ├── user_detail_ajax.php / user_risk_detail_ajax.php
+│   │   │   ├── ban_appeals_ajax.php / sensitive_words_ajax.php / sensitive_logs_ajax.php
+│   │   │   ├── backup_ajax.php / mail_stats_ajax.php / mail_notify_ajax.php
+│   │   │   ├── bounce_ajax.php / diag_auth.php
+│   │   │   └── (其余见第 11 节)
+│   │   └── layout/            # 后台布局
+│   │       ├── admin-init.php # 后台鉴权与初始化（被各后台页面 require）
+│   │       ├── header.php / footer.php
+│   │
+│   ├── includes/              # 全局支撑代码
+│   │   ├── config.php         # 全局配置常量、多语言加载、安全响应头、业务参数
+│   │   ├── functions.php      # 全局函数（鉴权/CSRF/格式化/积分/邮件码/BBCode…）
+│   │   ├── db.php             # 核心 Schema、建表/迁移/初始化/默认数据
+│   │   ├── database/          # 数据库驱动抽象层
+│   │   │   ├── DatabaseFactory.php    # 按 DB_TYPE 创建驱动
+│   │   │   ├── AbstractDriver.php     # PDO 封装、跨库查询辅助、重连
+│   │   │   ├── SQLiteDriver.php / MySQLDriver.php / PostgreSQLDriver.php
+│   │   ├── languages/         # 语言包
+│   │   │   ├── zh-CN.php / zh-TW.php / en.php   # 主语言包（核心键）
+│   │   │   └── extras/        # 分批扩展语言包（按语言子目录，安装时合并加载）
+│   │   │       ├── zh-CN/  zh-TW/  en/          # 各语言专属扩展（admin_ajax/batch_*/mail_center…）
+│   │   ├── mailer.php         # 原生 fsockopen SMTP 发送器 + 邮件日志
 │   │   ├── bounce_processor.php  # 退信处理
 │   │   ├── backup_manager.php    # 数据库备份
 │   │   ├── compat.php         # 无 mbstring 时的兼容层
 │   │   └── header.php / footer.php
-│   └── components/
-│       └── sensitive_filter/  # 敏感词过滤引擎（SensitiveFilter.php + helper.php）
-├── public/
-│   ├── api/                   # 公共 JSON 接口（轮询/上传等）
-│   ├── css/                   # 样式（style / base / dark / tokens / header / pm / profile / utilities）
-│   ├── js/                    # main.js / editor.js / lightbox.js
-│   └── images/                # logo.svg 等
+│   │
+│   ├── components/
+│   │   └── sensitive_filter/  # 敏感词过滤引擎
+│   │       ├── SensitiveFilter.php   # Trie + Aho-Corasick 匹配内核
+│   │       └── helper.php            # 辅助函数
+│   │
+│   └── captcha/               # 人机验证模块（无第三方依赖，GD 生成资源）
+│       ├── core.php           # 验证逻辑、挑战生成与校验
+│       ├── api.php            # 验证会话/题目下发接口
+│       ├── serve.php          # 资源入口（captcha.js / captcha.css / 背景图）
+│       ├── captcha.js         # 前端交互（滑块/点选/交换）
+│       └── captcha.css        # 验证组件样式
+│
+├── public/                    # Web 可访问的静态资源与公共接口
+│   ├── api/                   # 公共 JSON 接口（6 个，轮询/上传）
+│   │   ├── home_realtime.php / pm_unread.php / pm_poll.php
+│   │   ├── post_replies_count.php / check_ban_status.php / upload_image.php
+│   ├── css/                   # 样式（8 个）
+│   │   ├── tokens.css         # CSS 变量（颜色/圆角/间距）—— 换肤改这里
+│   │   ├── style.css / base.css / dark.css   # 主样式 / 基础 / 暗色主题
+│   │   ├── header.css / pm.css / profile.css / utilities.css
+│   ├── js/                    # 脚本（3 个）
+│   │   ├── main.js            # 全局交互（导航/校验/提示/下拉）
+│   │   ├── editor.js          # 发帖编辑器（BBCode/上传）
+│   │   └── lightbox.js        # 图片灯箱
+│   └── images/
+│       └── logo.svg           # 站点 Logo
+│
 ├── data/                      # 运行时目录（安装时创建，需可写）
-│   ├── site_config.php        # 安装生成的配置（DB / SITE / SMTP 常量）
+│   ├── site_config.php        # 安装生成的配置（DB_*/SITE_*/SMTP_* 常量）
 │   ├── installed.lock         # 安装锁（存在表示已安装）
 │   ├── forum.db               # SQLite 数据库（默认）
-│   ├── error.log
+│   ├── error.log              # 错误日志
 │   └── db_version.lock        # Schema 迁移版本锁
-└── uploads/                   # 上传文件（头像 avatars/、图片 images/）
+│
+└── uploads/                   # 上传文件（安装时创建，需可写）
+    ├── avatars/               # 用户头像
+    └── images/                # 帖子图片
 ```
 
-> `data/` 与 `uploads/` 在首次安装时创建。**需对 Web 服务器进程可写**。请确认其权限（如 `chmod 755 data uploads`）。
+> `data/` 与 `uploads/` 在首次安装时创建。**需对 Web 服务器进程可写**。请确认其权限（如 `chmod 755 data uploads`）。`app/`、`public/`、`index.php`、`install.php` 无需写权限。
 
 ---
 
@@ -310,6 +370,33 @@ location ~ \.php$ {
 
 后台大量操作通过 `app/admin/api/*_ajax.php` 以 JSON 返回，前端异步调用，并提供待办计数（`pending_counts_ajax.php`）、用户风险详情（`user_risk_detail_ajax.php`）、系统诊断（`diag_auth.php`）等辅助接口。
 
+### 10.1 系统状态监控（system_status）
+
+入口 `/admin/system_status`，由 `app/admin/controllers/system_status.php` 渲染、`app/admin/api/system_status_ajax.php` 采集。前端以 AJAX 轮询方式并行拉取三类数据：
+
+| 数据类型 | 端点参数 | 轮询间隔 | 采集函数 |
+| --- | --- | --- | --- |
+| 静态信息 | `?static=1` | 仅首次（1 小时缓存） | `ss_get_cpu_info()` / `ss_get_memory_banks()` / `ss_get_disk_hardware()` / `ss_get_gpu_info()` / `ss_get_motherboard_info()` / `ss_get_network_interfaces()` / `ss_get_php_info()` |
+| 动态数据 | 默认 | 2 秒 | `ss_sample_cpu_and_memory()`（CPU 负载 + 内存占用） |
+| 温度 | `?temps=1` | 3 秒 | `ss_get_temperatures()` |
+
+**多路 CPU 支持**：采集层通过 `ss_wmi_query()` 拉取**全部** `Win32_Processor` 行（双路/多路服务器每颗物理 CPU 一行），聚合 `NumberOfCores` 与 `NumberOfLogicalProcessors`，并标注路数（如 `2 x Intel Xeon E5-2673 v4`）。CPU 实时负载取各路 `LoadPercentage` 的平均值。返回值含 `sockets` 字段，前端展示「X 路处理器」。
+
+**温度采集链路**（Windows，按优先级回退，共 8 层）：
+
+1. `root/OpenHardwareMonitor` WMI（最准确，需安装 OpenHardwareMonitor）
+2. `wmic` 命令行 OpenHardwareMonitor
+3. `MSAcpi_ThermalZoneTemperature` COM（ACPI 温度区，十分之一开尔文换算）
+4. `wmic` 命令行 `MSAcpi_ThermalZoneTemperature`
+5. PowerShell CIM `MSAcpi_ThermalZoneTemperature`
+6. `Win32_TemperatureProbe`（部分服务器/主板厂商提供）
+7. `MSStorageDriver_ATAPISmartData`（解析硬盘 SMART 属性 194/190 获取硬盘温度）
+8. PowerShell CIM `Win32_TemperatureProbe` 兜底
+
+> 若全部失败，温度卡片显示「未能获取温度数据（需硬件支持或安装 OpenHardwareMonitor）」。服务器 BMC/IPMI 场景下，安装 OpenHardwareMonitor 可启用最完整的传感器读数。
+
+诊断端点：`/admin/api/system_status_ajax?diag=1` 返回各采集通道的可用性（COM/FFI/PowerShell）、CPU/GPU/内存条原始数据及缓存文件清单，用于排查采集失败原因。
+
 ---
 
 ## 11. API 接口
@@ -338,7 +425,8 @@ location ~ \.php$ {
 - **页面样式**：`style.css`、`base.css`、`header.css`、`pm.css`、`profile.css`、`utilities.css`。
 - **脚本**：`public/js/main.js`（全局交互）、`editor.js`（发帖编辑器）、`lightbox.js`（图片灯箱）。
 - **图标**：版块图标与 UI 图标使用 SVG / Emoji（`ui_icon()`、`forum_icon()` 等函数生成）。
-- **语言包**：`app/includes/languages/*.php`，数组式键值，新增语言只需新增一个语言包文件并在 `config.php` 的 `get_available_languages()` 中登记。
+- **语言包**：`app/includes/languages/*.php`，数组式键值。加载时先 `require` 主包（如 `zh-CN.php`），再从 `extras/{code}/*.php` 分批合并扩展键（如 `admin_ajax.php`、`batch_b01.php`、`mail_center.php`），便于按模块维护与按需加载。新增语言：复制 `zh-CN.php` 为 `xx.php` 翻译主包，在 `extras/xx/` 放扩展包，最后到 `config.php` 的 `get_available_languages()` 登记即可。
+- **翻译函数**：`t($key, $default, $vars)` 从全局 `$LANG` 取文本；缺失时回退 `$default`，再否则返回 key 本身；支持 `{var}` 占位符替换（如 `t('welcome', '欢迎，{name}', ['name' => $u])`）。
 
 ---
 
@@ -435,7 +523,7 @@ location ~ \.php$ {
 
 **Q8. 点选文字验证的汉字显示为方框？**---
 
-> 文档基于项目源码（`index.php`、`install.php`、`app/includes/*`、`public/*`）整理，版本 `1.3.4-beta`。
+> 文档基于项目源码（`index.php`、`install.php`、`app/includes/*`、`public/*`）整理，版本 `1.3.5-beta`。
 > 如与代码实现不符，请以代码与安装向导提示为准。
 
 ---

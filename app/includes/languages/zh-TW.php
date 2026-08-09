@@ -1639,4 +1639,12 @@ return [
     'install_license_agree' => '我同意上述協議條款',
     'install_license_decline' => '我不同意，退出安裝',
     'install_change_lang' => '返回語言選擇',
+
+    // 系統狀態 - CPU 多路顯示
+    'admin_sys_cpu_sockets' =>' 路處理器',
+
+    // 系統狀態 - 溫度監控
+    'admin_ajax_temp_sensor' => '溫度感測器',
+    'admin_ajax_disk_drive' => '硬碟',
+    'admin_ajax_smart_temp' => 'SMART',
 ];

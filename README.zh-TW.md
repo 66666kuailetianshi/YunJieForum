@@ -1,12 +1,12 @@
 # 雲界論壇 (Cloud Forum)
 
-> **當前狀態：Beta 測試版**（`v1.3.4-beta`）｜ 輕量級社區論壇系統 · PHP + SQLite · 開箱即用
+> **當前狀態：Beta 測試版**（`v1.3.5-beta`）｜ 輕量級社區論壇系統 · PHP + SQLite · 開箱即用
 
 **[简体中文](README.md) · [English](README.en.md)**
 
 `雲界論壇` 是一套純 PHP 編寫的輕量級社區論壇（BBS）系統，默認使用 SQLite 文件資料庫，無需獨立部署資料庫伺服器即可運行，適合個人博客社區、興趣小組、內網知識庫等場景。系統內置用戶體系、版塊/帖子/回復、私信、通知、籤到積分、勳章角色、內容審核（敏感詞）、郵件與流量統計等完整功能，並提供可視化的安裝嚮導與後臺管理。
 
-- **當前版本：** `1.3.4-beta`
+- **當前版本：** `1.3.5-beta`
 - **開發語言：** PHP 7.4+
 - **默認資料庫：** SQLite（同時支持 MySQL / PostgreSQL）
 - **前端：** 原生 HTML + CSS + 少量原生 JS，無前端構建步驟
@@ -93,55 +93,117 @@ index.php  ── 路由解析（route / s / REQUEST_URI）→ 分發
 
 ## 3. 目錄結構
 
+> 下方樹為**實測得**的專案佈局（`app/` 含 116 個 PHP 檔案 + 各資源檔案）。帶 `#` 註釋的為本專案實際存在的檔案。
+
 ```
 雲界論壇/
-├── index.php                  # 前臺入口 / 路由分發
-├── install.php                # 安裝嚮導（4 步 + 語言/授權前置）
-├── app/
-│   ├── controllers/           # 前臺頁面控制器（26 個）
-│   │   ├── home.php           # 首頁
+├── index.php                  # 前臺入口 / 路由分發（單一入口，解析 route/s/REQUEST_URI）
+├── install.php               # 安裝嚮導（資料庫→環境檢測→站點配置→完成，前置語言與授權協議）
+├── LICENSE                    # 開源許可證文字
+├── README.md / README.en.md / README.zh-TW.md   # 三語專案文件
+│
+├── app/                       # 應用核心（116 個 PHP）
+│   ├── controllers/           # 前臺頁面控制器（26 個，每個對應一條前臺路由）
+│   │   ├── home.php           # 首頁（聚合統計/公告/版塊/熱門）
 │   │   ├── forum.php          # 版塊帖子列表
-│   │   ├── post.php           # 主題帖詳情
+│   │   ├── post.php           # 主題帖詳情（引用/分頁）
 │   │   ├── new_post.php       # 發帖
-│   │   ├── login.php / register.php / logout.php
+│   │   ├── login.php          # 登入（含記住密碼 Web Crypto 加密）
+│   │   ├── register.php / logout.php
 │   │   ├── profile.php / favorites.php / search.php
-│   │   ├── pm.php / notifications.php
-│   │   ├── checkin.php        # 籤到
-│   │   ├── report.php / appeal.php / banned.php
+│   │   ├── pm.php             # 私信會話
+│   │   ├── notifications.php / notification_read.php   # 通知列表 / 標記已讀
+│   │   ├── checkin.php        # 每日籤到
+│   │   ├── report.php / appeal.php / banned.php   # 舉報 / 申訴 / 封禁提示
 │   │   ├── forgot_password.php / reset_password.php / force_change_password.php
-│   │   ├── send_email_code.php / send_password_change_code.php
-│   │   ├── privacy.php / terms.php / disclaimer.php / service.php   # 站點頁面
-│   │   └── ...
-│   ├── admin/
-│   │   ├── controllers/       # 後臺頁面（站點設置、用戶、版塊、帖子、舉報、郵件、備份、統計…）
-│   │   ├── api/               # 後臺 AJAX 接口（*_ajax.php）
-│   │   └── layout/           # 後臺布局（header / footer / admin-init）
-│   ├── includes/
-│   │   ├── config.php         # 全局配置常量、多語言、安全響應頭
-│   │   ├── functions.php      # 全局函數（鑑權、CSRF、格式化、積分、郵件碼、BBCode…）
-│   │   ├── db.php             # 建表/遷移/初始化/默認數據（核心 Schema）
-│   │   ├── database/          # 資料庫驅動抽象（見架構）
-│   │   ├── languages/         # 語言包 zh-CN.php / zh-TW.php / en.php
-│   │   ├── mailer.php         # SMTP 發送器 + 郵件日誌
+│   │   ├── send_email_code.php / send_password_change_code.php   # 郵箱驗證碼發送
+│   │   └── privacy.php / terms.php / disclaimer.php / service.php   # 站點頁面（可後臺編輯）
+│   │
+│   ├── admin/                 # 後臺（獨立入口前綴 /admin）
+│   │   ├── controllers/       # 後臺頁面（24 個）
+│   │   │   ├── index.php              # 控制台首頁
+│   │   │   ├── system_status.php      # 系統狀態監控（CPU/記憶體/溫度/網路/磁碟/顯卡）
+│   │   │   ├── traffic_monitor.php     # 流量監控
+│   │   │   ├── site_settings.php / site_pages.php
+│   │   │   ├── forums.php / posts.php / replies.php / announcements.php
+│   │   │   ├── users.php / user_edit.php / user_groups.php / roles.php
+│   │   │   ├── user_ban.php / user_mute.php
+│   │   │   ├── reports.php / ban_appeals.php / password_reset_requests.php
+│   │   │   ├── sensitive_words.php / sensitive_word_logs.php
+│   │   │   ├── medals.php / mail_center.php / backup.php
+│   │   │   └── captcha_debug.php       # 人機驗證偵錯台
+│   │   ├── api/               # 後臺 AJAX 接口（19 個，命名 *_ajax.php）
+│   │   │   ├── system_status_ajax.php   # 系統狀態輪詢採集（含診斷 ?diag=1）
+│   │   │   ├── traffic_ajax.php / pending_counts_ajax.php
+│   │   │   ├── posts_ajax.php / replies_ajax.php / reports_ajax.php
+│   │   │   ├── users_ajax.php / users_bulk_ajax.php / users_export_csv.php
+│   │   │   ├── user_detail_ajax.php / user_risk_detail_ajax.php
+│   │   │   ├── ban_appeals_ajax.php / sensitive_words_ajax.php / sensitive_logs_ajax.php
+│   │   │   ├── backup_ajax.php / mail_stats_ajax.php / mail_notify_ajax.php
+│   │   │   ├── bounce_ajax.php / diag_auth.php
+│   │   │   └── (其餘見第 11 節)
+│   │   └── layout/            # 後臺佈局
+│   │       ├── admin-init.php # 後臺鑑權與初始化（被各後臺頁面 require）
+│   │       ├── header.php / footer.php
+│   │
+│   ├── includes/              # 全局支撐程式碼
+│   │   ├── config.php         # 全局配置常量、多語言載入、安全響應頭、業務參數
+│   │   ├── functions.php      # 全局函數（鑑權/CSRF/格式化/積分/郵件碼/BBCode…）
+│   │   ├── db.php             # 核心 Schema、建表/遷移/初始化/默認數據
+│   │   ├── database/          # 資料庫驅動抽象層
+│   │   │   ├── DatabaseFactory.php    # 依 DB_TYPE 建立驅動
+│   │   │   ├── AbstractDriver.php     # PDO 封裝、跨庫查詢輔助、重連
+│   │   │   ├── SQLiteDriver.php / MySQLDriver.php / PostgreSQLDriver.php
+│   │   ├── languages/         # 語言包
+│   │   │   ├── zh-CN.php / zh-TW.php / en.php   # 主語言包（核心鍵）
+│   │   │   └── extras/        # 分批擴展語言包（按語言子目錄，安裝時合併載入）
+│   │   │       ├── zh-CN/  zh-TW/  en/          # 各語言專屬擴展（admin_ajax/batch_*/mail_center…）
+│   │   ├── mailer.php         # 原生 fsockopen SMTP 發送器 + 郵件日誌
 │   │   ├── bounce_processor.php  # 退信處理
 │   │   ├── backup_manager.php    # 資料庫備份
 │   │   ├── compat.php         # 無 mbstring 時的兼容層
 │   │   └── header.php / footer.php
-│   └── components/
-│       └── sensitive_filter/  # 敏感詞過濾引擎（SensitiveFilter.php + helper.php）
-├── public/
-│   ├── api/                   # 公共 JSON 接口（輪詢/上傳等）
-│   ├── css/                   # 樣式（style / base / dark / tokens / header / pm / profile / utilities）
-│   ├── js/                    # main.js / editor.js / lightbox.js
-│   └── images/                # logo.svg 等
+│   │
+│   ├── components/
+│   │   └── sensitive_filter/  # 敏感詞過濾引擎
+│   │       ├── SensitiveFilter.php   # Trie + Aho-Corasick 匹配內核
+│   │       └── helper.php            # 輔助函數
+│   │
+│   └── captcha/               # 人機驗證模組（無第三方依賴，GD 生成資源）
+│       ├── core.php           # 驗證邏輯、挑戰生成與校驗
+│       ├── api.php            # 驗證會話/題目下發接口
+│       ├── serve.php          # 資源入口（captcha.js / captcha.css / 背景圖）
+│       ├── captcha.js         # 前端互動（滑塊/點選/交換）
+│       └── captcha.css        # 驗證組件樣式
+│
+├── public/                    # Web 可存取的靜態資源與公共接口
+│   ├── api/                   # 公共 JSON 接口（6 個，輪詢/上傳）
+│   │   ├── home_realtime.php / pm_unread.php / pm_poll.php
+│   │   ├── post_replies_count.php / check_ban_status.php / upload_image.php
+│   ├── css/                   # 樣式（8 個）
+│   │   ├── tokens.css         # CSS 變數（顏色/圓角/間距）—— 換膚改這裡
+│   │   ├── style.css / base.css / dark.css   # 主樣式 / 基礎 / 暗色主題
+│   │   ├── header.css / pm.css / profile.css / utilities.css
+│   ├── js/                    # 腳本（3 個）
+│   │   ├── main.js            # 全局互動（導覽/校驗/提示/下拉）
+│   │   ├── editor.js          # 發帖編輯器（BBCode/上傳）
+│   │   └── lightbox.js        # 圖片燈箱
+│   └── images/
+│       └── logo.svg           # 站點 Logo
+│
 ├── data/                      # 運行時目錄（安裝時創建，需可寫）
-│   ├── site_config.php        # 安裝生成的配置（DB / SITE / SMTP 常量）
+│   ├── site_config.php        # 安裝生成的配置（DB_*/SITE_*/SMTP_* 常量）
 │   ├── installed.lock         # 安裝鎖（存在表示已安裝）
 │   ├── forum.db               # SQLite 資料庫（默認）
-│   ├── error.log
+│   ├── error.log              # 錯誤日誌
 │   └── db_version.lock        # Schema 遷移版本鎖
-└── uploads/                   # 上傳文件（頭像 avatars/、圖片 images/）
+│
+└── uploads/                   # 上傳檔案（安裝時創建，需可寫）
+    ├── avatars/               # 用戶頭像
+    └── images/                # 帖子圖片
 ```
+
+> `data/` 與 `uploads/` 在首次安裝時創建。**需對 Web 服務器進程可寫**。請確認其權限（如 `chmod 755 data uploads`）。`app/`、`public/`、`index.php`、`install.php` 無需寫權限。
 
 > `data/` 與 `uploads/` 在首次安裝時創建。**需對 Web 伺服器進程可寫**。請確認其權限（如 `chmod 755 data uploads`）。
 
@@ -313,6 +375,33 @@ location ~ \.php$ {
 
 後臺大量操作通過 `app/admin/api/*_ajax.php` 以 JSON 返回，前端異步調用，並提供待辦計數（`pending_counts_ajax.php`）、用戶風險詳情（`user_risk_detail_ajax.php`）、系統診斷（`diag_auth.php`）等輔助接口。
 
+### 10.1 系統狀態監控（system_status）
+
+入口 `/admin/system_status`，由 `app/admin/controllers/system_status.php` 渲染、`app/admin/api/system_status_ajax.php` 採集。前端以 AJAX 輪詢方式並行拉取三類數據：
+
+| 數據類型 | 端點參數 | 輪詢間隔 | 採集函數 |
+| --- | --- | --- | --- |
+| 靜態信息 | `?static=1` | 僅首次（1 小時緩存） | `ss_get_cpu_info()` / `ss_get_memory_banks()` / `ss_get_disk_hardware()` / `ss_get_gpu_info()` / `ss_get_motherboard_info()` / `ss_get_network_interfaces()` / `ss_get_php_info()` |
+| 動態數據 | 默認 | 2 秒 | `ss_sample_cpu_and_memory()`（CPU 負載 + 記憶體佔用） |
+| 溫度 | `?temps=1` | 3 秒 | `ss_get_temperatures()` |
+
+**多路 CPU 支援**：採集層通過 `ss_wmi_query()` 拉取**全部** `Win32_Processor` 行（雙路/多路服務器每顆物理 CPU 一行），聚合 `NumberOfCores` 與 `NumberOfLogicalProcessors`，並標註路數（如 `2 x Intel Xeon E5-2673 v4`）。CPU 實時負載取各路 `LoadPercentage` 的平均值。返回值含 `sockets` 欄位，前端展示「X 路處理器」。
+
+**溫度採集鏈路**（Windows，按優先級回退，共 8 層）：
+
+1. `root/OpenHardwareMonitor` WMI（最準確，需安裝 OpenHardwareMonitor）
+2. `wmic` 命令行 OpenHardwareMonitor
+3. `MSAcpi_ThermalZoneTemperature` COM（ACPI 溫度區，十分之一開爾文換算）
+4. `wmic` 命令行 `MSAcpi_ThermalZoneTemperature`
+5. PowerShell CIM `MSAcpi_ThermalZoneTemperature`
+6. `Win32_TemperatureProbe`（部分服務器/主機板廠商提供）
+7. `MSStorageDriver_ATAPISmartData`（解析硬碟 SMART 屬性 194/190 獲取硬碟溫度）
+8. PowerShell CIM `Win32_TemperatureProbe` 兜底
+
+> 若全部失敗，溫度卡片顯示「未能獲取溫度數據（需硬件支持或安裝 OpenHardwareMonitor）」。服務器 BMC/IPMI 場景下，安裝 OpenHardwareMonitor 可啟用最完整的傳感器讀數。
+
+診斷端點：`/admin/api/system_status_ajax?diag=1` 返回各採集通道的可用性（COM/FFI/PowerShell）、CPU/GPU/記憶體原始數據及緩存文件清單，用於排查採集失敗原因。
+
 ---
 
 ## 11. API 接口
@@ -341,7 +430,8 @@ location ~ \.php$ {
 - **頁面樣式**：`style.css`、`base.css`、`header.css`、`pm.css`、`profile.css`、`utilities.css`。
 - **腳本**：`public/js/main.js`（全局交互）、`editor.js`（發帖編輯器）、`lightbox.js`（圖片燈箱）。
 - **圖標**：版塊圖標與 UI 圖標使用 SVG / Emoji（`ui_icon()`、`forum_icon()` 等函數生成）。
-- **語言包**：`app/includes/languages/*.php`，數組式鍵值，新增語言只需新增一個語言包文件並在 `config.php` 的 `get_available_languages()` 中登記。
+- **語言包**：`app/includes/languages/*.php`，數組式鍵值。載入時先 `require` 主包（如 `zh-TW.php`），再從 `extras/{code}/*.php` 分批合併擴展鍵（如 `admin_ajax.php`、`batch_b01.php`、`mail_center.php`），便於按模組維護與按需載入。新增語言：複製 `zh-TW.php` 為 `xx.php` 翻譯主包，在 `extras/xx/` 放擴展包，最後到 `config.php` 的 `get_available_languages()` 登記即可。
+- **翻譯函數**：`t($key, $default, $vars)` 從全局 `$LANG` 取文字；缺失時回退 `$default`，再否則返回 key 本身；支援 `{var}` 佔位符替換（如 `t('welcome', '歡迎，{name}', ['name' => $u])`）。
 
 ---
 
@@ -406,7 +496,7 @@ location ~ \.php$ {
 
 ---
 
-> 文檔基於項目源碼（`index.php`、`install.php`、`app/includes/*`、`public/*`）整理，版本 `1.3.4-beta`。
+> 文檔基於項目源碼（`index.php`、`install.php`、`app/includes/*`、`public/*`）整理，版本 `1.3.5-beta`。
 > 如與代碼實現不符，請以代碼與安裝嚮導提示為準。
 
 ---
