@@ -151,15 +151,25 @@ $dbSize = defined('DB_FILE') && is_file(DB_FILE) ? (int)filesize(DB_FILE) : 0;
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 0.75rem;
     padding: 0.5rem 0;
     border-bottom: 1px solid var(--border);
     font-size: 0.875rem;
 }
 .temp-item:last-child { border-bottom: none; }
-.temp-name { color: var(--text-muted); }
+.temp-name {
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    flex: 1;
+}
 .temp-value {
     font-weight: 600;
     color: var(--text);
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 .temp-value.normal { color: #10b981; }
 .temp-value.warning { color: #f59e0b; }
