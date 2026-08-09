@@ -1857,64 +1857,104 @@ function ss_get_disk_partitions(): array {
 
 /**
  * 获取系统温度传感器读数
- * Windows: 优先 OpenHardwareMonitor WMI 命名空间，回退 MSAcpi_ThermalZoneTemperature，回退 PowerShell
- * Linux: 读取 /sys/class/thermal/ 和 /sys/class/hwmon/
+ *
+ * Windows 方案（按优先级）：
+ *   1. LibreHardwareMonitor WMI（root/LibreHardwareMonitor）— OHM 新 fork，兼容性更好
+ *   2. OpenHardwareMonitor WMI（root/OpenHardwareMonitor）
+ *   3. wmic 命令行 OHM / LHM
+ *   4. MSAcpi_ThermalZoneTemperature（root/wmi，ACPI 热区，十分之一开尔文）
+ *   5. wmic MSAcpi_ThermalZoneTemperature
+ *   6. PowerShell CIM MSAcpi_ThermalZoneTemperature
+ *   7. Win32_TemperatureProbe（root/cimv2，部分服务器/主板厂商提供）
+ *   8. PowerShell CIM Win32_TemperatureProbe
+ *   9. 硬盘 SMART 温度（MSStorageDriver_ATAPISmartData，属性 194/190）
+ *  10. IPMI / ipmitool（服务器 BMC，如 AST2400）
+ *  11. PowerShell 热区性能计数器（Thermal Zone Information）
+ *  12. HWMon 注册表（HWMonitor 等工具写入）
+ *
+ * Linux 方案：
+ *   1. /sys/class/thermal/thermal_zone*
+ *   2. /sys/class/hwmon/hwmon*/temp*_input
+ *   3. sensors 命令（lm-sensors）
  *
  * @return array [['name' => 'CPU', 'temp' => 45.0, 'unit' => '°C'], ...]
  */
 function ss_get_temperatures(): array {
     $os = ss_os_type();
     $list = [];
+    // 用于诊断：记录每个方案的尝试结果
+    $diag = [];
 
     if ($os === 'windows') {
-        // 方案 1（优先）：COM 进程内查询 OpenHardwareMonitor WMI 命名空间（最准确，需安装）
-        if (ss_com_available()) {
-            $rows = ss_wmi_query(
-                'SELECT SensorType,Value,Name FROM Sensor',
-                'root/OpenHardwareMonitor',
-                ['SensorType', 'Value', 'Name']
-            );
-            foreach ($rows as $r) {
-                if (strcasecmp(trim((string)($r['SensorType'] ?? '')), 'Temperature') !== 0) continue;
-                $val = (float)($r['Value'] ?? 0);
-                if ($val <= 0 || $val > 200) continue;
-                $list[] = [
-                    'name' => trim((string)($r['Name'] ?? t('admin_ajax_sensor', '传感器'))),
-                    'temp' => round($val, 1),
-                    'unit' => '°C',
-                ];
-            }
-        }
 
-        // 方案 2（回退）：wmic 命令行 OpenHardwareMonitor
-        if (empty($list)) {
-            $ohm = ss_shell_exec('wmic /namespace:\\root\\OpenHardwareMonitor path Sensor get SensorType,Value,Name /format:csv 2>nul');
-            if (!empty($ohm)) {
-                $rows = ss_parse_csv_output($ohm);
+        // ================================================================
+        // 方案 1+2：LibreHardwareMonitor / OpenHardwareMonitor WMI（最准确，需安装）
+        // ================================================================
+        if (ss_com_available()) {
+            // 先试 LHM（更新的 fork），再试 OHM
+            $ohmNamespaces = [
+                'root/LibreHardwareMonitor' => 'LHM',
+                'root/OpenHardwareMonitor'  => 'OHM',
+            ];
+            foreach ($ohmNamespaces as $ns => $label) {
+                if (!empty($list)) break;
+                $rows = ss_wmi_query(
+                    'SELECT SensorType,Value,Name FROM Sensor',
+                    $ns,
+                    ['SensorType', 'Value', 'Name']
+                );
+                $diag[$label] = count($rows) . ' rows';
                 foreach ($rows as $r) {
-                    if (strcasecmp(trim($r['SensorType'] ?? ''), 'Temperature') !== 0) continue;
+                    if (strcasecmp(trim((string)($r['SensorType'] ?? '')), 'Temperature') !== 0) continue;
                     $val = (float)($r['Value'] ?? 0);
                     if ($val <= 0 || $val > 200) continue;
                     $list[] = [
-                        'name' => trim($r['Name'] ?? t('admin_ajax_sensor', '传感器')),
+                        'name' => trim((string)($r['Name'] ?? t('admin_ajax_sensor', '传感器'))),
                         'temp' => round($val, 1),
                         'unit' => '°C',
+                        'source' => $label,
                     ];
                 }
             }
         }
 
-        // 方案 3（COM）：MSAcpi_ThermalZoneTemperature（root/wmi 命名空间，返回十分之一开尔文）
+        // 方案 3：wmic 命令行 OHM / LHM
+        if (empty($list)) {
+            foreach (['root\\OpenHardwareMonitor', 'root\\LibreHardwareMonitor'] as $ns) {
+                if (!empty($list)) break;
+                $ohm = ss_shell_exec('wmic /namespace:\\' . $ns . ' path Sensor get SensorType,Value,Name /format:csv 2>nul');
+                if (!empty($ohm)) {
+                    $rows = ss_parse_csv_output($ohm);
+                    $diag['wmic_' . basename($ns)] = count($rows) . ' rows';
+                    foreach ($rows as $r) {
+                        if (strcasecmp(trim($r['SensorType'] ?? ''), 'Temperature') !== 0) continue;
+                        $val = (float)($r['Value'] ?? 0);
+                        if ($val <= 0 || $val > 200) continue;
+                        $list[] = [
+                            'name' => trim($r['Name'] ?? t('admin_ajax_sensor', '传感器')),
+                            'temp' => round($val, 1),
+                            'unit' => '°C',
+                            'source' => 'wmic',
+                        ];
+                    }
+                }
+            }
+        }
+
+        // ================================================================
+        // 方案 4-6：ACPI 热区温度（root/wmi，返回十分之一开尔文）
+        // ================================================================
+        // 方案 4：COM 查询 MSAcpi_ThermalZoneTemperature
         if (empty($list) && ss_com_available()) {
             $rows = ss_wmi_query(
                 'SELECT InstanceName,CurrentTemperature FROM MSAcpi_ThermalZoneTemperature',
                 'root/wmi',
                 ['InstanceName', 'CurrentTemperature']
             );
+            $diag['ACPI_COM'] = count($rows) . ' rows';
             foreach ($rows as $r) {
                 $val = (int)($r['CurrentTemperature'] ?? 0);
                 if ($val <= 0) continue;
-                // 十分之一开尔文 → 摄氏度
                 $celsius = round(($val - 2732) / 10.0, 1);
                 if ($celsius < 0 || $celsius > 200) continue;
                 $name = trim((string)($r['InstanceName'] ?? t('admin_ajax_temp_sensor', '温度传感器')));
@@ -1923,19 +1963,20 @@ function ss_get_temperatures(): array {
                     'name' => $name,
                     'temp' => $celsius,
                     'unit' => '°C',
+                    'source' => 'ACPI',
                 ];
             }
         }
 
-        // 方案 4（回退）：wmic 命令行 MSAcpi_ThermalZoneTemperature
+        // 方案 5：wmic 命令行 ACPI
         if (empty($list)) {
             $acpi = ss_shell_exec('wmic /namespace:\\root\\wmi PATH MSAcpi_ThermalZoneTemperature get InstanceName,CurrentTemperature /format:csv 2>nul');
             if (!empty($acpi)) {
                 $rows = ss_parse_csv_output($acpi);
+                $diag['ACPI_wmic'] = count($rows) . ' rows';
                 foreach ($rows as $r) {
                     $val = (int)($r['CurrentTemperature'] ?? 0);
                     if ($val <= 0) continue;
-                    // 十分之一开尔文 → 摄氏度
                     $celsius = round(($val - 2732) / 10.0, 1);
                     if ($celsius < 0 || $celsius > 200) continue;
                     $name = trim($r['InstanceName'] ?? t('admin_ajax_temp_sensor', '温度传感器'));
@@ -1944,15 +1985,17 @@ function ss_get_temperatures(): array {
                         'name' => $name,
                         'temp' => $celsius,
                         'unit' => '°C',
+                        'source' => 'ACPI_wmic',
                     ];
                 }
             }
         }
 
-        // 方案 5（兜底）：PowerShell CIM 温度探测
+        // 方案 6：PowerShell CIM ACPI
         if (empty($list)) {
-            $ps = ss_powershell_exec("\$tz = Get-CimInstance -Namespace root/wmi -ClassName MSAcpi_ThermalZoneTemperature -ErrorAction SilentlyContinue; if (\$tz) { foreach (\$t in \$tz) { \$c = [math]::Round((\$t.CurrentTemperature - 2732) / 10.0, 1); if (\$c -gt 0 -and \$c -lt 200) { '{0}|{1}' -f \$t.InstanceName, \$c } } } else { '' }");
-            if (!empty($ps)) {
+            $ps = ss_powershell_exec("\$tz = Get-CimInstance -Namespace root/wmi -ClassName MSAcpi_ThermalZoneTemperature -ErrorAction SilentlyContinue; if (\$tz) { foreach (\$t in \$tz) { \$c = [math]::Round((\$t.CurrentTemperature - 2732) / 10.0, 1); if (\$c -gt 0 -and \$c -lt 200) { '{0}|{1}' -f \$t.InstanceName, \$c } } } else { 'EMPTY' }");
+            $diag['ACPI_PS'] = trim(substr($ps ?: '', 0, 80));
+            if (!empty($ps) && trim($ps) !== 'EMPTY') {
                 foreach (explode("\n", trim($ps)) as $line) {
                     $line = trim($line);
                     if ($line === '' || strpos($line, '|') === false) continue;
@@ -1962,18 +2005,22 @@ function ss_get_temperatures(): array {
                         'name' => $name ?: t('admin_ajax_temp_sensor', '温度传感器'),
                         'temp' => (float)trim($parts[1]),
                         'unit' => '°C',
+                        'source' => 'ACPI_PS',
                     ];
                 }
             }
         }
 
-        // 方案 6（服务器硬件）：COM 查询 Win32_TemperatureProbe（部分服务器/主板厂商提供）
+        // ================================================================
+        // 方案 7-8：Win32_TemperatureProbe（部分服务器主板提供）
+        // ================================================================
         if (empty($list) && ss_com_available()) {
             $rows = ss_wmi_query(
                 'SELECT Caption,CurrentReading FROM Win32_TemperatureProbe',
                 'root/cimv2',
                 ['Caption', 'CurrentReading']
             );
+            $diag['TempProbe_COM'] = count($rows) . ' rows';
             foreach ($rows as $r) {
                 $val = (int)($r['CurrentReading'] ?? 0);
                 if ($val <= 0 || $val > 200) continue;
@@ -1982,69 +2029,15 @@ function ss_get_temperatures(): array {
                     'name' => $name,
                     'temp' => round($val, 1),
                     'unit' => '°C',
+                    'source' => 'TempProbe',
                 ];
             }
         }
 
-        // 方案 7（硬盘 SMART 温度）：通过 MSStorageDriver_ATAPISmartData 读取硬盘温度
-        //     SMART 属性 194 (Temperature) 或 190 (Airflow Temperature)
-        if (empty($list) && ss_com_available()) {
-            $smartRows = ss_wmi_query(
-                'SELECT DeviceId,VendorSpecific FROM MSStorageDriver_ATAPISmartData',
-                'root/wmi',
-                ['DeviceId', 'VendorSpecific']
-            );
-            foreach ($smartRows as $smart) {
-                $deviceId = trim((string)($smart['DeviceId'] ?? ''));
-                // VendorSpecific 是字节数组，需要解析 SMART 属性
-                $raw = $smart['VendorSpecific'] ?? null;
-                if ($raw === null || (!is_array($raw) && !is_string($raw))) continue;
-
-                // 将数组/原始数据转为字节序列
-                $bytes = [];
-                if (is_array($raw)) {
-                    foreach ($raw as $b) {
-                        if (is_numeric($b)) $bytes[] = (int)$b;
-                    }
-                } elseif (is_string($raw)) {
-                    for ($i = 0; $i < strlen($raw); $i++) $bytes[] = ord($raw[$i]);
-                }
-                if (count($bytes) < 12 * 30) continue; // SMART 数据至少需要 12 字节 x 30 属性
-
-                // SMART 属性表：每属性 12 字节，偏移 2=ID, 偏移 5=Raw值低字节, 偏移 9-10=Raw值(小端)
-                $tempVal = null;
-                for ($attrIdx = 0; $attrIdx < 30; $attrIdx++) {
-                    $off = $attrIdx * 12;
-                    if ($off + 11 >= count($bytes)) break;
-                    $attrId = $bytes[$off + 2];
-                    // SMART ID 194 = Temperature / 190 = Drive Temperature
-                    if ($attrId === 194 || $attrId === 190) {
-                        // Raw value at offset 9-10 (little-endian), or offset 5 for some formats
-                        $rawTemp = $bytes[$off + 9] | ($bytes[$off + 10] << 8);
-                        if ($rawTemp === 0) $rawTemp = $bytes[$off + 5]; // fallback to single byte
-                        if ($rawTemp > 0 && $rawTemp <= 200) {
-                            $tempVal = $rawTemp;
-                            break;
-                        }
-                    }
-                }
-                if ($tempVal !== null && $tempVal > 0 && $tempVal <= 200) {
-                    // 提取盘符或设备名
-                    $driveName = preg_replace(['/^\\\\\\.\\//', '/PHYSICALDRIVE/i'], ['', ''], $deviceId);
-                    if ($driveName === '') $driveName = t('admin_ajax_disk_drive', '硬盘');
-                    $list[] = [
-                        'name' => $driveName . ' (' . t('admin_ajax_smart_temp', 'SMART') . ')',
-                        'temp' => round($tempVal, 1),
-                        'unit' => '°C',
-                    ];
-                }
-            }
-        }
-
-        // 方案 8（兜底）：PowerShell CIM 查询 Win32_TemperatureProbe
         if (empty($list)) {
-            $ps = ss_powershell_exec("\$tp = Get-CimInstance -ClassName Win32_TemperatureProbe -ErrorAction SilentlyContinue; if (\$tp) { foreach (\$t in \$tp) { \$v = \$t.CurrentReading; if (\$v -gt 0 -and \$v -lt 200) { '{0}|{1}' -f \$t.Caption, \$v } } } else { '' }");
-            if (!empty($ps)) {
+            $ps = ss_powershell_exec("\$tp = Get-CimInstance -ClassName Win32_TemperatureProbe -ErrorAction SilentlyContinue; if (\$tp) { foreach (\$t in \$tp) { \$v = \$t.CurrentReading; if (\$v -gt 0 -and \$v -lt 200) { '{0}|{1}' -f \$t.Caption, \$v } } } else { 'EMPTY' }");
+            $diag['TempProbe_PS'] = trim(substr($ps ?: '', 0, 80));
+            if (!empty($ps) && trim($ps) !== 'EMPTY') {
                 foreach (explode("\n", trim($ps)) as $line) {
                     $line = trim($line);
                     if ($line === '' || strpos($line, '|') === false) continue;
@@ -2053,10 +2046,225 @@ function ss_get_temperatures(): array {
                         'name' => trim($parts[0]) ?: t('admin_ajax_temp_sensor', '温度传感器'),
                         'temp' => (float)trim($parts[1]),
                         'unit' => '°C',
+                        'source' => 'TempProbe_PS',
                     ];
                 }
             }
         }
+
+        // ================================================================
+        // 方案 9：硬盘 SMART 温度（MSStorageDriver_ATAPISmartData 属性 194/190）
+        // ================================================================
+        if (ss_com_available()) {
+            $smartRows = ss_wmi_query(
+                'SELECT DeviceId,VendorSpecific FROM MSStorageDriver_ATAPISmartData',
+                'root/wmi',
+                ['DeviceId', 'VendorSpecific']
+            );
+            $diag['SMART'] = count($smartRows) . ' drives';
+            foreach ($smartRows as $smart) {
+                $deviceId = trim((string)($smart['DeviceId'] ?? ''));
+                $raw = $smart['VendorSpecific'] ?? null;
+                if ($raw === null) continue;
+
+                // VendorSpecific 是 uint8 数组，经 COM 层后可能变成：
+                //   a) PHP 数组（每个元素是数字）— 最佳情况
+                //   b) 分号分隔字符串 "1;2;3;..." — ss_wmi_query 对数组的 implode 处理
+                //   c) VARIANT 对象 — 未被正确展开
+                $bytes = [];
+                if (is_array($raw)) {
+                    foreach ($raw as $b) {
+                        if (is_numeric($b)) $bytes[] = (int)$b;
+                    }
+                } elseif (is_string($raw) && strpos($raw, ';') !== false) {
+                    // COM 将字节数组转成了 "val;val;val;" 字符串
+                    foreach (explode(';', $raw) as $tok) {
+                        $tok = trim($tok);
+                        if ($tok !== '' && is_numeric($tok)) $bytes[] = (int)$tok;
+                    }
+                } elseif (is_string($raw) && strlen($raw) >= 12) {
+                    // 原始二进制字符串
+                    for ($i = 0; $i < strlen($raw); $i++) $bytes[] = ord($raw[$i]);
+                }
+
+                // SMART 数据至少需要 12 字节 x 30 属性 = 360 字节
+                // 但有些驱动返回较少属性，放宽到 12*12=144
+                if (count($bytes) < 144) {
+                    $diag['SMART_' . $deviceId] = 'bytes=' . count($bytes) . ' too_short';
+                    continue;
+                }
+
+                // 解析 SMART 属性表：每属性 12 字节
+                $tempVal = null;
+                $attrCount = min(30, intdiv(count($bytes), 12));
+                for ($attrIdx = 0; $attrIdx < $attrCount; $attrIdx++) {
+                    $off = $attrIdx * 12;
+                    if ($off + 11 >= count($bytes)) break;
+                    $attrId = $bytes[$off + 2];
+                    // ID 194 = Temperature Celsius, 190 = Drive Temperature (Airflow)
+                    if ($attrId === 194 || $attrId === 190) {
+                        // Raw value: bytes 9-10 little-endian (标准 SMART 格式)
+                        // 也尝试 byte 5 (normalized value 有时接近真实温度)
+                        $rawTemp = $bytes[$off + 9] | ($bytes[$off + 10] << 8);
+                        if ($rawTemp === 0 || $rawTemp > 60000) {
+                            $rawTemp = $bytes[$off + 5]; // fallback
+                        }
+                        if ($rawTemp > 0 && $rawTemp <= 200) {
+                            $tempVal = $rawTemp;
+                            break;
+                        }
+                        // 有些硬盘用 8-bit raw value
+                        if ($bytes[$off + 5] > 0 && $bytes[$off + 5] <= 120) {
+                            $tempVal = $bytes[$off + 5];
+                            break;
+                        }
+                    }
+                }
+
+                if ($tempVal !== null && $tempVal > 0 && $tempVal <= 200) {
+                    $driveName = preg_replace(['/^\\\\\\.\\//', '/PHYSICALDRIVE/i'], ['', ''], $deviceId);
+                    if ($driveName === '') $driveName = t('admin_ajax_disk_drive', '硬盘');
+                    $list[] = [
+                        'name' => $driveName . ' (' . t('admin_ajax_smart_temp', 'SMART') . ')',
+                        'temp' => round($tempVal, 1),
+                        'unit' => '°C',
+                        'source' => 'SMART',
+                    ];
+                } else {
+                    $diag['SMART_' . $deviceId] = 'no_temp_attr bytes=' . count($bytes);
+                }
+            }
+        }
+
+        // ================================================================
+        // 方案 10：IPMI / ipmitool（服务器 BMC 必备，AST2400 支持 IPMI）
+        // ================================================================
+        if (empty($list)) {
+            // 尝试 ipmitool（需安装或路径在 PATH 中）
+            $ipmi = ss_shell_exec('ipmitool sensor get "CPU Temp" 2>nul');
+            $diag['IPMI_cpu'] = trim(substr($ipmi ?: '', 0, 100));
+            if (!empty($ipmi) && preg_match('/(\d+)\s*(?:degrees\s*C|C\b|\s*\(C\))/i', $ipmi, $m)) {
+                $tempVal = (float)$m[1];
+                if ($tempVal > 0 && $tempVal <= 150) {
+                    $list[] = [
+                        'name' => 'CPU (' . t('admin_ajax_ipmi', 'IPMI') . ')',
+                        'temp' => round($tempVal, 1),
+                        'unit' => '°C',
+                        'source' => 'IPMI',
+                    ];
+                }
+            }
+
+            // 如果单条没结果，尝试列出所有传感器
+            if (empty($list)) {
+                $ipmiAll = ss_shell_exec('ipmitool sensor list 2>nul');
+                $diag['IPMI_all'] = !empty($ipmiAll) ? 'got_data' : 'no_tool';
+                if (!empty($ipmiAll)) {
+                    foreach (explode("\n", $ipmiAll) as $iline) {
+                        $iline = trim($iline);
+                        if ($iline === '') continue;
+                        // 匹配 "CPU Temp|45.000|degrees C|ok|na|na|na" 格式
+                        if (preg_match('/^([^|]+)\|([\d.]+)\|.*(?:deg.*C|C\b)/i', $iline, $im)) {
+                            $sensorName = trim($im[1]);
+                            $tempVal = (float)$im[2];
+                            if ($tempVal > 0 && $tempVal <= 150) {
+                                $list[] = [
+                                    'name' => $sensorName . ' (' . t('admin_ajax_ipmi', 'IPMI') . ')',
+                                    'temp' => round($tempVal, 1),
+                                    'unit' => '°C',
+                                    'source' => 'IPMI',
+                                ];
+                            }
+                        }
+                    }
+                }
+            }
+
+            // PowerShell IPMI（使用 ipmitool 或 vendor 工具）
+            if (empty($list)) {
+                $psIpmi = ss_powershell_exec("try { & ipmitool sensor list 2>\$null | Select-String -Pattern '\\|([\\d.]+)\\|.*C' | ForEach-Object { \$_ } } catch { 'ERR' }");
+                $diag['IPMI_PS'] = trim(substr($psIpmi ?: '', 0, 100));
+                if (!empty($psIpmi) && trim($psIpmi) !== 'ERR') {
+                    foreach (explode("\n", trim($psIpmi)) as $iline) {
+                        $iline = trim($iline);
+                        if (preg_match('/([^|]+)\|([\d.]+)\|/i', $iline, $im)) {
+                            $sensorName = trim($im[1]);
+                            $tempVal = (float)$im[2];
+                            if ($tempVal > 0 && $tempVal <= 150) {
+                                $list[] = [
+                                    'name' => $sensorName . ' (IPMI)',
+                                    'temp' => round($tempVal, 1),
+                                    'unit' => '°C',
+                                    'source' => 'IPMI_PS',
+                                ];
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ================================================================
+        // 方案 11：PowerShell 热区性能计数器
+        // ================================================================
+        if (empty($list)) {
+            $psPerf = ss_powershell_exec("try { Get-CimInstance -ClassName Win32_PerfFormattedData_Counters_ThermalZoneInformation -ErrorAction SilentlyContinue | ForEach-Object { '{0}|{1}' -f \$_.InstanceName, \$_.Temperature } } catch { 'ERR' }");
+            $diag['PerfCounter'] = trim(substr($psPerf ?: '', 0, 150));
+            if (!empty($psPerf) && trim($psPerf) !== 'ERR') {
+                foreach (explode("\n", trim($psPerf)) as $line) {
+                    $line = trim($line);
+                    if ($line === '' || strpos($line, '|') === false) continue;
+                    $parts = explode('|', $line, 2);
+                    $tempVal = (float)trim($parts[1]);
+                    if ($tempVal > 0 && $tempVal <= 200) {
+                        $list[] = [
+                            'name' => trim($parts[0]) ?: t('admin_ajax_temp_sensor', '温度传感器'),
+                            'temp' => round($tempVal, 1),
+                            'unit' => '°C',
+                            'source' => 'PerfCounter',
+                        ];
+                    }
+                }
+            }
+        }
+
+        // ================================================================
+        // 方案 12：HWMonitor 注册表（HWMonitor / LibreHardwareMonitor 写入）
+        // ================================================================
+        if (empty($list)) {
+            $regPaths = [
+                'HKLM:\\SOFTWARE\\HWMonitors',
+                'HKLM:\\SOFTWARE\\LibreHardwareMonitor',
+                'HKCU:\\SOFTWARE\\HWMonitors',
+            ];
+            foreach ($regPaths as $rp) {
+                $psReg = ss_powershell_exec("if (Test-Path '" . $rp . "') { Get-ChildItem '" . $rp . "' -Recurse | ForEach-Object { \$p = \$_.PSPath; \$vals = Get-ItemProperty -LiteralPath \$p -ErrorAction SilentlyContinue; if (\$vals) { \$vals.PSObject.Properties | Where-Object { \$_.Name -notmatch '^PS' -and \$_.Name -match '(?i)(temp|temperature)' } | ForEach-Object { '{0}|{1}|{2}' -f \$p.Replace(\'Microsoft.PowerShell.Core\\Registry::\',\'\'), \$_.Name, \$_.Value } } } } else { 'NOPATH' }");
+                if (!empty($psReg) && trim($psReg) !== 'NOPATH') {
+                    $diag['REG_' . basename($rp)] = 'found';
+                    foreach (explode("\n", trim($psReg)) as $rl) {
+                        $rl = trim($rl);
+                        if ($rl === '' || strpos($rl, '|') === false) continue;
+                        $rp3 = explode('|', $rl, 3);
+                        if (count($rp3) < 3) continue;
+                        $tempVal = (float)trim($rp3[2]);
+                        if ($tempVal > 0 && $tempVal <= 200) {
+                            $list[] = [
+                                'name' => trim($rp3[1]) . ' (' . t('admin_ajax_registry', '注册表') . ')',
+                                'temp' => round($tempVal, 1),
+                                'unit' => '°C',
+                                'source' => 'Registry',
+                            ];
+                        }
+                    }
+                } else {
+                    $diag['REG_' . basename($rp)] = 'absent';
+                }
+            }
+        }
+
+        // 存储诊断信息到全局变量（供 ?diag=1 使用）
+        $GLOBALS['_ss_temp_diag'] = $diag;
+
     } elseif ($os === 'linux') {
         // 方案 1：/sys/class/thermal/thermal_zone*
         $thermalZones = glob('/sys/class/thermal/thermal_zone*');
@@ -2075,11 +2283,12 @@ function ss_get_temperatures(): array {
                     'name' => $name,
                     'temp' => $temp,
                     'unit' => '°C',
+                    'source' => 'thermal_sysfs',
                 ];
             }
         }
 
-        // 方案 2：/sys/class/hwmon/hwmon*/temp*_input（补充 hwmon 传感器）
+        // 方案 2：/sys/class/hwmon/hwmon*/temp*_input
         $hwmonDirs = glob('/sys/class/hwmon/hwmon*');
         if (!empty($hwmonDirs)) {
             $existingNames = array_column($list, 'name');
@@ -2098,7 +2307,6 @@ function ss_get_temperatures(): array {
                     if ($tempMilli <= 0) continue;
                     $temp = round($tempMilli / 1000.0, 1);
 
-                    // 读取标签
                     $labelFile = preg_replace('/_input$/', '_label', $tf);
                     $label = '';
                     if (is_file($labelFile)) {
@@ -2107,12 +2315,12 @@ function ss_get_temperatures(): array {
                     $sensorName = $chipName . ($label ? ' ' . $label : '');
                     $sensorName = trim($sensorName) ?: basename($tf, '_input');
 
-                    // 避免重复
                     if (!in_array($sensorName, $existingNames, true)) {
                         $list[] = [
                             'name' => $sensorName,
                             'temp' => $temp,
                             'unit' => '°C',
+                            'source' => 'hwmon',
                         ];
                         $existingNames[] = $sensorName;
                     }
@@ -2129,12 +2337,10 @@ function ss_get_temperatures(): array {
                 foreach ($lines as $line) {
                     $line = trim($line);
                     if ($line === '') continue;
-                    // 芯片名行
                     if (!preg_match('/[:\d]/', $line) && preg_match('/^[A-Za-z]/', $line)) {
                         $currentChip = $line;
                         continue;
                     }
-                    // 温度行: "Core 0:       +45.0°C"
                     if (preg_match('/^(.+?):\s+\+?([\d.]+)\s*°?C?/i', $line, $m)) {
                         $temp = (float)$m[2];
                         if ($temp > 0 && $temp < 200) {
@@ -2142,6 +2348,30 @@ function ss_get_temperatures(): array {
                                 'name' => $currentChip . ' ' . trim($m[1]),
                                 'temp' => round($temp, 1),
                                 'unit' => '°C',
+                                'source' => 'sensors',
+                            ];
+                        }
+                    }
+                }
+            }
+        }
+
+        // 方案 4：Linux IPMI（ipmitool）
+        if (empty($list)) {
+            $ipmiSensors = ss_shell_exec('ipmitool sensor list 2>/dev/null');
+            if (!empty($ipmiSensors)) {
+                foreach (explode("\n", $ipmiSensors) as $iline) {
+                    $iline = trim($iline);
+                    if ($iline === '') continue;
+                    if (preg_match('/^([^|]+)\|([\d.]+)\|.*(?:deg.*C|C\b)/i', $iline, $im)) {
+                        $sensorName = trim($im[1]);
+                        $tempVal = (float)$im[2];
+                        if ($tempVal > 0 && $tempVal <= 150) {
+                            $list[] = [
+                                'name' => $sensorName . ' (IPMI)',
+                                'temp' => round($tempVal, 1),
+                                'unit' => '°C',
+                                'source' => 'IPMI',
                             ];
                         }
                     }
@@ -3432,6 +3662,11 @@ if ($wantDiag || $wantDebug) {
         $gpuDiag['nvidia_smi_found'] = $smiExe !== null ? $smiExe : (ss_shell_exec('where nvidia-smi.exe 2>nul') ? 'PATH' : false);
     }
     $diag['gpu_diag'] = $gpuDiag;
+
+    // 温度采集方法诊断：排查哪个方案成功/失败及原因
+    $diag['temperature_diag'] = $GLOBALS['_ss_temp_diag'] ?? null;
+    // 触发一次温度采集（确保诊断数据被填充，同时报告实际结果）
+    $diag['temperature_result'] = ss_get_temperatures();
 
     // 检查缓存文件状态
     $cacheDir = APP_ROOT . 'data/cache';

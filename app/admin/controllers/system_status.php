@@ -881,15 +881,16 @@ $dbSize = defined('DB_FILE') && is_file(DB_FILE) ? (int)filesize(DB_FILE) : 0;
             for (var i = 0; i < temps.length; i++) {
                 var t = temps[i];
                 var temp = parseFloat(t.temp) || 0;
+                var src = t.source ? '<small style="color:var(--text-muted);font-weight:400;margin-left:4px">[' + escapeHtml(t.source) + ']</small>' : '';
                 tempsHtml += '<li class="temp-item">' +
-                    '<span class="temp-name">' + escapeHtml(t.name) + '</span>' +
+                    '<span class="temp-name">' + escapeHtml(t.name) + src + '</span>' +
                     '<span class="temp-value ' + tempClass(temp) + '">' + temp.toFixed(1) + ' ' + escapeHtml(t.unit || <?php echo json_encode(t('admin_sys_unit_c', '°C')); ?>) + '</span></li>';
             }
             tempsHtml += '</ul>';
             setIfChanged(el.tempList, 'temps', tempsHtml, true);
             setIfChanged(el.tempCount, 'temp_count', temps.length + <?php echo json_encode(t('admin_sys_sensor_unit', ' 个传感器')); ?>);
         } else {
-            setIfChanged(el.tempList, 'temps', '<p class="text-muted text-center py-2">' + <?php echo json_encode(t('admin_sys_no_temp', '未能获取温度数据（需硬件支持或安装 OpenHardwareMonitor）。')); ?> + '</p>', true);
+            setIfChanged(el.tempList, 'temps', '<p class="text-muted text-center py-2">' + <?php echo json_encode(t('admin_sys_no_temp', '未能获取温度数据。可安装 <a href=\"https://github.com/LibreHardwareMonitor/LibreHardwareMonitor\" target=\"_blank\">LibreHardwareMonitor</a> 或配置 IPMI。访问诊断页(?diag=1)查看详情。')); ?> + '</p>', true);
             setIfChanged(el.tempCount, 'temp_count', '0' + <?php echo json_encode(t('admin_sys_sensor_unit', ' 个传感器')); ?>);
         }
     }
