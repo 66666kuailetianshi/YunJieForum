@@ -835,37 +835,169 @@ function captcha_click_verify(string $token, $seq): array {
  * 滑块拖拽松手后的即时校验：|x - gap| <= 容差 则标记已通过
  */
 /**
- * 校验拼图滑块拖拽位置是否对齐缺口
+ * 校验拼图滑块拖拽位置是否对齐缺口（含机器人行为风控）
+ *
+ * @param string $token   会话 token
+ * @param int|null $x     拖拽终点 X 坐标
+ * @param int $duration   拖拽耗时（毫秒），0 表示未提供（旧版兼容）
+ * @param array $traj      轨迹点 [{t, x}, ...]，空数组表示未提供
+ * @return array ['ok'=>bool, 'reason'?=>string]
  */
-function captcha_slider_verify(string $token, $x): array {
+function captcha_slider_verify(string $token, $x, int $duration = 0, array $traj = []): array {
     $cap = $_SESSION['captcha'] ?? null;
     if (!is_array($cap) || ($cap['token'] ?? '') !== $token) {
-        return ['ok' => false];
+        return ['ok' => false, 'reason' => 'invalid_token'];
     }
     if (($cap['expires'] ?? 0) < time()) {
         unset($_SESSION['captcha']);
-        return ['ok' => false];
+        return ['ok' => false, 'reason' => 'expired'];
     }
     if (($cap['mode'] ?? '') !== 'slider') {
-        return ['ok' => false];
+        return ['ok' => false, 'reason' => 'mode_mismatch'];
     }
 
+    // ========== 0. 机器人行为风控（仅在有风控数据时执行）==========
+    if ($duration > 0 || !empty($traj)) {
+        $risk = captcha_slider_risk_score($duration, $traj, (int)$cap['gap']);
+        // 风险分数 >= 10 则直接拒绝（高置信度机器人）
+        if ($risk >= 10) {
+            $cap['attempts'] = ($cap['attempts'] ?? 0) + 1;
+            $_SESSION['captcha'] = $cap;
+            return ['ok' => false, 'reason' => 'bot_detected', 'risk' => $risk];
+        }
+        // 风险分数 >= 5 且难度 >= normal 时拒绝
+        $difficulty = (int)($cap['difficulty'] ?? 1); // 0=easy, 1=normal, 2=hard
+        if ($risk >= 5 && $difficulty >= 1) {
+            $cap['attempts'] = ($cap['attempts'] ?? 0) + 1;
+            $_SESSION['captcha'] = $cap;
+            return ['ok' => false, 'reason' => 'suspicious', 'risk' => $risk];
+        }
+    }
+
+    // ========== 1. 位置精度校验 ==========
     $x = (int)$x;
     $tol = (int)($cap['tol'] ?? captcha_slider_tolerance());
-    
-    // ========== 增强容差：允许一定的视觉偏差 ==========
+
     $diff = abs($x - (int)$cap['gap']);
-    $tolWithMargin = max($tol + 3, $tol); // 增加至少 3px 的余量
-    
+    $tolWithMargin = max($tol + 3, $tol);
+
     if ($diff <= $tolWithMargin) {
         $cap['passed'] = true;
         $_SESSION['captcha'] = $cap;
         return ['ok' => true];
     }
-    
+
     $cap['attempts'] = ($cap['attempts'] ?? 0) + 1;
     $_SESSION['captcha'] = $cap;
-    return ['ok' => false];
+    return ['ok' => false, 'reason' => 'position_miss'];
+}
+
+/**
+ * 滑块拖拽行为风险评分（机器人检测）
+ *
+ * 分析拖拽时间与轨迹，返回 0-15 的风险分数：
+ *   0-2：正常人类行为
+ *   3-5：轻微可疑（normal 难度下拒绝）
+ *   6-9：高度可疑（hard 难度下拒绝）
+ *  10+：确信机器人（所有难度均拒绝）
+ *
+ * @param int $duration 拖拽耗时（毫秒）
+ * @param array $traj 轨迹点 [{t, x}, ...]
+ * @param int $gapTarget 目标缺口 X 坐标
+ * @return int 风险分数（0=正常，越高越像机器人）
+ */
+function captcha_slider_risk_score(int $duration, array $traj, int $gapTarget): int {
+    $risk = 0;
+    $n = count($traj);
+
+    // ===== 1. 时间类检测 =====
+
+    // 1a. 极速完成（< 100ms）—— 机器人特征，直接高分
+    if ($duration > 0 && $duration < 100) {
+        $risk += 6;
+    }
+    // 1b. 过快完成（100-200ms）—— 可疑
+    elseif ($duration > 0 && $duration < 200) {
+        $risk += 3;
+    }
+    // 1c. 超长拖拽（> 30s）—— 可能是放弃后误触
+    if ($duration > 30000) {
+        $risk += 3;
+    }
+
+    // ===== 2. 轨迹类检测（需至少 3 个轨迹点）=====
+    if ($n >= 3) {
+
+        // 2a. 轨迹点过少但距离远 —— 说明几乎没有移动过程，直接跳到目标
+        $totalDist = abs($traj[$n - 1]['x'] - $traj[0]['x']);
+        if ($n <= 4 && $totalDist > 50) {
+            $risk += 4;
+        }
+
+        // 2b. 速度均匀性检测 —— 计算相邻点间速度的标准差
+        $velocities = [];
+        for ($i = 1; $i < $n; $i++) {
+            $dt = (int)($traj[$i]['t']) - (int)($traj[$i - 1]['t']);
+            $dx = abs((int)($traj[$i]['x']) - (int)($traj[$i - 1]['x']));
+            if ($dt > 0) {
+                $velocities[] = $dx / $dt; // px/ms
+            }
+        }
+        $vCount = count($velocities);
+        if ($vCount >= 3) {
+            $vMean = array_sum($velocities) / $vCount;
+            $vVariance = 0;
+            foreach ($velocities as $v) {
+                $vVariance += ($v - $vMean) ** 2;
+            }
+            $vVariance /= $vCount;
+            $vStdDev = sqrt($vVariance);
+
+            // 标准差极低 → 速度几乎恒定 → 自动化脚本
+            if ($vStdDev < 0.05 && $vMean > 0.1) {
+                $risk += 5;
+            } elseif ($vStdDev < 0.15 && $vMean > 0.1) {
+                $risk += 2;
+            }
+
+            // 2c. 瞬间最大速度异常高（> 3px/ms = 瞬间跳跃）
+            $vMax = max($velocities);
+            if ($vMax > 3.0) {
+                $risk += 3;
+            } elseif ($vMax > 1.5) {
+                $risk += 1;
+            }
+        }
+
+        // 2d. 无加速阶段 —— 首个速度即接近平均速度（人类有启动加速过程）
+        if ($vCount >= 3 && isset($velocities[0]) && $velocities[0] > 0) {
+            $vFirstFewAvg = array_sum(array_slice($velocities, 0, min(3, $vCount))) / min(3, $vCount);
+            $vOverallAvg = array_sum($velocities) / $vCount;
+            if ($vOverallAvg > 0 && $vFirstFewAvg >= $vOverallAvg * 0.8) {
+                $risk += 2; // 启动速度就很快，缺少加速过程
+            }
+        }
+
+        // 2e. 折返/回退次数 —— 人类拖拽常有微调（来回修正），机器人通常单向直达
+        $directionChanges = 0;
+        for ($i = 2; $i < $n; $i++) {
+            $prevDir = (int)($traj[$i - 1]['x']) - (int)($traj[$i - 2]['x']);
+            $currDir = (int)($traj[$i]['x']) - (int)($traj[$i - 1]['x']);
+            if (($prevDir > 0 && $currDir < 0) || ($prevDir < 0 && $currDir > 0)) {
+                $directionChanges++;
+            }
+        }
+        // 有足够距离的拖拽却无任何折返
+        if ($totalDist > 30 && $directionChanges === 0 && $n >= 6) {
+            $risk += 2;
+        }
+
+    } elseif ($n <= 1 && $duration > 0 && $duration < 500) {
+        // 几乎无轨迹数据且快速完成 —— 高度可疑
+        $risk += 4;
+    }
+
+    return min($risk, 15); // 上限 15
 }
 
 /**

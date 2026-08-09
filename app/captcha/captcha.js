@@ -401,6 +401,12 @@
             var startX = 0;
             var done = false;
 
+            // ========== 拖拽行为风控数据采集 ==========
+            var dragStartTime = 0;          // 拖拽开始时间戳
+            var trajectory = [];             // 轨迹点 [{t, x}, ...]
+            var lastTrajectoryTime = 0;      // 上次采样时间（节流 20ms）
+            var TRAJECTORY_SAMPLE_INTERVAL = 20; // 轨迹采样间隔 ms
+
             function setX(nx) {
                 x = Math.max(0, Math.min(maxX, nx));
                 // ========== 使用正确的比例转换 ==========
@@ -417,11 +423,14 @@
 
             function verify() {
                 log('slider verify → x=' + x);
+                // ========== 计算风控指标 ==========
+                var dragDuration = dragStartTime > 0 ? Math.round(performance.now() - dragStartTime) : 0;
+                var trajectoryData = trajectory.length > 1 ? trajectory.slice(0, 80) : []; // 上传最多 80 个轨迹点
                 fetch(apiAction('slider'), {
                     method: 'POST',
                     credentials: 'same-origin',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ token: state.token, x: x })
+                    body: JSON.stringify({ token: state.token, x: x, duration: dragDuration, traj: trajectoryData })
                 })
                     .then(function (r) { return r.json(); })
                     .then(function (res) {
@@ -466,6 +475,10 @@
                 dragging = true;
                 startClientX = clientX;
                 startX = x;
+                // ========== 开始记录风控数据 ==========
+                dragStartTime = performance.now();
+                trajectory = [{t: 0, x: x}];
+                lastTrajectoryTime = dragStartTime;
                 pieceImg.classList.add('sc-dragging');
                 knob.classList.add('sc-dragging');
                 if (tip) tip.style.display = 'none';
@@ -473,10 +486,21 @@
             function onMove(clientX) {
                 if (!dragging) return;
                 setX(startX + (clientX - startClientX));
+                // ========== 采集轨迹点（节流采样）==========
+                var now = performance.now();
+                if (now - lastTrajectoryTime >= TRAJECTORY_SAMPLE_INTERVAL) {
+                    trajectory.push({t: Math.round(now - dragStartTime), x: x});
+                    lastTrajectoryTime = now;
+                }
             }
             function onUp() {
                 if (!dragging) return;
                 dragging = false;
+                // ========== 结束轨迹记录（确保包含终点）==========
+                var now = performance.now();
+                if (trajectory.length > 0 && trajectory[trajectory.length - 1].x !== x) {
+                    trajectory.push({t: Math.round(now - dragStartTime), x: x});
+                }
                 pieceImg.classList.remove('sc-dragging');
                 knob.classList.remove('sc-dragging');
                 verify();

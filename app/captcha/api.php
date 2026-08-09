@@ -63,7 +63,12 @@ try {
         if (!is_array($in)) {
             $in = [];
         }
-        $resp = array_merge($resp, captcha_slider_verify($in['token'] ?? '', $in['x'] ?? null));
+        $resp = array_merge($resp, captcha_slider_verify(
+            $in['token'] ?? '',
+            $in['x'] ?? null,
+            (int)($in['duration'] ?? 0),
+            is_array($in['traj'] ?? null) ? $in['traj'] : []
+        ));
     } elseif ($action === 'click') {
         $raw = file_get_contents('php://input');
         $in  = json_decode($raw ?: '', true);

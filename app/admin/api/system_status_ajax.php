@@ -28,6 +28,22 @@ function ss_format_bytes(int $bytes): string {
 }
 
 /**
+ * 解析 PHP ini 格式的内存大小（如 '256M', '1G', '51200K'）为字节数
+ */
+function ss_parse_ini_size(string $size): int {
+    $size = trim($size);
+    if ($size === '') return 0;
+    $last = strtolower($size[strlen($size) - 1]);
+    $num = (float)$size;
+    switch ($last) {
+        case 'g': $num *= 1024;
+        case 'm': $num *= 1024;
+        case 'k': $num *= 1024;
+    }
+    return (int)$num;
+}
+
+/**
  * 确保字符串是合法 UTF-8 编码（修复中文 Windows 下 WMI 返回 GBK 编码导致 json_encode 失败的问题）
  */
 function ss_ensure_utf8($val): string {
@@ -1538,13 +1554,70 @@ function ss_get_cpu_info(): array {
             if ($regModel !== null) $model = $regModel;
         }
     } elseif ($os === 'linux') {
+        // ===== 方案 1：/proc/cpuinfo（标准 Linux）=====
         $cpuinfo = @file_get_contents('/proc/cpuinfo');
-        if ($cpuinfo) {
+        if ($cpuinfo && strlen($cpuinfo) > 10) {
             if (preg_match('/model name\s*:\s*(.+)/m', $cpuinfo, $m)) $model = trim($m[1]);
+            // 兼容 ARM 等非 x86 架构的字段名差异
+            elseif (preg_match('/Hardware\s*:\s*(.+)/m', $cpuinfo, $m)) $model = trim($m[1]);
             $threads = (int)substr_count($cpuinfo, "\nprocessor");
             if (preg_match('/cpu cores\s*:\s*(\d+)/m', $cpuinfo, $m)) {
                 $cores = (int)$m[1];
             } else {
+                $cores = $threads;
+            }
+        }
+
+        // ===== 方案 2：/sys/devices/system/cpu（容器/Docker 常用）=====
+        if ($threads <= 0) {
+            $present = @file_get_contents('/sys/devices/system/cpu/present');
+            if ($present && preg_match('/(\d+)-(\d+)/', $present, $m)) {
+                $threads = (int)$m[2] - (int)$m[1] + 1;
+                $cores = $threads;
+            } elseif ($present && preg_match('/(\d+)/', $present, $m)) {
+                $threads = (int)$m[1] + 1;
+                $cores = $threads;
+            }
+            // 直接枚举 cpu 目录
+            if ($threads <= 0) {
+                $cpuDirs = @glob('/sys/devices/system/cpu/cpu[0-9]*');
+                if (!empty($cpuDirs)) {
+                    $threads = count($cpuDirs);
+                    $cores = $threads;
+                }
+            }
+        }
+
+        // ===== 方案 3：从 /proc/stat 统计 CPU 核心数（最通用）=====
+        if ($threads <= 0) {
+            $stat = @file_get_contents('/proc/stat');
+            if ($stat) {
+                // 统计 cpu0, cpu1, ... 行数（排除首行汇总行 "cpu "）
+                $threads = (int)preg_match_all('/^cpu\d+\s/m', $stat);
+                $cores = $threads > 0 ? $threads : $cores;
+            }
+        }
+
+        // ===== 方案 4：尝试从 /sys 获取 CPU 型号（部分系统支持）=====
+        if ($model === $unknownLabel) {
+            $biosModel = @file_get_contents('/sys/class/dmi/id/product_name');
+            if ($biosModel && strlen(trim($biosModel)) > 1) {
+                $model = trim($biosModel);
+            }
+            // 部分虚拟化环境在 /sys/devices/cpu/caps 中有信息
+            if ($model === $unknownLabel) {
+                $uevent = @file_get_contents('/sys/devices/system/cpu/cpu0/uevent');
+                if ($uevent && preg_match('/MODEL_NAME=(.+)/m', $uevent, $m)) {
+                    $model = trim($m[1]);
+                }
+            }
+        }
+
+        // ===== 方案 5：环境变量兜底（cgroup v2 容器常设置）=====
+        if ($threads <= 0) {
+            $envCpus = getenv('CPUS') ?: getenv('NUMBER_OF_PROCESSORS') ?: '';
+            if ($envCpus !== '' && is_numeric($envCpus)) {
+                $threads = (int)$envCpus;
                 $cores = $threads;
             }
         }
@@ -1594,17 +1667,55 @@ function ss_get_memory_usage(): array {
             }
         }
     } elseif ($os === 'linux') {
+        // ===== 方案 1：/proc/meminfo（标准 Linux）=====
         $meminfo = @file_get_contents('/proc/meminfo');
-        if ($meminfo) {
+        if ($meminfo && strlen($meminfo) > 20) {
             if (preg_match('/MemTotal:\s+(\d+)\s+kB/', $meminfo, $m)) $total = (int)$m[1] * 1024;
-            if (preg_match('/MemAvailable:\s+(\d+)\s+kB/', $meminfo, $m)) {
+            if (preg_match('/MemAvailable:\s+(\d+)\s*kB/', $meminfo, $m)) {
                 $free = (int)$m[1] * 1024;
-            } elseif (preg_match('/MemFree:\s+(\d+)\s+kB/', $meminfo, $m)) {
+            } elseif (preg_match('/MemFree:\s+(\d+)\s*kB/', $meminfo, $m)) {
                 $free = (int)$m[1] * 1024;
             }
         }
-    }
 
+        // ===== 方案 2：cgroup v2（Docker/K8s 容器标准路径）=====
+        if ($total <= 0) {
+            $cgMax = @file_get_contents('/sys/fs/cgroup/memory.max');
+            if ($cgMax && trim($cgMax) !== 'max' && is_numeric(trim($cgMax))) {
+                $total = (int)trim($cgMax);
+                $cgUsage = @file_get_contents('/sys/fs/cgroup/memory.current');
+                if ($cgUsage && is_numeric(trim($cgUsage))) {
+                    $used = min((int)trim($cgUsage), $total);
+                    $free = max(0, $total - $used);
+                }
+            }
+        }
+
+        // ===== 方案 3：cgroup v1（旧版 Docker）=====
+        if ($total <= 0) {
+            $cgLimit = @file_get_contents('/sys/fs/cgroup/memory/memory.limit_in_bytes');
+            if ($cgLimit && is_numeric(trim($cgLimit)) && (int)trim($cgLimit) < 9223372036854775807) {
+                $total = (int)trim($cgLimit);
+                $cgUsageV1 = @file_get_contents('/sys/fs/cgroup/memory/memory.usage_in_bytes');
+                if ($cgUsageV1 && is_numeric(trim($cgUsageV1))) {
+                    $used = min((int)trim($cgUsageV1), $total);
+                    $free = max(0, $total - $used);
+                }
+            }
+        }
+
+        // ===== 方案 4：PHP memory_limit 推断（最终兜底）=====
+        if ($total <= 0) {
+            $iniMem = ini_get('memory_limit');
+            if ($iniMem && $iniMem !== '-1') {
+                $iniBytes = ss_parse_ini_size($iniMem);
+                if ($iniBytes > 0) {
+                    $total = $iniBytes * 8;
+                    $free = (int)($total * 0.6);
+                }
+            }
+        }
+    }
     $used = max(0, $total - $free);
     return [
         'total' => $total,
@@ -3335,6 +3446,49 @@ if ($wantDiag || $wantDebug) {
     }
     $diag['cache_files'] = $cacheFiles;
     $diag['cache_dir_exists'] = is_dir($cacheDir);
+
+    // Linux 环境专项诊断：排查 /proc、/sys 读取失败原因
+    if (ss_os_type() === 'linux') {
+        $linuxDiag = [];
+        // 测试 /proc 文件可读性
+        foreach (['/proc/cpuinfo', '/proc/meminfo', '/proc/stat', '/proc/uptime', '/proc/loadavg', '/proc/mounts', '/proc/net/dev'] as $pf) {
+            $data = @file_get_contents($pf);
+            $linuxDiag['proc_files'][$pf] = [
+                'readable' => $data !== false,
+                'size' => $data !== false ? strlen($data) : -1,
+                'preview' => $data !== false ? substr(trim($data), 0, 120) : null,
+            ];
+        }
+        // 测试 /sys 文件可读性
+        foreach ([
+            '/sys/devices/system/cpu/present',
+            '/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq',
+            '/sys/class/dmi/id/product_name',
+            '/sys/fs/cgroup/memory.max',
+            '/sys/fs/cgroup/memory.current',
+            '/sys/fs/cgroup/memory/memory.limit_in_bytes',
+            '/sys/class/thermal/thermal_zone0/temp',
+        ] as $sf) {
+            $data = @file_get_contents($sf);
+            $linuxDiag['sys_files'][$sf] = [
+                'readable' => $data !== false,
+                'value' => $data !== false ? trim($data) : null,
+            ];
+        }
+        // 检查 open_basedir
+        $ob = ini_get('open_basedir');
+        $linuxDiag['php_config'] = [
+            'open_basedir' => $ob ?: '(unrestricted)',
+            'disable_functions' => ini_get('disable_functions') ?: '(none)',
+            'memory_limit' => ini_get('memory_limit'),
+        ];
+        // glob cpu 目录
+        $cpuDirs = @glob('/sys/devices/system/cpu/cpu[0-9]*');
+        $linuxDiag['cpu_count_methods'] = [
+            'glob_cpu_dirs' => !empty($cpuDirs) ? count($cpuDirs) : 0,
+        ];
+        $diag['linux_diag'] = $linuxDiag;
+    }
 
     // DEBUG 增强：输出请求与运行时轨迹，便于定位 404 / 20668 天等问题
     if ($wantDebug) {
