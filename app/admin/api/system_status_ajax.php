@@ -3145,7 +3145,30 @@ header('Content-Type: application/json; charset=utf-8');
 
 $wantStatic = isset($_GET['static']) && $_GET['static'] === '1';
 $wantTemps  = isset($_GET['temps'])  && $_GET['temps']  === '1';
+$wantRefresh = isset($_GET['refresh']) && $_GET['refresh'] === '1';
 // $wantDiag / $wantDebug 已在权限检查前定义
+
+// ?refresh=1 — 强制清除所有系统状态缓存并返回确认信息（用于排查/调试）
+if ($wantRefresh) {
+    $cacheDir = APP_ROOT . 'data/cache';
+    $cleared = 0;
+    $files = [];
+    if (is_dir($cacheDir)) {
+        $files = glob($cacheDir . '/system_status_*.json') ?: [];
+        foreach ($files as $f) {
+            if (@unlink($f)) $cleared++;
+        }
+    }
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode([
+        'success' => true,
+        'message' => 'Cache cleared',
+        'cleared' => $cleared,
+        'files' => array_map(function ($f) use ($cacheDir) { return basename($f); }, $files),
+        'timestamp' => time(),
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
 
 // 诊断端点：检测可用的扩展和数据采集方式，方便排查问题
 if ($wantDiag || $wantDebug) {

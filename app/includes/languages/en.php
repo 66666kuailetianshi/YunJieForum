@@ -768,4 +768,8 @@ Users assigned this role will lose corresponding permissions.',
     'admin_ajax_temp_sensor' => 'Temperature Sensor',
     'admin_ajax_disk_drive' => 'Disk',
     'admin_ajax_smart_temp' => 'SMART',
+    'admin_sys_refresh_cache_btn' => 'Refresh Cache',
+    'admin_sys_refresh_cache_title' => 'Clear all system status caches (CPU/memory/disk static data), re-collect on next load',
+    'admin_sys_refreshing' => 'Refreshing…',
+    'admin_sys_refresh_done' => 'caches cleared',
 ];

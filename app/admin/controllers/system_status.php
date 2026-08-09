@@ -209,6 +209,7 @@ $dbSize = defined('DB_FILE') && is_file(DB_FILE) ? (int)filesize(DB_FILE) : 0;
 <div class="page-header">
     <h1 class="page-title"><?php echo e(t('admin_sys_title', '运行状态监控')); ?></h1>
     <div class="page-tools">
+        <button type="button" id="refreshCacheBtn" class="btn btn-sm btn-outline" title="<?php echo e(t('admin_sys_refresh_cache_title', '清除所有系统状态缓存（CPU/内存/磁盘等静态数据），下次加载时重新采集')); ?>" onclick="ssRefreshCache(this)"><?php echo e(t('admin_sys_refresh_cache_btn', '刷新缓存')); ?></button>
         <a href="<?php echo site_url('admin/api/system_status_ajax', ['diag' => '1']); ?>" target="_blank" class="btn btn-sm btn-secondary" title="<?php echo e(t('admin_sys_diag_title', '查看当前环境可用的采集方式（FFI/COM/PowerShell）')); ?>"><?php echo e(t('admin_sys_diag_btn', '诊断采集通道')); ?></a>
         <span class="last-update" id="lastUpdate"><?php echo e(t('admin_sys_loading', '正在加载…')); ?></span>
     </div>
@@ -1025,6 +1026,38 @@ $dbSize = defined('DB_FILE') && is_file(DB_FILE) ? (int)filesize(DB_FILE) : 0;
         }
     });
 })();
+
+// 刷新缓存（全局函数，供按钮 onclick 调用）
+function ssRefreshCache(btn) {
+    if (!btn) return;
+    var origText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = <?php echo json_encode(t('admin_sys_refreshing', '刷新中…')); ?>;
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', <?php echo json_encode(site_url('admin/api/system_status_ajax', ['refresh' => '1'])); ?> + '&_=' + Date.now(), true);
+    xhr.timeout = 10000;
+    xhr.onreadystatechange = function () {
+        if (xhr.readyState !== 4) return;
+        btn.disabled = false;
+        if (xhr.status === 200) {
+            try {
+                var r = JSON.parse(xhr.responseText);
+                btn.textContent = (r.cleared || 0) + ' ' + <?php echo json_encode(t('admin_sys_refresh_done', '已清除')); ?>;
+                setTimeout(function () { btn.textContent = origText; }, 2500);
+                // 缓存已清除，重新加载静态数据
+                if (typeof fetchStatic === 'function') fetchStatic();
+                if (typeof fetchTemps === 'function') fetchTemps();
+            } catch (e) {
+                btn.textContent = origText;
+            }
+        } else {
+            btn.textContent = origText;
+        }
+    };
+    xhr.ontimeout = function () { btn.disabled = false; btn.textContent = origText; };
+    xhr.onerror = function () { btn.disabled = false; btn.textContent = origText; };
+    xhr.send();
+}
 </script>
 
 <?php require_once dirname(__DIR__) . '/layout/footer.php'; ?>

@@ -1647,4 +1647,8 @@ return [
     'admin_ajax_temp_sensor' => '溫度感測器',
     'admin_ajax_disk_drive' => '硬碟',
     'admin_ajax_smart_temp' => 'SMART',
+    'admin_sys_refresh_cache_btn' => '刷新緩存',
+    'admin_sys_refresh_cache_title' => '清除所有系統狀態緩存（CPU/記憶體/磁碟等靜態數據），下次載入時重新採集',
+    'admin_sys_refreshing' => '刷新中…',
+    'admin_sys_refresh_done' => '個緩存已清除',
 ];
