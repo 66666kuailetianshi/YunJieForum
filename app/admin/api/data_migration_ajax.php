@@ -44,6 +44,11 @@ $action = $_POST['action'] ?? $_GET['action'] ?? '';
 try {
     switch ($action) {
         case 'list_tables':
+            // GET 请求也需校验 CSRF token，防止跨站攻击
+            if (!validate_csrf()) {
+                echo json_encode(['success' => false, 'error' => t('admin_ajax_csrf_failed', 'CSRF 校验失败')], JSON_UNESCAPED_UNICODE);
+                exit;
+            }
             listTables($MIGRATABLE_TABLES);
             break;
 
@@ -167,9 +172,11 @@ function exportData(array $whitelist, string $format): void {
     $filename = $siteName . t('admin_mig_export_filename', '_数据迁移_') . date('Ymd_His') . '.json';
     $filename = str_replace([' ', '/', '\\', ':'], '_', $filename);
 
+    // RFC 5987 编码：支持中文文件名在所有浏览器正确显示
+    $encodedFilename = rawurlencode($filename);
     // 直接输出下载（非 JSON 接口响应）
     header('Content-Type: application/json; charset=utf-8');
-    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    header('Content-Disposition: attachment; filename="' . $encodedFilename . '"; filename*=UTF-8\'\'' . $encodedFilename);
     header('Content-Length: ' . strlen($json));
     header('Cache-Control: no-cache, no-store, must-revalidate');
     // BOM 保证 Excel/中文正确显示

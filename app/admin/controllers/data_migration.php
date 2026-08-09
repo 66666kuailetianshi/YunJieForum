@@ -208,7 +208,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
         selectedInfo.textContent = '<?php echo e(t('admin_mig_selected_count', '已选 {n} 张表')); ?>'.replace('{n}', checked);
     }
 
-    fetch(apiUrl + '&action=list_tables&_=' + Date.now(), { cache: 'no-store' })
+    fetch(apiUrl + '&action=list_tables&csrf_token=' + encodeURIComponent(csrfToken) + '&_=' + Date.now(), { cache: 'no-store' })
         .then(function (r) { return r.json(); })
         .then(function (res) {
             if (!res.success) { grid.innerHTML = '<div class="mig-table-loading">' + escapeHtml(res.error || '') + '</div>'; return; }
