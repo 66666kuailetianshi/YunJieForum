@@ -86,6 +86,26 @@ if (ob_get_level() === 0) {
 
 // 启动 session，配置安全 cookie 标志
 if (session_status() === PHP_SESSION_NONE) {
+    // 受限环境（open_basedir）会话持久化修复：
+    // 若 php.ini 默认的 session.save_path 不在 open_basedir 白名单内或不可写，
+    // 会话将无法跨请求保存，导致所有表单（登录/注册/发帖）的 CSRF 与验证码
+    // 校验永远失败、反复停留在登录页。优先使用项目内 data/sessions
+    // （位于 open_basedir 白名单内且通常可写），其次回退系统临时目录。
+    $sessRoot = dirname(__DIR__, 2); // app/includes -> 项目根
+    $sessCandidates = [
+        $sessRoot . DIRECTORY_SEPARATOR . 'data' . DIRECTORY_SEPARATOR . 'sessions',
+        sys_get_temp_dir(),
+    ];
+    foreach ($sessCandidates as $sessDir) {
+        if (!is_dir($sessDir)) {
+            @mkdir($sessDir, 0755, true);
+        }
+        if (is_dir($sessDir) && is_writable($sessDir)) {
+            session_save_path($sessDir);
+            break;
+        }
+    }
+
     session_set_cookie_params([
         'lifetime' => 0,
         'path' => '/',
