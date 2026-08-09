@@ -1874,7 +1874,7 @@ function ss_get_disk_partitions(): array {
  *
  * Linux 方案：
  *   1. /sys/class/thermal/thermal_zone*
- *   2. /sys/class/hwmon/hwmon*/temp*_input
+ *   2. /sys/class/hwmon/hwmon* 目录下的 temp*_input 文件
  *   3. sensors 命令（lm-sensors）
  *
  * @return array [['name' => 'CPU', 'temp' => 45.0, 'unit' => '°C'], ...]
