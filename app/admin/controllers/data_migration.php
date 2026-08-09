@@ -12,12 +12,18 @@ $pageTitle = t('admin_mig_title', '数据迁移');
 $activeMenu = 'data_migration';
 
 require_once dirname(__DIR__) . '/layout/header.php';
+
+// 当前数据库类型，用于限制导出格式与提示（禁止跨数据库类型迁移）
+$currentDbType = 'mysql';
+if (function_exists('get_db_driver')) {
+    $currentDbType = get_db_driver()->isFileBased() ? 'sqlite' : 'mysql';
+}
 ?>
 
 <div class="page-header">
     <div>
         <h1 class="page-title"><?php echo e(t('admin_mig_title', '数据迁移')); ?></h1>
-        <p class="page-subtitle"><?php echo e(t('admin_mig_subtitle', '将业务数据导出为通用 JSON，再导入到另一个实例（支持跨 SQLite / MySQL）')); ?></p>
+        <p class="page-subtitle"><?php echo e(t('admin_mig_subtitle', '将业务数据导出为 SQL 或 JSON，再导入到另一个实例。支持 SQLite、MySQL 与通用 JSON 三种格式，但禁止在不同数据库类型之间互相迁移。')); ?></p>
     </div>
 </div>
 
@@ -32,7 +38,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
 <div class="mig-info-banner">
     <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:2px;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
     <div>
-        <?php echo t('admin_mig_banner_tip', '<b>数据迁移</b>与<b>数据备份</b>不同：备份是整库快照（用于同实例回滚）；迁移是逻辑级数据导出/导入，适合把一个站点的用户、帖子、版块等数据搬到另一个新站点。导入前系统会自动创建"导入前快照"，可随时回滚。'); ?>
+        <?php echo t('admin_mig_banner_tip', '<b>数据迁移</b>与<b>数据备份</b>不同：备份是整库快照（用于同实例回滚）；迁移是逻辑级数据导出/导入，适合把一个站点的用户、帖子、版块等数据搬到另一个<b>同类型数据库</b>的新站点。系统支持 SQLite、MySQL 与通用 JSON 三种格式，但<b>禁止跨数据库类型迁移</b>（例如不能把 MySQL 数据导入 SQLite）。导入前系统会自动创建"导入前快照"，可随时回滚。'); ?>
     </div>
 </div>
 
@@ -50,13 +56,23 @@ require_once dirname(__DIR__) . '/layout/header.php';
     </div>
     <div class="mig-body">
         <p class="form-hint mig-export-hint">
-            <?php echo e(t('admin_mig_export_hint', '勾选需要迁移的业务表，点击"导出选中数据"将生成 JSON 文件下载。默认已全部勾选。')); ?>
+            <?php echo e(t('admin_mig_export_hint', '勾选需要迁移的业务表，选择导出格式后点击"导出"。三种格式各自独立：SQLite 数据库 SQL、MySQL 数据库 SQL 仅可在同类型数据库间迁移，通用 JSON 也会记录来源数据库类型并在导入时校验。无法导出与当前数据库类型不符的格式（已自动禁用）。默认已全部勾选。')); ?>
         </p>
         <div class="mig-table-grid" id="mig-table-grid">
             <div class="mig-table-loading"><?php echo e(t('admin_mig_loading_tables', '正在加载数据表…')); ?></div>
         </div>
         <div class="mig-export-footer">
-            <span class="mig-selected-info" id="mig-selected-info"><?php echo e(t('admin_mig_selected_count', '已选 0 张表')); ?></span>
+            <div style="display:flex;align-items:center;gap:0.75rem;">
+                <span class="mig-selected-info" id="mig-selected-info"><?php echo e(t('admin_mig_selected_count', '已选 0 张表')); ?></span>
+                <label style="display:flex;align-items:center;gap:0.35rem;font-size:0.8125rem;color:var(--text-muted);cursor:pointer;">
+                    <?php echo e(t('admin_mig_export_format', '格式')); ?>:
+                    <select id="mig-export-format" style="font-size:0.8125rem;padding:2px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);">
+                        <option value="json"><?php echo e(t('admin_mig_format_json', '通用 JSON')); ?></option>
+                        <option value="sqlite"<?php echo $currentDbType === 'sqlite' ? ' selected' : ''; ?><?php echo $currentDbType !== 'sqlite' ? ' disabled' : ''; ?>><?php echo e(t('admin_mig_format_sqlite', 'SQLite 数据库 (ZIP含头像)')); ?><?php echo $currentDbType !== 'sqlite' ? '（' . e(t('admin_mig_format_current_mismatch', '当前为 MySQL')) . '）' : ''; ?></option>
+                        <option value="mysql"<?php echo $currentDbType === 'mysql' ? ' selected' : ''; ?><?php echo $currentDbType !== 'mysql' ? ' disabled' : ''; ?>><?php echo e(t('admin_mig_format_mysql', 'MySQL 数据库 (ZIP含头像)')); ?><?php echo $currentDbType !== 'mysql' ? '（' . e(t('admin_mig_format_current_mismatch2', '当前为 SQLite')) . '）' : ''; ?></option>
+                    </select>
+                </label>
+            </div>
             <button type="button" class="btn btn-primary" id="mig-export-btn">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
                 <?php echo e(t('admin_mig_export_btn', '导出选中数据')); ?>
@@ -75,12 +91,12 @@ require_once dirname(__DIR__) . '/layout/header.php';
     </div>
     <div class="mig-body">
         <p class="form-hint mig-import-hint">
-            <?php echo e(t('admin_mig_import_hint', '选择此前导出的 .json 迁移文件，选择导入模式后点击"开始导入"。导入前会自动创建快照。')); ?>
+            <?php echo e(t('admin_mig_import_hint', '选择此前导出的迁移文件（支持 .json、.sql 和 .zip），选择导入模式后点击"开始导入"。导入前会自动创建快照。注意：系统会自动校验文件来源数据库类型，禁止在不同数据库类型之间迁移。.zip 格式包含完整的上传文件（头像等），推荐用于完整迁移。')); ?>
         </p>
         <div class="mig-import-form">
             <div class="form-group">
                 <label class="form-label" for="mig-file"><?php echo e(t('admin_mig_file_label', '迁移文件')); ?></label>
-                <input type="file" id="mig-file" accept=".json,application/json" class="form-control">
+                <input type="file" id="mig-file" accept=".json,.sql,.zip,application/json,text/sql,application/zip" class="form-control">
             </div>
             <div class="form-group">
                 <label class="form-label"><?php echo e(t('admin_mig_mode_label', '导入模式')); ?></label>
@@ -103,6 +119,13 @@ require_once dirname(__DIR__) . '/layout/header.php';
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 5 17 10"/><line x1="12" y1="5" x2="12" y2="15"/></svg>
                 <?php echo e(t('admin_mig_import_btn', '开始导入')); ?>
             </button>
+        </div>
+        <!-- 导入进度条 -->
+        <div class="mig-progress" id="mig-import-progress" style="display:none;">
+            <div class="mig-progress-bar">
+                <div class="mig-progress-fill" id="mig-progress-fill"></div>
+            </div>
+            <div class="mig-progress-stage" id="mig-progress-stage"></div>
         </div>
         <div class="mig-import-result" id="mig-import-result" style="display:none;"></div>
     </div>
@@ -175,6 +198,39 @@ require_once dirname(__DIR__) . '/layout/header.php';
 .mig-toast.is-success { border-left: 4px solid #10b981; }
 .mig-toast.is-error { border-left: 4px solid #ef4444; }
 .mig-toast.is-info { border-left: 4px solid var(--primary); }
+
+/* ===== 导入进度条 ===== */
+.mig-progress { margin-top: 1rem; padding: 1rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+.mig-progress-bar { width: 100%; height: 8px; background: var(--border, #e5e7eb); border-radius: 4px; overflow: hidden; }
+.mig-progress-fill {
+    height: 100%; width: 0; border-radius: 4px;
+    background: linear-gradient(90deg, var(--primary, #3b82f6), #60a5fa);
+    transition: width 0.4s ease;
+}
+.mig-progress-fill.is-active {
+    width: 60%;
+    animation: mig-progress-indeterminate 2s ease-in-out infinite;
+}
+@keyframes mig-progress-indeterminate {
+    0%   { transform: translateX(-100%); }
+    50%  { transform: translateX(0%); }
+    100% { transform: translateX(400%); }
+}
+.mig-progress-stage {
+    margin-top: 0.625rem; font-size: 0.8125rem; color: var(--text-secondary);
+    display: flex; align-items: center; gap: 0.5rem;
+}
+.mig-progress-stage::before {
+    content: ''; display: inline-block; width: 14px; height: 14px;
+    border: 2px solid var(--primary, #3b82f6); border-top-color: transparent;
+    border-radius: 50%; animation: mig-spin 0.8s linear infinite; flex-shrink: 0;
+}
+@keyframes mig-spin { to { transform: rotate(360deg); } }
+.mig-progress.is-done .mig-progress-fill { width: 100% !important; animation: none; }
+.mig-progress.is-done .mig-progress-stage::before { animation: none; border-color: #10b981; border-top-color: transparent; }
+.mig-progress.is-done .mig-progress-stage { color: #065f46; font-weight: 600; }
+[data-theme="dark"] .mig-progress.is-done .mig-progress-stage { color: #6ee7b7; }
+[data-theme="dark"] .mig-progress-bar { background: rgba(255,255,255,0.08); }
 </style>
 
 <script>
@@ -253,6 +309,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
         fd.append('action', 'export');
         fd.append('csrf_token', csrfToken);
         fd.append('tables', checked.join(','));
+        fd.append('format', document.getElementById('mig-export-format').value);
 
         fetch(apiUrl, { method: 'POST', body: fd, cache: 'no-store' })
             .then(function (r) {
@@ -277,15 +334,75 @@ require_once dirname(__DIR__) . '/layout/header.php';
     // ===== 导入 =====
     var importBtn = document.getElementById('mig-import-btn');
     var resultBox = document.getElementById('mig-import-result');
+    var progressBar = document.getElementById('mig-import-progress');
+    var progressFill = document.getElementById('mig-progress-fill');
+    var progressStage = document.getElementById('mig-progress-stage');
+
+    // 阶段文案（根据文件类型动态选择）
+    var stages = {
+        zip: [
+            '<?php echo e(t('admin_mig_prog_upload', '上传文件中…')); ?>',
+            '<?php echo e(t('admin_mig_prog_parse', '解析压缩包…')); ?>',
+            '<?php echo e(t('admin_mig_prog_restore', '还原头像等资源文件…')); ?>',
+            '<?php echo e(t('admin_mig_prog_snapshot', '创建导入前快照…')); ?>',
+            '<?php echo e(t('admin_mig_prog_import', '导入数据到数据库…')); ?>'
+        ],
+        other: [
+            '<?php echo e(t('admin_mig_prog_upload', '上传文件中…')); ?>',
+            '<?php echo e(t('admin_mig_prog_parse', '解析迁移文件…')); ?>',
+            '<?php echo e(t('admin_mig_prog_snapshot', '创建导入前快照…')); ?>',
+            '<?php echo e(t('admin_mig_prog_import', '导入数据到数据库…')); ?>'
+        ]
+    };
+
+    function showProgress(isZip) {
+        progressBar.style.display = '';
+        progressBar.className = 'mig-progress';
+        progressFill.className = 'mig-progress-fill is-active';
+        progressFill.style.width = '';
+        resultBox.style.display = 'none';
+        // 按阶段推进（每阶段约 3-5 秒，实际由服务端响应决定何时结束）
+        var list = isZip ? stages.zip : stages.other;
+        var idx = 0;
+        progressStage.textContent = list[idx] || '';
+        var timer = setInterval(function () {
+            idx++;
+            if (idx < list.length) {
+                progressStage.textContent = list[idx];
+                // 逐步增加视觉进度感
+                var pct = Math.min(20 + (idx / list.length) * 50, 70);
+                progressFill.style.width = pct + '%';
+                progressFill.classList.remove('is-active'); // 切换为固定宽度模式
+            } else {
+                clearInterval(timer);
+            }
+        }, 3500);
+        return timer; // 返回定时器 ID，供外部清除
+    }
+
+    function hideProgress(done) {
+        if (done) {
+            progressBar.className = 'mig-progress is-done';
+            progressFill.className = 'mig-progress-fill';
+            progressFill.style.width = '100%';
+            progressStage.textContent = '<?php echo e(t('admin_mig_prog_done', '导入完成')); ?>';
+            setTimeout(function () { progressBar.style.display = 'none'; }, 2500);
+        } else {
+            progressBar.style.display = 'none';
+        }
+    }
+
     importBtn.addEventListener('click', function () {
         var fileInput = document.getElementById('mig-file');
         if (!fileInput.files || !fileInput.files.length) { showToast('<?php echo e(t('admin_mig_no_file', '请先选择迁移文件')); ?>', 'error'); return; }
         var mode = (document.querySelector('input[name=mig_mode]:checked') || {}).value || 'overwrite';
+        var isZip = (fileInput.files[0].name || '').toLowerCase().endsWith('.zip');
 
         var orig = importBtn.innerHTML;
         importBtn.disabled = true;
         importBtn.innerHTML = '<?php echo e(t('admin_mig_importing', '导入中…')); ?>';
-        resultBox.style.display = 'none';
+
+        var progTimer = showProgress(isZip);
 
         var fd = new FormData();
         fd.append('action', 'import');
@@ -296,7 +413,9 @@ require_once dirname(__DIR__) . '/layout/header.php';
         fetch(apiUrl, { method: 'POST', body: fd, cache: 'no-store' })
             .then(function (r) { return r.json(); })
             .then(function (res) {
+                clearInterval(progTimer);
                 if (!res.success) {
+                    hideProgress(false);
                     resultBox.className = 'mig-import-result is-error';
                     var html = escapeHtml(res.error || '<?php echo e(t('admin_mig_import_failed', '导入失败')); ?>');
                     if (res.snapshot) html += '<div class="mig-result-snapshot"><?php echo e(t('admin_mig_snapshot_created', '已创建导入前快照：')); ?>' + escapeHtml(res.snapshot) + '</div>';
@@ -305,9 +424,10 @@ require_once dirname(__DIR__) . '/layout/header.php';
                     showToast('<?php echo e(t('admin_mig_import_failed', '导入失败')); ?>', 'error');
                     return;
                 }
+                hideProgress(true);
                 resultBox.className = 'mig-import-result is-success';
                 var html = '<div>' + escapeHtml(res.message || '') + '</div>';
-                html += '<div class="mig-result-table"><?php echo e(t('admin_mig_total_inserted', '总写入行数')); ?>：' + (res.total_inserted || 0) + '</div>';
+                html += '<div class="mig-result-table"><?php echo e(t('admin_mig_total_inserted', '总写入行数')); ?>：' + (res.total_inserted || res.total_executed || 0) + '</div>';
                 if (res.results) {
                     html += '<div class="mig-result-table">';
                     Object.keys(res.results).forEach(function (t) {
@@ -320,7 +440,11 @@ require_once dirname(__DIR__) . '/layout/header.php';
                 resultBox.style.display = '';
                 showToast('<?php echo e(t('admin_mig_import_done', '导入完成')); ?>', 'success');
             })
-            .catch(function () { showToast('<?php echo e(t('admin_mig_import_network_fail', '网络错误，导入失败')); ?>', 'error'); })
+            .catch(function () {
+                clearInterval(progTimer);
+                hideProgress(false);
+                showToast('<?php echo e(t('admin_mig_import_network_fail', '网络错误，导入失败')); ?>', 'error');
+            })
             .finally(function () { importBtn.disabled = false; importBtn.innerHTML = orig; });
     });
 })();
