@@ -90,7 +90,7 @@ index.php  ── 路由解析（route / s / REQUEST_URI）→ 分发
 
 ## 3. Directory Structure
 
-> The tree below is **measured from the actual project layout** (`app/` contains 116 PHP files + assets). Lines with `#` are files that actually exist in this project.
+> The tree below is **measured from the actual project layout** (`app/` contains 118 PHP files + assets). Lines with `#` are files that actually exist in this project.
 
 ```
 Cloud Forum/
@@ -99,7 +99,7 @@ Cloud Forum/
 ├── LICENSE                    # Open-source license text
 ├── README.md / README.en.md / README.zh-TW.md   # Tri-lingual project docs
 │
-├── app/                       # Application core (116 PHP files)
+├── app/                       # Application core (118 PHP files)
 │   ├── controllers/           # Front-end page controllers (26 files, each maps to one route)
 │   │   ├── home.php           # Home (stats/announcements/forums/trending)
 │   │   ├── forum.php          # Forum thread list
@@ -117,7 +117,7 @@ Cloud Forum/
 │   │   └── privacy.php / terms.php / disclaimer.php / service.php   # Site pages (editable in admin)
 │   │
 │   ├── admin/                 # Admin panel (entry prefix /admin)
-│   │   ├── controllers/       # Admin pages (24 files)
+│   │   ├── controllers/       # Admin pages (25 files)
 │   │   │   ├── index.php              # Dashboard home
 │   │   │   ├── system_status.php      # System status monitor (CPU/memory/temp/network/disk/GPU)
 │   │   │   ├── traffic_monitor.php     # Traffic monitor
@@ -128,8 +128,9 @@ Cloud Forum/
 │   │   │   ├── reports.php / ban_appeals.php / password_reset_requests.php
 │   │   │   ├── sensitive_words.php / sensitive_word_logs.php
 │   │   │   ├── medals.php / mail_center.php / backup.php
+│   │   │   ├── data_migration.php       # Data migration & restore (export/import, ZIP with avatars)
 │   │   │   └── captcha_debug.php       # CAPTCHA debug console
-│   │   ├── api/               # Admin AJAX endpoints (19 files, named *_ajax.php)
+│   │   ├── api/               # Admin AJAX endpoints (20 files, named *_ajax.php)
 │   │   │   ├── system_status_ajax.php   # System status poller (with ?diag=1 diagnostics)
 │   │   │   ├── traffic_ajax.php / pending_counts_ajax.php
 │   │   │   ├── posts_ajax.php / replies_ajax.php / reports_ajax.php
@@ -137,7 +138,7 @@ Cloud Forum/
 │   │   │   ├── user_detail_ajax.php / user_risk_detail_ajax.php
 │   │   │   ├── ban_appeals_ajax.php / sensitive_words_ajax.php / sensitive_logs_ajax.php
 │   │   │   ├── backup_ajax.php / mail_stats_ajax.php / mail_notify_ajax.php
-│   │   │   ├── bounce_ajax.php / diag_auth.php
+│   │   │   ├── bounce_ajax.php / diag_auth.php / data_migration_ajax.php
 │   │   │   └── (others — see Section 11)
 │   │   └── layout/            # Admin layout
 │   │       ├── admin-init.php # Admin auth & init (required by each admin page)
@@ -366,7 +367,7 @@ Entry: `/admin` (corresponds to `app/admin/controllers/`, layout in `app/admin/l
 | Review & compliance | `reports.php`, `ban_appeals.php`, `password_reset_requests.php`, `sensitive_words.php`, `sensitive_word_logs.php` |
 | Medals | `medals.php` |
 | Email | `mail_center.php` (logs/statistics/notifications/bounce config) |
-| Ops | `backup.php` |
+| Ops | `backup.php`, `data_migration.php` (data migration & restore) |
 
 Many admin operations are handled through `app/admin/api/*_ajax.php`, returning JSON for asynchronous frontend calls, with auxiliary endpoints for pending counts (`pending_counts_ajax.php`), user risk details (`user_risk_detail_ajax.php`), and system diagnostics (`diag_auth.php`).
 
@@ -397,6 +398,28 @@ Entry `/admin/system_status`, rendered by `app/admin/controllers/system_status.p
 
 Diagnostic endpoint: `/admin/api/system_status_ajax?diag=1` returns the availability of each collection channel (COM/FFI/PowerShell), raw CPU/GPU/memory data, and the cache-file manifest, for troubleshooting collection failures.
 
+### 10.2 Data Migration & Restore (data_migration)
+
+Entry `/admin/data_migration`, rendered by `app/admin/controllers/data_migration.php`, with export/import served by `app/admin/api/data_migration_ajax.php`. Used to migrate site data to another server or after a reinstall, and supports bundling uploaded files (e.g. avatars) together with the database as a ZIP.
+
+**Export (three formats; the available options depend on the current database type)**
+
+| Format | File | Notes |
+| --- | --- | --- |
+| Generic JSON | `*.json` | Database-agnostic format carrying a source-driver marker (`source_driver`) |
+| SQLite SQL | `*.zip` | Available when the current DB is SQLite; ZIP contains `database_backup.sql` + `uploads/` (avatars, etc.) + `manifest.json` |
+| MySQL SQL | `*.zip` | Available when the current DB is MySQL; same structure as above |
+
+> Exported filenames use ASCII by default (`yunjie_backup_YYYYMMDD_HHMMSS.*`) to avoid mojibake in Windows Explorer; the original Chinese name is provided via the `filename*` parameter for modern browsers.
+
+**Import**
+
+- Accepts `.json`, `.sql`, and `.zip` files.
+- **Cross-database protection**: the system auto-detects the source database type from the file (`-- DB-TYPE:` comment in SQL, or `source_driver` in JSON) and **rejects the import if it differs from the current database type**, preventing incompatible migrations between different databases.
+- **Uploaded-file restore**: when importing a `.zip`, the archive is safely extracted (path-traversal protected) → its `uploads/` is restored into the project directory → then the SQL is executed; avatars and post images are not lost after import.
+- **Pre-import snapshot**: a database snapshot is created automatically before every import, so a failed import can be rolled back.
+- **Progress indicator**: a staged progress bar is shown during import (ZIP: upload → parse → restore assets → snapshot → write to DB; others: upload → parse → snapshot → write to DB).
+
 ---
 
 ## 11. API Endpoints
@@ -412,7 +435,7 @@ Diagnostic endpoint: `/admin/api/system_status_ajax?diag=1` returns the availabi
 | `check_ban_status.php` | Current user's ban/mute status |
 | `upload_image.php` | Image upload |
 
-**Admin endpoints** (`app/admin/api/`, `*_ajax.php`): backup, ban_appeals, bounce, diag_auth, mail_notify, mail_stats, pending_counts, posts, replies, reports, sensitive_logs, sensitive_words, system_status, traffic, user_detail, user_risk_detail, users, users_bulk, users_export_csv.
+**Admin endpoints** (`app/admin/api/`, `*_ajax.php`): backup, ban_appeals, bounce, data_migration, diag_auth, mail_notify, mail_stats, pending_counts, posts, replies, reports, sensitive_logs, sensitive_words, system_status, traffic, user_detail, user_risk_detail, users, users_bulk, users_export_csv.
 
 > Endpoints generally use `realtime_cache($key, $ttl, $callback)` for short caching, avoiding high-frequency polling from overwhelming the database.
 
@@ -516,16 +539,8 @@ Click-text rendering depends on GD and a font file. It falls back to the system 
 **Q9. How to enable Reasoning Swap verification?**
 In "Site Settings → CAPTCHA Settings", select "Reasoning Swap Verification (swap tiles to restore image)", and configure trigger mode (always/suspicious/high-risk) and display mode (inline/popup/trigger). This mode supports Simplified Chinese/Traditional Chinese/English hints.
 
-### 常见问题 (FAQ)
-
-**Q7. Jigsaw verification seems aligned but fails?**
-First force-refresh the browser (`Ctrl+F5`) to load the latest `captcha.js`. If the container is squeezed by CSS so the stage width is not 300px, the system will automatically scale coordinates proportionally. You can also temporarily switch to "Click text" or "Reasoning swap" in "Site settings → Verification method" to troubleshoot.
-
-**Q8. Chinese characters display as boxes in click-text verification?**
-Click-text rendering depends on GD and a font file. It falls back to the system font by default; if Chinese characters display poorly, place a Chinese font (e.g. `SourceHanSansSC-Regular.otf`) in `app/captcha/fonts/` and the system will prefer it automatically.
-
 **Q10. Where is Trigger Mode for CAPTCHA set?**
-In "Site Settings → CAPTCHA Settings", find the "Display Mode" dropdown and select "Trigger Mode (show verification when mouse enters)". The verification window will automatically pop up when users move their mouse to input fields, providing a more user-friendly experience.
+In "Site Settings → CAPTCHA Settings", find the "Display Mode" dropdown and select "Trigger Mode (show verification when the mouse enters an input field)". The verification window will automatically pop up when users move their mouse to input fields, providing a more user-friendly experience.
 
 ---
 

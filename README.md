@@ -90,7 +90,7 @@ index.php  ── 路由解析（route / s / REQUEST_URI）→ 分发
 
 ## 3. 目录结构
 
-> 下方树为**实测绘得**的项目布局（`app/` 含 116 个 PHP 文件 + 各资源文件）。带 `#` 注释的为本项目实际存在的文件。
+> 下方树为**实测绘得**的项目布局（`app/` 含 118 个 PHP 文件 + 各资源文件）。带 `#` 注释的为本项目实际存在的文件。
 
 ```
 云界论坛/
@@ -99,7 +99,7 @@ index.php  ── 路由解析（route / s / REQUEST_URI）→ 分发
 ├── LICENSE                    # 开源许可证文本
 ├── README.md / README.en.md / README.zh-TW.md   # 三语项目文档
 │
-├── app/                       # 应用核心（116 个 PHP）
+├── app/                       # 应用核心（118 个 PHP）
 │   ├── controllers/           # 前台页面控制器（26 个，每个对应一条前台路由）
 │   │   ├── home.php           # 首页（聚合统计/公告/版块/热门）
 │   │   ├── forum.php          # 版块帖子列表
@@ -117,7 +117,7 @@ index.php  ── 路由解析（route / s / REQUEST_URI）→ 分发
 │   │   └── privacy.php / terms.php / disclaimer.php / service.php   # 站点页面（可后台编辑）
 │   │
 │   ├── admin/                 # 后台（独立入口前缀 /admin）
-│   │   ├── controllers/       # 后台页面（24 个）
+│   │   ├── controllers/       # 后台页面（25 个）
 │   │   │   ├── index.php              # 控制台首页
 │   │   │   ├── system_status.php      # 系统状态监控（CPU/内存/温度/网络/磁盘/显卡）
 │   │   │   ├── traffic_monitor.php     # 流量监控
@@ -128,8 +128,9 @@ index.php  ── 路由解析（route / s / REQUEST_URI）→ 分发
 │   │   │   ├── reports.php / ban_appeals.php / password_reset_requests.php
 │   │   │   ├── sensitive_words.php / sensitive_word_logs.php
 │   │   │   ├── medals.php / mail_center.php / backup.php
+│   │   │   ├── data_migration.php       # 数据迁移与还原（导出/导入，支持 ZIP 含头像）
 │   │   │   └── captcha_debug.php       # 人机验证调试台
-│   │   ├── api/               # 后台 AJAX 接口（19 个，命名 *_ajax.php）
+│   │   ├── api/               # 后台 AJAX 接口（20 个，命名 *_ajax.php）
 │   │   │   ├── system_status_ajax.php   # 系统状态轮询采集（含诊断 ?diag=1）
 │   │   │   ├── traffic_ajax.php / pending_counts_ajax.php
 │   │   │   ├── posts_ajax.php / replies_ajax.php / reports_ajax.php
@@ -137,7 +138,7 @@ index.php  ── 路由解析（route / s / REQUEST_URI）→ 分发
 │   │   │   ├── user_detail_ajax.php / user_risk_detail_ajax.php
 │   │   │   ├── ban_appeals_ajax.php / sensitive_words_ajax.php / sensitive_logs_ajax.php
 │   │   │   ├── backup_ajax.php / mail_stats_ajax.php / mail_notify_ajax.php
-│   │   │   ├── bounce_ajax.php / diag_auth.php
+│   │   │   ├── bounce_ajax.php / diag_auth.php / data_migration_ajax.php
 │   │   │   └── (其余见第 11 节)
 │   │   └── layout/            # 后台布局
 │   │       ├── admin-init.php # 后台鉴权与初始化（被各后台页面 require）
@@ -366,7 +367,7 @@ location ~ \.php$ {
 | 审核与合规 | `reports.php`、`ban_appeals.php`、`password_reset_requests.php`、`sensitive_words.php`、`sensitive_word_logs.php` |
 | 勋章 | `medals.php` |
 | 邮件 | `mail_center.php`（日志/统计/通知/退信配置） |
-| 运维 | `backup.php` |
+| 运维 | `backup.php`、`data_migration.php`（数据迁移与还原） |
 
 后台大量操作通过 `app/admin/api/*_ajax.php` 以 JSON 返回，前端异步调用，并提供待办计数（`pending_counts_ajax.php`）、用户风险详情（`user_risk_detail_ajax.php`）、系统诊断（`diag_auth.php`）等辅助接口。
 
@@ -397,6 +398,28 @@ location ~ \.php$ {
 
 诊断端点：`/admin/api/system_status_ajax?diag=1` 返回各采集通道的可用性（COM/FFI/PowerShell）、CPU/GPU/内存条原始数据及缓存文件清单，用于排查采集失败原因。
 
+### 10.2 数据迁移与还原（data_migration）
+
+入口 `/admin/data_migration`，由 `app/admin/controllers/data_migration.php` 渲染、`app/admin/api/data_migration_ajax.php` 提供导出/导入接口。用于在不同服务器或重装后迁移站点数据，并支持头像等上传文件随库一并迁移（打包为 ZIP）。
+
+**导出（三种格式，按当前数据库类型提供对应项）**
+
+| 格式 | 文件 | 说明 |
+| --- | --- | --- |
+| 通用 JSON | `*.json` | 跨数据库兼容的通用格式，携带来源库类型标记（`source_driver`） |
+| SQLite SQL | `*.zip` | 当前库为 SQLite 时可用；ZIP 内含 `database_backup.sql` + `uploads/`（头像等）+ `manifest.json` |
+| MySQL SQL | `*.zip` | 当前库为 MySQL 时可用；结构同上 |
+
+> 导出文件名默认使用英文（`yunjie_backup_YYYYMMDD_HHMMSS.*`），避免 Windows 资源管理器因中文编码出现乱码；中文原名经 `filename*` 参数供现代浏览器识别显示。
+
+**导入**
+
+- 支持 `.json`、`.sql`、`.zip` 三种文件。
+- **跨库保护**：系统自动读取文件来源库类型标记（SQL 文件的 `-- DB-TYPE:` 注释，或 JSON 的 `source_driver`），与**当前库类型不一致时拒绝导入**，防止不同数据库之间互相迁移导致结构不兼容。
+- **上传文件还原**：导入 `.zip` 时自动安全解压（禁止路径穿越）→ 将包内 `uploads/` 还原到项目目录 → 执行 SQL；导入后头像、帖子图片等不会丢失。
+- **导入前快照**：每次导入前自动创建数据库快照，失败可回滚。
+- **进度提示**：导入过程显示阶段性进度条（ZIP：上传 → 解析 → 还原资源 → 快照 → 写入数据库；其他：上传 → 解析 → 快照 → 写入数据库）。
+
 ---
 
 ## 11. API 接口
@@ -412,7 +435,7 @@ location ~ \.php$ {
 | `check_ban_status.php` | 当前用户封禁/禁言状态 |
 | `upload_image.php` | 图片上传 |
 
-**后台接口**（`app/admin/api/`，`*_ajax.php`）：backup、ban_appeals、bounce、diag_auth、mail_notify、mail_stats、pending_counts、posts、replies、reports、sensitive_logs、sensitive_words、system_status、traffic、user_detail、user_risk_detail、users、users_bulk、users_export_csv。
+**后台接口**（`app/admin/api/`，`*_ajax.php`）：backup、ban_appeals、bounce、data_migration、diag_auth、mail_notify、mail_stats、pending_counts、posts、replies、reports、sensitive_logs、sensitive_words、system_status、traffic、user_detail、user_risk_detail、users、users_bulk、users_export_csv。
 
 > 接口普遍使用 `realtime_cache($key, $ttl, $callback)` 做短缓存，避免高频轮询压垮数据库。
 
@@ -521,7 +544,13 @@ location ~ \.php$ {
 **Q8. 点选文字验证的汉字显示为方框？**
 点选文字依赖 GD 与字体文件渲染。默认使用系统字体，中文显示不佳时请在 `app/captcha/fonts/` 放置中文字体（如 `SourceHanSansSC-Regular.otf`），系统将自动优先使用。
 
-**Q8. 点选文字验证的汉字显示为方框？**---
+**Q9. 如何启用「推理交换」验证？**
+在「站点配置 → 人机验证」中选择「推理交换验证（交换图块还原图片）」，可配置触发模式（始终/可疑/高风险）与显示方式（内嵌/弹窗/触发）。该模式支持简中/繁中/英文提示。
+
+**Q10. 人机验证的「触发模式」在哪里设置？**
+在「站点配置 → 人机验证」的「显示方式」下拉中选择「触发模式（鼠标移入输入框时弹出验证）」，用户聚焦输入框时自动弹出验证窗口，体验更友好。
+
+---
 
 > 文档基于项目源码（`index.php`、`install.php`、`app/includes/*`、`public/*`）整理，版本 `1.3.5-beta`。
 > 如与代码实现不符，请以代码与安装向导提示为准。

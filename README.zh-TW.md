@@ -93,7 +93,7 @@ index.php  ── 路由解析（route / s / REQUEST_URI）→ 分發
 
 ## 3. 目錄結構
 
-> 下方樹為**實測得**的專案佈局（`app/` 含 116 個 PHP 檔案 + 各資源檔案）。帶 `#` 註釋的為本專案實際存在的檔案。
+> 下方樹為**實測得**的專案佈局（`app/` 含 118 個 PHP 檔案 + 各資源檔案）。帶 `#` 註釋的為本專案實際存在的檔案。
 
 ```
 雲界論壇/
@@ -102,7 +102,7 @@ index.php  ── 路由解析（route / s / REQUEST_URI）→ 分發
 ├── LICENSE                    # 開源許可證文字
 ├── README.md / README.en.md / README.zh-TW.md   # 三語專案文件
 │
-├── app/                       # 應用核心（116 個 PHP）
+├── app/                       # 應用核心（118 個 PHP）
 │   ├── controllers/           # 前臺頁面控制器（26 個，每個對應一條前臺路由）
 │   │   ├── home.php           # 首頁（聚合統計/公告/版塊/熱門）
 │   │   ├── forum.php          # 版塊帖子列表
@@ -120,7 +120,7 @@ index.php  ── 路由解析（route / s / REQUEST_URI）→ 分發
 │   │   └── privacy.php / terms.php / disclaimer.php / service.php   # 站點頁面（可後臺編輯）
 │   │
 │   ├── admin/                 # 後臺（獨立入口前綴 /admin）
-│   │   ├── controllers/       # 後臺頁面（24 個）
+│   │   ├── controllers/       # 後臺頁面（25 個）
 │   │   │   ├── index.php              # 控制台首頁
 │   │   │   ├── system_status.php      # 系統狀態監控（CPU/記憶體/溫度/網路/磁碟/顯卡）
 │   │   │   ├── traffic_monitor.php     # 流量監控
@@ -131,8 +131,9 @@ index.php  ── 路由解析（route / s / REQUEST_URI）→ 分發
 │   │   │   ├── reports.php / ban_appeals.php / password_reset_requests.php
 │   │   │   ├── sensitive_words.php / sensitive_word_logs.php
 │   │   │   ├── medals.php / mail_center.php / backup.php
+│   │   │   ├── data_migration.php       # 數據遷移與還原（匯出/匯入，支援 ZIP 含頭像）
 │   │   │   └── captcha_debug.php       # 人機驗證偵錯台
-│   │   ├── api/               # 後臺 AJAX 接口（19 個，命名 *_ajax.php）
+│   │   ├── api/               # 後臺 AJAX 接口（20 個，命名 *_ajax.php）
 │   │   │   ├── system_status_ajax.php   # 系統狀態輪詢採集（含診斷 ?diag=1）
 │   │   │   ├── traffic_ajax.php / pending_counts_ajax.php
 │   │   │   ├── posts_ajax.php / replies_ajax.php / reports_ajax.php
@@ -140,7 +141,7 @@ index.php  ── 路由解析（route / s / REQUEST_URI）→ 分發
 │   │   │   ├── user_detail_ajax.php / user_risk_detail_ajax.php
 │   │   │   ├── ban_appeals_ajax.php / sensitive_words_ajax.php / sensitive_logs_ajax.php
 │   │   │   ├── backup_ajax.php / mail_stats_ajax.php / mail_notify_ajax.php
-│   │   │   ├── bounce_ajax.php / diag_auth.php
+│   │   │   ├── bounce_ajax.php / diag_auth.php / data_migration_ajax.php
 │   │   │   └── (其餘見第 11 節)
 │   │   └── layout/            # 後臺佈局
 │   │       ├── admin-init.php # 後臺鑑權與初始化（被各後臺頁面 require）
@@ -204,8 +205,6 @@ index.php  ── 路由解析（route / s / REQUEST_URI）→ 分發
 ```
 
 > `data/` 與 `uploads/` 在首次安裝時創建。**需對 Web 服務器進程可寫**。請確認其權限（如 `chmod 755 data uploads`）。`app/`、`public/`、`index.php`、`install.php` 無需寫權限。
-
-> `data/` 與 `uploads/` 在首次安裝時創建。**需對 Web 伺服器進程可寫**。請確認其權限（如 `chmod 755 data uploads`）。
 
 ---
 
@@ -371,7 +370,7 @@ location ~ \.php$ {
 | 審核與合規 | `reports.php`、`ban_appeals.php`、`password_reset_requests.php`、`sensitive_words.php`、`sensitive_word_logs.php` |
 | 勳章 | `medals.php` |
 | 郵件 | `mail_center.php`（日誌/統計/通知/退信配置） |
-| 運維 | `backup.php` |
+| 運維 | `backup.php`、`data_migration.php`（數據遷移與還原） |
 
 後臺大量操作通過 `app/admin/api/*_ajax.php` 以 JSON 返回，前端異步調用，並提供待辦計數（`pending_counts_ajax.php`）、用戶風險詳情（`user_risk_detail_ajax.php`）、系統診斷（`diag_auth.php`）等輔助接口。
 
@@ -402,6 +401,28 @@ location ~ \.php$ {
 
 診斷端點：`/admin/api/system_status_ajax?diag=1` 返回各採集通道的可用性（COM/FFI/PowerShell）、CPU/GPU/記憶體原始數據及緩存文件清單，用於排查採集失敗原因。
 
+### 10.2 數據遷移與還原（data_migration）
+
+入口 `/admin/data_migration`，由 `app/admin/controllers/data_migration.php` 渲染、`app/admin/api/data_migration_ajax.php` 提供匯出/匯入接口。用於在不同伺服器或重裝後遷移站點數據，並支援頭像等上傳文件隨庫一併遷移（打包為 ZIP）。
+
+**匯出（三種格式，依當前資料庫類型提供對應項）**
+
+| 格式 | 文件 | 說明 |
+| --- | --- | --- |
+| 通用 JSON | `*.json` | 跨資料庫相容的通用格式，攜帶來源庫類型標記（`source_driver`） |
+| SQLite SQL | `*.zip` | 當前庫為 SQLite 時可用；ZIP 內含 `database_backup.sql` + `uploads/`（頭像等）+ `manifest.json` |
+| MySQL SQL | `*.zip` | 當前庫為 MySQL 時可用；結構同上 |
+
+> 匯出檔名預設使用英文（`yunjie_backup_YYYYMMDD_HHMMSS.*`），避免 Windows 檔案總管因中文編碼出現亂碼；中文原名經 `filename*` 參數供現代瀏覽器識別顯示。
+
+**匯入**
+
+- 支援 `.json`、`.sql`、`.zip` 三種文件。
+- **跨庫保護**：系統自動讀取文件來源庫類型標記（SQL 文件的 `-- DB-TYPE:` 註釋，或 JSON 的 `source_driver`），與**當前庫類型不一致時拒絕匯入**，防止不同資料庫之間互相遷移導致結構不相容。
+- **上傳文件還原**：匯入 `.zip` 時自動安全解壓（禁止路徑穿越）→ 將包內 `uploads/` 還原到專案目錄 → 執行 SQL；匯入後頭像、帖子圖片等不會遺失。
+- **匯入前快照**：每次匯入前自動建立資料庫快照，失敗可回滾。
+- **進度提示**：匯入過程顯示階段性進度條（ZIP：上傳 → 解析 → 還原資源 → 快照 → 寫入資料庫；其他：上傳 → 解析 → 快照 → 寫入資料庫）。
+
 ---
 
 ## 11. API 接口
@@ -417,7 +438,7 @@ location ~ \.php$ {
 | `check_ban_status.php` | 當前用戶封禁/禁言狀態 |
 | `upload_image.php` | 圖片上傳 |
 
-**後臺接口**（`app/admin/api/`，`*_ajax.php`）：backup、ban_appeals、bounce、diag_auth、mail_notify、mail_stats、pending_counts、posts、replies、reports、sensitive_logs、sensitive_words、system_status、traffic、user_detail、user_risk_detail、users、users_bulk、users_export_csv。
+**後臺接口**（`app/admin/api/`，`*_ajax.php`）：backup、ban_appeals、bounce、data_migration、diag_auth、mail_notify、mail_stats、pending_counts、posts、replies、reports、sensitive_logs、sensitive_words、system_status、traffic、user_detail、user_risk_detail、users、users_bulk、users_export_csv。
 
 > 接口普遍使用 `realtime_cache($key, $ttl, $callback)` 做短緩存，避免高頻輪詢壓垮資料庫。
 
@@ -492,7 +513,37 @@ location ~ \.php$ {
 
 ---
 
+## 16. 常見問題 (FAQ)
+
+**Q1. 安裝時提示「data 目錄不可寫」？**
+創建並賦予寫權限：`mkdir data && chmod 755 data`（Windows 下在目錄屬性的「安全」中給 Web 進程寫權限）。
+
+**Q2. 想換資料庫類型（如 SQLite → MySQL）？**
+目前安裝嚮導在首次安裝時確定資料庫類型。切換到遠程資料庫建議：備份數據 → 修改 `data/site_config.php` 的 `DB_*` 常量 → 在目標庫建庫 → 重新匯入數據。生產環境請先備份。
+
+**Q3. 啟用郵件後註冊需要郵箱驗證碼？**
+在「站點配置 / 後臺郵件中心」啟用 SMTP 並正確填寫後，註冊與找回密碼將啟用郵箱驗證碼流程；未啟用 SMTP 時走普通註冊流程。
+
+**Q4. 如何新增語言？**
+在 `app/includes/languages/` 複製 `zh-TW.php` 為 `xx.php` 並翻譯，再到 `app/includes/config.php` 的 `get_available_languages()` 增加該語言項即可。
+
+**Q5. 升級後頁面報錯或表缺失？**
+訪問一次前臺/後臺觸發 `auto_migrate()` 自動補表；若仍異常，查看 `data/error.log`。必要時可刪除 `data/db_version.lock` 強制重新檢查遷移（不會刪除數據）。
+
+**Q6. 忘記管理員密碼？**
+可透過「找回密碼」（需 SMTP）重置；或直接在資料庫 `users` 表用 `password_hash()` 重置對應用戶的 `password` 欄位。
+
+**Q7. 拼圖驗證看起來對齊了但提示失敗？**
+請先強制刷新瀏覽器（`Ctrl+F5`）以載入最新 `captcha.js`；若容器被 CSS 壓縮導致舞台寬度不是 300px，系統會自動按比例換算座標。也可在後台「站點配置 → 驗證方式」臨時切到「點選文字」或「推理交換」驗證排查。
+
 **Q8. 點選文字驗證的漢字顯示為方框？**
+點選文字依賴 GD 與字體文件渲染。默認使用系統字體，中文顯示不佳時請在 `app/captcha/fonts/` 放置中文字體（如 `SourceHanSansSC-Regular.otf`），系統將自動優先使用。
+
+**Q9. 如何啟用「推理交換」驗證？**
+在「站點配置 → 人機驗證」中選擇「推理交換驗證（交換圖塊還原圖片）」，可配置觸發模式（始終/可疑/高風險）與顯示方式（內嵌/彈窗/觸發）。該模式支援簡中/繁中/英文提示。
+
+**Q10. 人機驗證的「觸發模式」在哪裡設置？**
+在「站點配置 → 人機驗證」的「顯示方式」下拉中選擇「觸發模式（滑鼠移入輸入框時彈出驗證）」，用戶聚焦輸入框時自動彈出驗證窗口，體驗更友好。
 
 ---
 
