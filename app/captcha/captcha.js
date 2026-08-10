@@ -373,6 +373,8 @@
                         showClick(data);
                     } else if (data && data.challenge === 'swap') {
                         showSwap(data);
+                    } else if (data && data.challenge === 'letter') {
+                        showLetter(data);
                     } else if (data && (data.error === 'invalid' || data.error === 'expired') && !refresh) {
                         // token 失效或过期：自动重新初始化并最多重试一次
                         log('check token stale, reinitializing', data.error);
@@ -914,6 +916,69 @@
             if (resetBtn) resetBtn.addEventListener('click', reset);
             var refreshBtn = host.querySelector('.sw-refresh');
             if (refreshBtn) refreshBtn.addEventListener('click', onRefresh);
+        }
+
+        /* ---------- 图片字母验证（输入图片中的字符，传统验证码） ---------- */
+        function showLetter(data) {
+            host = ensureHost();
+            setStatus('', '请输入验证码', '请输入图片中的字母和数字（不区分大小写）');
+            host.innerHTML =
+                '<div class="lc-box">' +
+                    '<div class="lc-scene">' +
+                        '<img class="lc-img" src="' + (data.bg_b64 || '') + '" alt="captcha" draggable="false">' +
+                    '</div>' +
+                    '<div class="lc-input-row">' +
+                        '<input type="text" class="lc-input" maxlength="' + (data.length || 6) + '" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="请输入图中的字符">' +
+                        '<button type="button" class="lc-submit">验证</button>' +
+                    '</div>' +
+                    '<div class="lc-tools"><button type="button" class="lc-refresh">&#8635; 换一张</button></div>' +
+                '</div>';
+
+            var input = host.querySelector('.lc-input');
+            var submitBtn = host.querySelector('.lc-submit');
+            var refreshBtn = host.querySelector('.lc-refresh');
+
+            function doSubmit() {
+                var val = (input.value || '').replace(/\s+/g, '');
+                if (!val) { input.focus(); return; }
+                setStatus('checking', '正在校验…', '');
+                log('letter verify →', val);
+                fetch(apiAction('letter'), {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: buildVerifyBody({ token: state.token, input: val })
+                })
+                    .then(function (r) { return r.json(); })
+                    .then(function (res) {
+                        log('letter verify ←', res);
+                        if (res && res.ok) {
+                            passed();
+                            return;
+                        }
+                        setStatus('error', '验证码错误，请重试', '');
+                        setTimeout(function () {
+                            setStatus('', '请输入验证码', '请输入图片中的字母和数字（不区分大小写）');
+                            input.value = '';
+                            input.focus();
+                        }, 600);
+                    })
+                    .catch(function (err) {
+                        log('letter verify ✗ 网络错误', err);
+                        setStatus('error', '网络异常，请重试', '');
+                    });
+            }
+
+            submitBtn.addEventListener('click', doSubmit);
+            input.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') { e.preventDefault(); doSubmit(); }
+            });
+            refreshBtn.addEventListener('click', function () {
+                state.passed = false;
+                state.checking = false;
+                onCheck(true);
+            });
+            setTimeout(function () { input.focus(); }, 50);
         }
 
         /* ---------- 初始化：申请挑战（仅在非 popup 模式时立即执行）---------- */

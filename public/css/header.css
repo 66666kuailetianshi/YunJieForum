@@ -81,11 +81,10 @@
 
 /* ---------- 主导航（居中） ---------- */
 .main-nav {
-    position: absolute;
-    left: 50%;
-    transform: translateX(-50%);
     display: flex;
     justify-content: center;
+    min-width: 0;
+    overflow: hidden;
 }
 
 .nav-list {

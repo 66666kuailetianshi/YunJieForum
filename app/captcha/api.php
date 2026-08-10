@@ -92,6 +92,17 @@ try {
             $in['seq'] ?? null,
             isset($in['pow_nonce']) ? (string)$in['pow_nonce'] : null
         ));
+    } elseif ($action === 'letter') {
+        $raw = file_get_contents('php://input');
+        $in  = json_decode($raw ?: '', true);
+        if (!is_array($in)) {
+            $in = [];
+        }
+        $resp = array_merge($resp, captcha_letter_verify(
+            $in['token'] ?? '',
+            $in['input'] ?? '',
+            isset($in['pow_nonce']) ? (string)$in['pow_nonce'] : null
+        ));
     } elseif ($action === 'swap') {
         $raw = file_get_contents('php://input');
         $in  = json_decode($raw ?: '', true);

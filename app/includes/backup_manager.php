@@ -189,44 +189,67 @@ class BackupManager {
     }
 
     /**
-     * 自动寻找 MySQL 客户端二进制文件（优先 phpstudy 常见路径）
+     * 自动寻找 MySQL 客户端二进制文件（优先 phpstudy 常见路径，兼容 Linux/Windows）
      */
     private function findMysqlBinary(string $name): string {
-        // 1. 已在 PATH 中可直接使用
+        $isWindows = stripos(PHP_OS, 'WIN') === 0;
+        $ext = $isWindows ? '.exe' : '';
+
+        // 1. 已在 PATH 中可直接使用（Windows: where；Linux/macOS: which）
         $output = [];
         $returnCode = -1;
         if (function_exists('exec')) {
-            @exec('where ' . escapeshellarg($name) . ' 2>&1', $output, $returnCode);
+            $cmd = $isWindows ? 'where ' : 'which ';
+            @exec($cmd . escapeshellarg($name) . ' 2>&1', $output, $returnCode);
         }
         if ($returnCode === 0 && !empty($output[0]) && is_file($output[0])) {
             return $output[0];
         }
 
-        // 2. 扫描 phpstudy 常见目录
+        // 2. 常见系统 PATH
         $candidates = [];
-        $baseDirs = [
-            'E:\\phpstudy_pro\\Extensions',
-            'C:\\phpstudy_pro\\Extensions',
-            'D:\\phpstudy_pro\\Extensions',
-        ];
-        foreach ($baseDirs as $baseDir) {
-            if (!is_dir($baseDir)) continue;
-            $dirs = @glob($baseDir . '\\MySQL*', GLOB_ONLYDIR);
-            if (!is_array($dirs)) continue;
-            foreach ($dirs as $dir) {
-                $candidates[] = $dir . '\\bin\\' . $name . '.exe';
-            }
-        }
+        if ($isWindows) {
+            $candidates[] = 'C:\\Program Files\\MySQL\\MySQL Server 8.0\\bin\\' . $name . '.exe';
+            $candidates[] = 'C:\\Program Files (x86)\\MySQL\\MySQL Server 5.7\\bin\\' . $name . '.exe';
+            $candidates[] = 'C:\\xampp\\mysql\\bin\\' . $name . '.exe';
+            $candidates[] = 'C:\\wamp64\\bin\\mysql\\mysql8.0.21\\bin\\' . $name . '.exe';
+            $candidates[] = 'C:\\wamp\\bin\\mysql\\mysql8.0.21\\bin\\' . $name . '.exe';
 
-        // 3. 常见系统 PATH
-        $candidates[] = 'C:\\Program Files\\MySQL\\MySQL Server 8.0\\bin\\' . $name . '.exe';
-        $candidates[] = 'C:\\Program Files (x86)\\MySQL\\MySQL Server 5.7\\bin\\' . $name . '.exe';
-        $candidates[] = 'C:\\xampp\\mysql\\bin\\' . $name . '.exe';
-        $candidates[] = 'C:\\wamp64\\bin\\mysql\\mysql8.0.21\\bin\\' . $name . '.exe';
+            // 扫描 phpstudy 常见目录
+            foreach (['E:\\', 'C:\\', 'D:\\'] as $drive) {
+                $baseDir = $drive . 'phpstudy_pro\\Extensions';
+                if (!is_dir($baseDir)) continue;
+                $dirs = @glob($baseDir . '\\MySQL*', GLOB_ONLYDIR);
+                if (!is_array($dirs)) continue;
+                foreach ($dirs as $dir) {
+                    $candidates[] = $dir . '\\bin\\' . $name . '.exe';
+                }
+            }
+        } else {
+            // Linux / macOS 常见路径
+            $candidates[] = '/usr/bin/' . $name;
+            $candidates[] = '/usr/local/mysql/bin/' . $name;
+            $candidates[] = '/usr/local/mariadb/bin/' . $name;
+            $candidates[] = '/opt/mysql/bin/' . $name;
+            $candidates[] = '/opt/lampp/bin/' . $name;
+            $candidates[] = '/usr/local/opt/mysql/bin/' . $name; // macOS Homebrew
+        }
 
         foreach ($candidates as $path) {
             if (is_file($path)) {
                 return $path;
+            }
+        }
+
+        // 3. 通过已找到的 mysqldump 同目录推断 mysql（很多环境只把其中一个加到 PATH）
+        if ($name === 'mysql') {
+            $dumpPath = $this->findMysqlBinary('mysqldump');
+            if ($dumpPath !== 'mysqldump' && is_file($dumpPath)) {
+                $dir = dirname($dumpPath);
+                $sibling = $dir . DIRECTORY_SEPARATOR . 'mysql' . $ext;
+                if (is_file($sibling)) {
+                    return $sibling;
+                }
             }
         }
 
@@ -543,17 +566,42 @@ class BackupManager {
             }
         }
 
-        // 4. 执行恢复
-        $cmd = $this->buildMysqlRestoreCommand($tempSql);
-        $output = [];
-        $returnCode = 0;
-        @exec($cmd . ' 2>&1', $output, $returnCode);
-        @unlink($tempSql);
-
-        if ($returnCode !== 0) {
-            $error = implode("\n", $output);
-            return ['success' => false, 'error' => t('backup_mysql_restore_failed', 'mysql 恢复命令执行失败') . ($error ? t('backup_error_suffix', '：') . $error : '')];
+        // 4. 执行恢复（优先命令行 mysql；找不到或失败时，回退到 PDO 多语句执行）
+        $cmdOk = false;
+        $cmdError = '';
+        $mysqlBin = $this->findMysqlBinary('mysql');
+        if (is_file($mysqlBin)) {
+            $cmd = $this->buildMysqlRestoreCommand($tempSql);
+            $output = [];
+            $returnCode = 0;
+            @exec($cmd . ' 2>&1', $output, $returnCode);
+            if ($returnCode === 0) {
+                $cmdOk = true;
+            } else {
+                $cmdError = implode("\n", $output);
+            }
         }
+
+        if (!$cmdOk) {
+            // 命令行不可用或失败：使用 PDO 多语句兜底
+            $pdoResult = $this->restoreMysqlBackupViaPdo($sql);
+            if ($pdoResult['success']) {
+                @unlink($tempSql);
+                return [
+                    'success'             => true,
+                    'message'             => t('backup_restore_success', '数据库已成功恢复'),
+                    'user_count'          => 0,
+                    'post_count'          => 0,
+                    'pre_restore_backup'  => $preRestoreName,
+                    'note'                => t('backup_pdo_fallback_used', '（通过 PDO 恢复，命令行 mysql 不可用或被禁用）'),
+                ];
+            }
+            @unlink($tempSql);
+            $error = $cmdError ? $cmdError : $pdoResult['error'];
+            return ['success' => false, 'error' => t('backup_mysql_restore_failed', 'mysql 恢复命令执行失败') . ($error ? t('backup_error_suffix', '：') . $error : '') . ' (' . $mysqlBin . ')'];
+        }
+
+        @unlink($tempSql);
 
         return [
             'success'             => true,
@@ -562,6 +610,32 @@ class BackupManager {
             'post_count'          => 0,
             'pre_restore_backup'  => $preRestoreName,
         ];
+    }
+
+    /**
+     * 通过 PDO 多语句执行恢复（命令行 mysql 不可用时的兜底方案）
+     */
+    private function restoreMysqlBackupViaPdo(string $sql): array {
+        try {
+            $config = $this->dbConfig;
+            $host = $config['host'] ?? 'localhost';
+            $port = $config['port'] ?? 3306;
+            $dbname = $config['dbname'] ?? '';
+            $dsn = 'mysql:host=' . $host . ';port=' . $port . ';charset=utf8mb4';
+            if ($dbname !== '') {
+                $dsn .= ';dbname=' . $dbname;
+            }
+            $pdo = new PDO($dsn, $config['user'] ?? '', $config['pass'] ?? '', [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_EMULATE_PREPARES => false,
+                PDO::MYSQL_ATTR_MULTI_STATEMENTS => true,
+            ]);
+            // 一次性执行整个 SQL（mysqldump 生成的脚本不含用户可控参数，多语句风险可接受）
+            $pdo->exec($sql);
+            return ['success' => true];
+        } catch (Exception $e) {
+            return ['success' => false, 'error' => $e->getMessage()];
+        }
     }
 
     /**

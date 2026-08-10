@@ -696,3 +696,99 @@
 .sw-reset-ic {
     margin-right: 2px;
 }
+
+/* ============================================
+   图片字母验证（传统输入式验证码）
+   结构：.lc-box > .lc-scene(.lc-img) > .lc-input-row(.lc-input/.lc-submit) > .lc-tools(.lc-refresh)
+   ============================================ */
+.lc-box {
+    width: 300px;
+    max-width: 100%;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.lc-scene {
+    position: relative;
+    width: 300px;
+    max-width: 100%;
+    height: 150px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    overflow: hidden;
+    background: var(--surface-3);
+    box-shadow: var(--shadow-xs);
+}
+
+.lc-img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    user-select: none;
+}
+
+.lc-input-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.lc-input {
+    flex: 1;
+    min-width: 0;
+    height: 38px;
+    padding: 0 12px;
+    font-size: 16px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--text, #111827);
+    background: var(--surface-2, #fff);
+    border: 1px solid var(--border, #d1d5db);
+    border-radius: var(--radius-sm, 6px);
+    outline: none;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.lc-input:focus {
+    border-color: #6366f1;
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.12);
+}
+
+.lc-submit {
+    flex: none;
+    height: 38px;
+    padding: 0 18px;
+    border: none;
+    border-radius: var(--radius-sm, 6px);
+    background: linear-gradient(135deg, var(--primary, #6366f1), var(--primary-dark, #4f46e5));
+    color: #fff;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: box-shadow 0.2s ease, opacity 0.2s ease;
+}
+.lc-submit:hover {
+    box-shadow: 0 2px 8px rgba(99, 102, 241, 0.35);
+}
+.lc-submit:active {
+    opacity: 0.85;
+}
+
+.lc-tools {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 8px;
+}
+.lc-refresh {
+    background: none;
+    border: none;
+    padding: 2px 4px;
+    font-size: 13px;
+    color: var(--text-muted, #6b7280);
+    cursor: pointer;
+    border-radius: 4px;
+    transition: color 0.2s ease;
+}
+.lc-refresh:hover {
+    color: #6366f1;
+}

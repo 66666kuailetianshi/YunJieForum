@@ -156,10 +156,9 @@ function heartbeat(int $every = 50): void {
 function startHeartbeat(): void {
     header('X-Accel-Buffering: no');       // 关闭 Nginx 缓冲
     header('Cache-Control: no-cache');       // 禁止任何缓存
-    if (ob_get_level() > 0) { @ob_end_clean(); }
-    // 输出一个初始 JSON 数组开始标记——导入过程将输出多个心跳，
-    // 最终由实际响应关闭数组。但为了兼容现有 r.json() 客户端，
-    // 我们改用纯空白心跳方式，不改变响应结构。
+    // 如果外部调用方正在使用 ob_start 捕获响应（如 ZIP 导入包装函数），
+    // 则不清除缓冲，避免破坏响应捕获。
+    if (empty($GLOBALS['_mig_capture_mode']) && ob_get_level() > 0) { @ob_end_clean(); }
 }
 
 /**
@@ -391,6 +390,123 @@ function exportDataJsonZip(array $whitelist, string $format): void {
  * 将选中的业务表导出为 SQL 文件（CREATE TABLE + INSERT）
  * 兼容 MySQL / SQLite，可直接用 mysql / sqlite3 导入
  */
+/**
+ * 生成单条 SQL 导出内容（覆盖或合并模式）
+ */
+function generateSQLContent(array $selected, string $mode, $db, $driver, bool $isSqlite, bool $isMysql): string {
+    $qi = function($n) use ($driver) { return $driver->quoteIdentifier($n); };
+
+    $sql = "-- ============================================================\n";
+    $sql .= "-- 云界论坛 数据库备份\n";
+    $sql .= "-- 产品: yunjie-bbs | 版本: " . (defined('APP_VERSION') ? APP_VERSION : '') . "\n";
+    $sql .= "-- 导出时间: " . date('Y-m-d H:i:s') . "\n";
+    $sql .= "-- 数据库: " . ($isSqlite ? 'SQLite' : ($isMysql ? 'MySQL' : 'PDO')) . "\n";
+    $sql .= "-- 导出模式: " . ($mode === 'merge' ? 'merge（合并）' : 'overwrite（覆盖）') . "\n";
+    $sql .= "-- ============================================================\n\n";
+    $sql .= "-- DB-TYPE: " . ($isSqlite ? 'sqlite' : ($isMysql ? 'mysql' : 'unknown')) . "\n";
+    $sql .= "-- MIG-MODE: " . $mode . "\n";
+    $sql .= "SET NAMES utf8mb4;\n";
+    if (!$isSqlite) {
+        $sql .= "SET FOREIGN_KEY_CHECKS = 0;\n\n";
+    }
+
+    $insertVerb = 'INSERT INTO';
+    if ($mode === 'merge') {
+        $insertVerb = $isSqlite ? 'INSERT OR IGNORE INTO' : 'INSERT IGNORE INTO';
+    }
+
+    foreach ($selected as $table) {
+        $tableQ = $qi($table);
+
+        // --- 表结构 ---
+        $sql .= "-- -----------------------------------------------------------\n";
+        $sql .= "-- 表结构: {$table}\n";
+        $sql .= "-- -----------------------------------------------------------\n";
+
+        if ($isMysql) {
+            try {
+                $stmt = $db->query("SHOW CREATE TABLE {$tableQ}");
+                $row = $stmt->fetch(PDO::FETCH_ASSOC);
+                $createSql = $row['Create Table'] ?? '';
+                if ($createSql) {
+                    if ($mode === 'overwrite') {
+                        $sql .= "DROP TABLE IF EXISTS {$tableQ};\n\n{$createSql};\n\n";
+                    } else {
+                        // 合并模式：在 CREATE TABLE 后追加 IF NOT EXISTS，避免目标库已有表时报错。
+                        // 直接替换表名前缀即可保留完整列定义、索引、字符集等元数据。
+                        $createIf = preg_replace('/^\s*CREATE TABLE\s+(IF NOT EXISTS\s+)?/i', 'CREATE TABLE IF NOT EXISTS ', $createSql);
+                        $sql .= $createIf . ";\n\n";
+                    }
+                }
+            } catch (\Throwable $e) {
+                $sql .= "-- [警告] 无法获取 {$table} 的建表语句: " . $e->getMessage() . "\n\n";
+            }
+        } elseif ($isSqlite) {
+            try {
+                $stmt = $db->query("SELECT sql FROM sqlite_master WHERE type='table' AND name=" . $db->quote($table));
+                $row = $stmt->fetch(PDO::FETCH_ASSOC);
+                $createSql = $row['sql'] ?? '';
+                if ($createSql) {
+                    if ($mode === 'overwrite') {
+                        $sql .= "DROP TABLE IF EXISTS {$tableQ};\n\n{$createSql};\n\n";
+                    } else {
+                        $sql .= str_replace('CREATE TABLE ', 'CREATE TABLE IF NOT EXISTS ', $createSql) . ";\n\n";
+                    }
+                }
+            } catch (\Throwable $e) {
+                $sql .= "-- [警告] 无法获取 {$table} 的建表语句: " . $e->getMessage() . "\n\n";
+            }
+        } else {
+            $sql .= "-- [提示] 当前数据库类型不支持自动生成建表语句，请手动确保目标库已有此表\n\n";
+        }
+
+        // --- 表数据 ---
+        $sql .= "-- 数据: {$table}\n";
+        try {
+            $q = $db->query("SELECT * FROM {$tableQ}");
+            if ($q) {
+                $rows = $q->fetchAll(PDO::FETCH_ASSOC);
+                if (!empty($rows)) {
+                    $cols = array_keys($rows[0]);
+                    $colList = implode(', ', array_map($qi, $cols));
+                    $rowCount = 0;
+                    foreach ($rows as $row) {
+                        $values = [];
+                        foreach ($cols as $col) {
+                            $val = $row[$col];
+                            if ($val === null) {
+                                $values[] = 'NULL';
+                            } else {
+                                // 转义反斜杠、单引号与换行符：换行不转义会导致 INSERT 跨多行，
+                                // 导入端逐行解析时可能把内容行误判为注释/空行而截断语句
+                                $escaped = str_replace(["\\", "'", "\r", "\n"], ["\\\\", "\\'", "\\r", "\\n"], (string)$val);
+                                $values[] = "'" . $escaped . "'";
+                            }
+                        }
+                        $sql .= "{$insertVerb} {$tableQ} ({$colList}) VALUES (" . implode(', ', $values) . ");\n";
+                        $rowCount++;
+                    }
+                    $sql .= "-- 共 {$rowCount} 行\n\n";
+                } else {
+                    $sql .= "-- (空表)\n\n";
+                }
+            }
+        } catch (\Throwable $e) {
+            $sql .= "-- [错误] 读取 {$table} 数据失败: " . $e->getMessage() . "\n\n";
+        }
+    }
+
+    if (!$isSqlite) {
+        $sql .= "SET FOREIGN_KEY_CHECKS = 1;\n";
+    }
+    $sql .= "-- 备份完成 --\n";
+
+    return $sql;
+}
+
+/**
+ * 将选中的业务表导出为 SQL 并打包为 ZIP（含覆盖+合并两种模式 + uploads 目录）
+ */
 function exportDataSQL(array $whitelist, string $format = 'sql'): void {
     $requested = $_POST['tables'] ?? [];
     if (is_string($requested)) {
@@ -418,99 +534,11 @@ function exportDataSQL(array $whitelist, string $format = 'sql'): void {
     $isSqlite = $driver->isFileBased();
     $isMysql = !$isSqlite && (defined('DB_TYPE') && DB_TYPE === 'mysql');
 
-    $sql = "-- ============================================================\n";
-    $sql .= "-- 云界论坛 数据库备份\n";
-    $sql .= "-- 产品: yunjie-bbs | 版本: " . (defined('APP_VERSION') ? APP_VERSION : '') . "\n";
-    $sql .= "-- 导出时间: " . date('Y-m-d H:i:s') . "\n";
-    $sql .= "-- 数据库: " . ($isSqlite ? 'SQLite' : ($isMysql ? 'MySQL' : 'PDO')) . "\n";
-    $sql .= "-- ============================================================\n\n";
-    $sql .= "-- DB-TYPE: " . ($isSqlite ? 'sqlite' : ($isMysql ? 'mysql' : 'unknown')) . "\n";
-    $sql .= "SET NAMES utf8mb4;\n";
-    if (!$isSqlite) {
-        $sql .= "SET FOREIGN_KEY_CHECKS = 0;\n\n";
-    }
+    // 同时生成覆盖和合并两种模式的 SQL
+    $sqlOverwrite = generateSQLContent($selected, 'overwrite', $db, $driver, $isSqlite, $isMysql);
+    $sqlMerge     = generateSQLContent($selected, 'merge', $db, $driver, $isSqlite, $isMysql);
 
-    foreach ($selected as $table) {
-        $qi = function($n) use ($driver) { return $driver->quoteIdentifier($n); };
-        $tableQ = $qi($table);
-
-        // --- 表结构 ---
-        $sql .= "-- -----------------------------------------------------------\n";
-        $sql .= "-- 表结构: {$table}\n";
-        $sql .= "-- -----------------------------------------------------------\n";
-
-        if ($isMysql) {
-            // MySQL: SHOW CREATE TABLE
-            try {
-                $stmt = $db->query("SHOW CREATE TABLE {$tableQ}");
-                $row = $stmt->fetch(PDO::FETCH_ASSOC);
-                $createSql = $row['Create Table'] ?? '';
-                if ($createSql) {
-                    $sql .= "DROP TABLE IF EXISTS {$tableQ};\n\n{$createSql};\n\n";
-                }
-            } catch (\Throwable $e) {
-                $sql .= "-- [警告] 无法获取 {$table} 的建表语句: " . $e->getMessage() . "\n\n";
-            }
-        } elseif ($isSqlite) {
-            // SQLite: 从 sqlite_master 获取 CREATE 语句
-            try {
-                $stmt = $db->query("SELECT sql FROM sqlite_master WHERE type='table' AND name=" . $db->quote($table));
-                $row = $stmt->fetch(PDO::FETCH_ASSOC);
-                $createSql = $row['sql'] ?? '';
-                if ($createSql) {
-                    $sql .= "DROP TABLE IF EXISTS {$tableQ};\n\n{$createSql};\n\n";
-                }
-            } catch (\Throwable $e) {
-                $sql .= "-- [警告] 无法获取 {$table} 的建表语句: " . $e->getMessage() . "\n\n";
-            }
-        } else {
-            // PostgreSQL 或其他
-            $sql .= "-- [提示] 当前数据库类型不支持自动生成建表语句，请手动确保目标库已有此表\n\n";
-        }
-
-        // --- 表数据 ---
-        $sql .= "-- 数据: {$table}\n";
-        try {
-            $q = $db->query("SELECT * FROM {$tableQ}");
-            if ($q) {
-                $rows = $q->fetchAll(PDO::FETCH_ASSOC);
-                if (!empty($rows)) {
-                    $cols = array_keys($rows[0]);
-                    $colList = implode(', ', array_map($qi, $cols));
-                    $rowCount = 0;
-                    foreach ($rows as $row) {
-                        $values = [];
-                        foreach ($cols as $col) {
-                            $val = $row[$col];
-                            if ($val === null) {
-                                $values[] = 'NULL';
-                            } else {
-                                // 转义单引号和特殊字符
-                                $escaped = str_replace(["\\", "'"], ["\\\\", "\\'"], (string)$val);
-                                $values[] = "'" . $escaped . "'";
-                            }
-                        }
-                        $sql .= "INSERT INTO {$tableQ} ({$colList}) VALUES (" . implode(', ', $values) . ");\n";
-                        $rowCount++;
-                    }
-                    $sql .= "-- 共 {$rowCount} 行\n\n";
-                } else {
-                    $sql .= "-- (空表)\n\n";
-                }
-            }
-        } catch (\Throwable $e) {
-            $sql .= "-- [错误] 读取 {$table} 数据失败: " . $e->getMessage() . "\n\n";
-        }
-    }
-
-    if (!$isSqlite) {
-        $sql .= "SET FOREIGN_KEY_CHECKS = 1;\n";
-    }
-    $sql .= "-- 备份完成 --\n";
-
-    // ===== 打包为 ZIP（含 SQL 文件 + uploads 目录） =====
-    // 单独的 .sql 文件只包含数据库记录，不含头像等上传文件；
-    // 打包成 ZIP 可确保导入后头像/附件等资源完整还原。
+    // ===== 打包为 ZIP（含两个 SQL 文件 + uploads 目录） =====
     $siteName = defined('SITE_NAME') ? SITE_NAME : '云界论坛';
     $zipFilename = $siteName . '_数据库备份_' . date('Ymd_His') . '.zip';
     $asciiName  = 'yunjie_backup_' . date('Ymd_His') . '.zip';
@@ -521,7 +549,6 @@ function exportDataSQL(array $whitelist, string $format = 'sql'): void {
         echo safeJsonEncode(['success' => false, 'error' => t('admin_mig_zip_failed', '无法创建临时文件')]);
         return;
     }
-    // tempnam 创建了空文件，ZipArchive::OVERWRITE 需要删除它
     @unlink($tmpZip);
 
     $zip = new ZipArchive();
@@ -532,9 +559,11 @@ function exportDataSQL(array $whitelist, string $format = 'sql'): void {
         return;
     }
 
-    // 1) 写入 SQL 文件
-    $sqlName = 'database_backup.sql';
-    $zip->addFromString($sqlName, $sql);
+    // 1) 写入两个 SQL 文件（覆盖 + 合并）
+    $sqlOverwriteName = 'database_overwrite.sql';
+    $sqlMergeName     = 'database_merge.sql';
+    $zip->addFromString($sqlOverwriteName, $sqlOverwrite);
+    $zip->addFromString($sqlMergeName, $sqlMerge);
 
     // 2) 打包 uploads 目录（头像、图片等）
     $uploadsDir = defined('UPLOAD_PATH') ? UPLOAD_PATH : (ROOT_PATH . 'uploads' . DIRECTORY_SEPARATOR);
@@ -554,12 +583,24 @@ function exportDataSQL(array $whitelist, string $format = 'sql'): void {
         }
         // 在 ZIP 内写一个清单
         $zip->addFromString('manifest.json', json_encode([
-            'product'     => 'yunjie-bbs',
-            'version'     => defined('APP_VERSION') ? APP_VERSION : '',
-            'exported_at' => date('Y-m-d H:i:s'),
-            'db_type'     => $isSqlite ? 'sqlite' : ($isMysql ? 'mysql' : 'unknown'),
-            'sql_file'    => $sqlName,
-            'files_count' => $fileCount,
+            'product'       => 'yunjie-bbs',
+            'version'       => defined('APP_VERSION') ? APP_VERSION : '',
+            'exported_at'   => date('Y-m-d H:i:s'),
+            'db_type'       => $isSqlite ? 'sqlite' : ($isMysql ? 'mysql' : 'unknown'),
+            'sql_overwrite' => $sqlOverwriteName,
+            'sql_merge'     => $sqlMergeName,
+            'files_count'   => $fileCount,
+        ], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
+    } else {
+        // 无 uploads 目录时也写清单
+        $zip->addFromString('manifest.json', json_encode([
+            'product'       => 'yunjie-bbs',
+            'version'       => defined('APP_VERSION') ? APP_VERSION : '',
+            'exported_at'   => date('Y-m-d H:i:s'),
+            'db_type'       => $isSqlite ? 'sqlite' : ($isMysql ? 'mysql' : 'unknown'),
+            'sql_overwrite' => $sqlOverwriteName,
+            'sql_merge'     => $sqlMergeName,
+            'files_count'   => 0,
         ], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
     }
 
@@ -604,6 +645,21 @@ function detectFileDbType(string $raw, bool $isSql): ?string {
     if (isset($data['tables']) && is_array($data['tables'])) {
         // 通用 JSON 迁移文件但缺少 source_driver：无法判定，放行（导入时按当前库结构写入）
         return null;
+    }
+    return null;
+}
+
+/**
+ * 探测 SQL 迁移文件声明的导出模式
+ * 读取头部 -- MIG-MODE: merge|overwrite 注释
+ * 返回 'merge' | 'overwrite' | null（null 表示旧格式，默认按覆盖处理）
+ */
+function detectFileMigMode(string $sqlContent): ?string {
+    $head = explode("\n", $sqlContent, 80);
+    foreach ($head as $line) {
+        if (preg_match('/^--\s*MIG-MODE:\s*(merge|overwrite)\s*$/i', $line, $m)) {
+            return strtolower($m[1]);
+        }
     }
     return null;
 }
@@ -662,9 +718,10 @@ function importData(array $whitelist, string $format): void {
         return;
     }
 
-    // SQL 文件 → 直接执行
+    // SQL 文件 → 直接执行（支持覆盖/合并两种模式）
     if ($isSql) {
-        importSQL($raw);
+        $mode = ($_POST['mode'] ?? 'overwrite') === 'merge' ? 'merge' : 'overwrite';
+        importSQL($raw, [], $mode);
         return;
     }
 
@@ -680,17 +737,6 @@ function importData(array $whitelist, string $format): void {
     }
 
     $mode = ($_POST['mode'] ?? 'overwrite') === 'merge' ? 'merge' : 'overwrite';
-
-    // SQL/ZIP 迁移文件内部包含 DROP TABLE + CREATE TABLE，本质只能是覆盖导入，
-    // 合并模式（保留目标数据、跳过主键冲突）仅 JSON 格式支持。
-    if ($mode === 'merge' && $isSql) {
-        echo safeJsonEncode([
-            'success' => false,
-            'error'   => t('admin_mig_sqlzip_no_merge', 'SQL 迁移文件包含 DROP TABLE + CREATE TABLE 语句，不支持合并导入。如需保留目标数据并跳过主键冲突，请使用 JSON 格式迁移文件，或改用覆盖模式。'),
-        ]);
-        return;
-    }
-
     importJsonData($data, $mode, $whitelist);
 }
 
@@ -784,7 +830,13 @@ function importJsonData(array $data, string $mode, array $whitelist, string $sna
                 ['table' => 'user_medals', 'column' => 'awarded_by'],
             ],
         ],
-        // user_groups 仅通过 points 范围与用户关联，没有外键列，无需重映射下游引用。
+        // user_groups 通过 points 范围与用户关联，没有外键列直接引用，
+        // 但合并导入时可能因主键冲突产生重复组，需要按 name 唯一键复用。
+        'user_groups' => [
+            'pk' => 'id',
+            'unique' => ['name'],
+            'refs' => [],
+        ],
         'roles' => [
             'pk' => 'id',
             'refs' => [
@@ -1112,8 +1164,9 @@ function importJsonData(array $data, string $mode, array $whitelist, string $sna
 }
 
 /**
- * 清理已导入的重复分类/版块（合并导入因业务唯一键缺失导致的重复）。
+ * 清理已导入的重复分类/版块/帖子/回复（合并导入因业务唯一键缺失导致的重复）。
  * 保留每组重复项中 id 最小的记录，将其余记录下的子数据迁移到保留记录后删除。
+ * 清理完成后自动重新计算 users.posts_count，确保用户统计数据与实际帖子数一致。
  */
 function cleanupDuplicateForums(): void {
     $db = get_db();
@@ -1129,6 +1182,8 @@ function cleanupDuplicateForums(): void {
 
     $catMerged = 0;
     $forumMerged = 0;
+    $postMerged = 0;
+    $replyMerged = 0;
     $inTransaction = false;
 
     try {
@@ -1173,16 +1228,80 @@ function cleanupDuplicateForums(): void {
             $del->execute([$dupId]);
         }
 
+        // 3) 按 (user_id, forum_id, title, content) 合并重复帖子：保留最小 id
+        //    将重复帖子的回复迁移到保留帖子，更新保留帖子的回复数，然后删除重复帖子
+        $stmt = $db->query('SELECT id, user_id, forum_id, title, content FROM posts ORDER BY id ASC');
+        $allPosts = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $postKeyToKeepId = [];
+        $postIdsToDelete = [];
+        foreach ($allPosts as $post) {
+            $key = (int)$post['user_id'] . '|' . (int)($post['forum_id'] ?? 0) . '|' . (string)$post['title'] . '|' . (string)$post['content'];
+            $dupId = (int)$post['id'];
+            if (!isset($postKeyToKeepId[$key])) {
+                $postKeyToKeepId[$key] = $dupId;
+                continue;
+            }
+            $keepId = $postKeyToKeepId[$key];
+            // 将重复帖子的回复迁移到保留帖子
+            $updReply = $db->prepare('UPDATE replies SET post_id = ? WHERE post_id = ?');
+            $updReply->execute([$keepId, $dupId]);
+            $replyMerged += $updReply->rowCount();
+            // 将引用该帖子的收藏/举报也迁移
+            try { $db->prepare('UPDATE favorites SET post_id = ? WHERE post_id = ?')->execute([$keepId, $dupId]); } catch (\Throwable $e) {}
+            try { $db->prepare('UPDATE reports SET post_id = ? WHERE post_id = ?')->execute([$keepId, $dupId]); } catch (\Throwable $e) {}
+            $postIdsToDelete[] = $dupId;
+            $postMerged++;
+        }
+        // 批量删除重复帖子
+        if (!empty($postIdsToDelete)) {
+            $placeholders = implode(',', array_fill(0, count($postIdsToDelete), '?'));
+            $db->prepare('DELETE FROM posts WHERE id IN (' . $placeholders . ')')->execute($postIdsToDelete);
+        }
+
+        // 4) 按 (post_id, user_id, content) 合并重复回复：保留最小 id
+        $stmt = $db->query('SELECT id, post_id, user_id, content FROM replies ORDER BY id ASC');
+        $allReplies = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $replyKeyToKeepId = [];
+        $replyIdsToDelete = [];
+        foreach ($allReplies as $reply) {
+            $key = (int)$reply['post_id'] . '|' . (int)$reply['user_id'] . '|' . (string)$reply['content'];
+            $dupId = (int)$reply['id'];
+            if (!isset($replyKeyToKeepId[$key])) {
+                $replyKeyToKeepId[$key] = $dupId;
+                continue;
+            }
+            $keepId = $replyKeyToKeepId[$key];
+            // 将引用该回复的 reply_to 指向保留回复
+            try { $db->prepare('UPDATE replies SET reply_to = ? WHERE reply_to = ?')->execute([$keepId, $dupId]); } catch (\Throwable $e) {}
+            // 将引用该回复的举报也迁移
+            try { $db->prepare('UPDATE reports SET reply_id = ? WHERE reply_id = ?')->execute([$keepId, $dupId]); } catch (\Throwable $e) {}
+            $replyIdsToDelete[] = $dupId;
+            $replyMerged++;
+        }
+        // 批量删除重复回复
+        if (!empty($replyIdsToDelete)) {
+            $placeholders = implode(',', array_fill(0, count($replyIdsToDelete), '?'));
+            $db->prepare('DELETE FROM replies WHERE id IN (' . $placeholders . ')')->execute($replyIdsToDelete);
+        }
+
+        // 5) 重新计算所有用户的 posts_count，确保与实际帖子数一致
+        $db->exec('UPDATE users SET posts_count = (SELECT COUNT(*) FROM posts WHERE user_id = users.id)');
+
+        // 6) 重新计算所有帖子的 replies_count，确保与实际回复数一致
+        $db->exec('UPDATE posts SET replies_count = (SELECT COUNT(*) FROM replies WHERE post_id = posts.id)');
+
         $db->commit();
         $inTransaction = false;
 
         // 重置自增计数器
         try {
             if ($isSqlite) {
-                $db->exec("DELETE FROM sqlite_sequence WHERE name IN ('forum_categories', 'forums')");
+                $db->exec("DELETE FROM sqlite_sequence WHERE name IN ('forum_categories', 'forums', 'posts', 'replies')");
             } else {
                 $db->exec('ALTER TABLE ' . $driver->quoteIdentifier('forum_categories') . ' AUTO_INCREMENT = 1');
                 $db->exec('ALTER TABLE ' . $driver->quoteIdentifier('forums') . ' AUTO_INCREMENT = 1');
+                $db->exec('ALTER TABLE ' . $driver->quoteIdentifier('posts') . ' AUTO_INCREMENT = 1');
+                $db->exec('ALTER TABLE ' . $driver->quoteIdentifier('replies') . ' AUTO_INCREMENT = 1');
             }
         } catch (\Throwable $e) {
             // 忽略
@@ -1196,9 +1315,11 @@ function cleanupDuplicateForums(): void {
 
         echo safeJsonEncode([
             'success' => true,
-            'message' => t('admin_mig_cleanup_done', '已清理重复数据：合并 {c} 个重复分类、{f} 个重复版块下的关联内容。', ['c' => $catMerged, 'f' => $forumMerged]),
+            'message' => t('admin_mig_cleanup_done', '已清理重复数据：合并 {c} 个重复分类、{f} 个重复版块、{p} 个重复帖子、{r} 个重复回复，并已重新计算用户帖子统计。', ['c' => $catMerged, 'f' => $forumMerged, 'p' => $postMerged, 'r' => $replyMerged]),
             'cat_merged' => $catMerged,
             'forum_merged' => $forumMerged,
+            'post_merged' => $postMerged,
+            'reply_merged' => $replyMerged,
         ]);
     } catch (\Throwable $e) {
         if ($inTransaction) {
@@ -1304,8 +1425,8 @@ function insertRowReturningId(PDO $db, $driver, string $table, array $row, strin
 }
 
 /**
- * 规范化待导入的用户行：保证 username / email / password 非空，
- * 避免合并导入后出现「用户名/邮箱为空」的空白行。
+ * 规范化待导入的用户行：保证 username / email / password / uid 非空，
+ * 避免合并导入后出现「用户名/邮箱/UID 为空」的空白行。
  * 仅当字段为空时才生成占位值，已存在的合法值原样保留。
  */
 function normalizeUserImportRow(array $row): array {
@@ -1319,6 +1440,10 @@ function normalizeUserImportRow(array $row): array {
     }
     if (empty($row['password'])) {
         $row['password'] = password_hash(bin2hex(random_bytes(8)), PASSWORD_DEFAULT);
+    }
+    // uid 为 UNIQUE 列，NULL 或空值会导致显示异常（用户列表出现空白行）
+    if (!isset($row['uid']) || $row['uid'] === '' || $row['uid'] === null) {
+        $row['uid'] = (int)(is_numeric($row['id'] ?? null) ? $row['id'] : (int)substr(md5(serialize($row)), 0, 8));
     }
     return $row;
 }
@@ -1396,8 +1521,12 @@ function restoreForeignKeys(PDO $db, bool $isSqlite): void {
 
 /**
  * 执行 SQL 迁移文件导入（逐条执行，跳过注释和空行）
+ *
+ * @param string $sqlContent SQL 文件内容
+ * @param array  $whitelist  可迁移表白名单
+ * @param string $mode       导入模式：'overwrite'（覆盖）| 'merge'（合并）
  */
-function importSQL(string $sqlContent, array $whitelist = []): void {
+function importSQL(string $sqlContent, array $whitelist = [], string $mode = 'overwrite'): void {
     set_time_limit(600);
     startHeartbeat(); // 启用心跳，防止长时 SQL 导入被代理超时断连
 
@@ -1420,6 +1549,26 @@ function importSQL(string $sqlContent, array $whitelist = []): void {
     $driver = get_db_driver();
     $isSqlite = $driver->isFileBased();
 
+    // 合并模式：优先使用参数传入的模式（ZIP 导入时已根据用户选择选取了对应文件），
+    // 其次使用文件内声明的模式（独立 .sql 文件导入时兼容旧格式）
+    $fileMode = detectFileMigMode($sqlContent);
+    if ($mode === 'overwrite' && $fileMode !== null) {
+        // 参数为默认值且文件有声明，使用文件声明的模式
+        $mode = $fileMode;
+    }
+    $isMerge = ($mode === 'merge');
+
+    // 旧版 SQL 文件（无 -- MIG-MODE 标记）本质是覆盖格式：
+    // 若用户选择合并模式，提示改用覆盖模式，避免误以为合并实际冲突报错
+    if ($isMerge && $fileMode === null && preg_match('/^\s*DROP\s+TABLE\s+/im', $sqlContent)) {
+        restoreForeignKeys($db, $isSqlite);
+        echo safeJsonEncode([
+            'success' => false,
+            'error'   => t('admin_mig_sql_old_format_no_merge', '该 SQL 文件为旧版覆盖格式（无合并标记），不支持合并导入。请改用覆盖模式，或重新导出包含合并模式的 SQL 文件。'),
+        ]);
+        return;
+    }
+
     // 关闭外键约束
     if ($isSqlite) {
         $db->exec('PRAGMA foreign_keys = OFF;');
@@ -1430,21 +1579,75 @@ function importSQL(string $sqlContent, array $whitelist = []): void {
     $lines = explode("\n", str_replace("\r\n", "\n", $sqlContent));
     $currentStmt = '';
     $executedCount = 0;
+    $skippedCount = 0; // 合并模式下跳过的 DROP TABLE 语句数
     $errorMessages = [];
+    $failedStatements = []; // 记录失败语句原文（用于诊断）
+    $hasDDL = false; // 是否包含 DDL 语句（DROP/CREATE/ALTER），DDL 在 MySQL 中会隐式提交事务
+
+    // 预扫描：检测是否包含 DDL 语句
+    foreach ($lines as $line) {
+        $t = trim($line);
+        if ($t !== '' && $t[0] !== '-' && $t[0] !== '#') {
+            if (preg_match('/^\s*(DROP\s+TABLE|CREATE\s+TABLE|ALTER\s+TABLE)/i', $t)) {
+                $hasDDL = true;
+                break;
+            }
+        }
+    }
+
+    // 不含 DDL 的 SQL（纯 INSERT）可以用事务保护，出错时自动回滚
+    $useTransaction = !$hasDDL;
+    $inTransaction = false;
+
+    if ($useTransaction) {
+        try {
+            $db->beginTransaction();
+            $inTransaction = true;
+        } catch (\Throwable $e) {
+            // 事务开启失败则继续无事务模式
+        }
+    }
 
     try {
+        // 引号感知分句器：逐字符跟踪单引号/双引号/反引号的闭合状态，
+        // 只有不在任何字符串内且行尾为分号才结束语句。
+        // 这样即使备份文件未转义换行（旧格式），字符串内的行尾分号也不会截断语句，
+        // 避免 MySQL 报 "near ''" 语法错误。
+        $inSQuote = false; // 单引号字符串内
+        $inDQuote = false; // 双引号字符串内
+        $inBQuote = false; // 反引号标识符内
+        $escaped = false;  // 上一字符是反斜杠（转义状态，跨行延续）
         foreach ($lines as $lineNum => $line) {
             $trimmed = trim($line);
 
-            // 跳过空行和纯注释
-            if ($trimmed === '' || $trimmed[0] === '-' || $trimmed[0] === '#') {
+            // 语句未开始时：跳过空行和纯注释行；
+            // 语句进行中（currentStmt 非空）：即使行以 --/# 开头或为空行也累加，
+            // 因为多行 INSERT 的内容可能包含以 -- 开头的正文行，跳过会截断语句
+            if ($currentStmt === '' && ($trimmed === '' || $trimmed[0] === '-' || $trimmed[0] === '#')) {
                 continue;
             }
 
             $currentStmt .= $line . "\n";
 
-            // 以分号结尾 → 执行
-            if (substr(trim($trimmed), -1) === ';') {
+            // 扫描本行字符，更新引号/转义状态
+            $lineLen = strlen($line);
+            for ($i = 0; $i < $lineLen; $i++) {
+                $ch = $line[$i];
+                if ($escaped) {
+                    $escaped = false;
+                    continue;
+                }
+                if ($ch === '\\') {
+                    $escaped = true;
+                    continue;
+                }
+                if (!$inDQuote && !$inBQuote && $ch === "'") { $inSQuote = !$inSQuote; continue; }
+                if (!$inSQuote && !$inBQuote && $ch === '"') { $inDQuote = !$inDQuote; continue; }
+                if (!$inSQuote && !$inDQuote && $ch === '`') { $inBQuote = !$inBQuote; continue; }
+            }
+
+            // 不在任何字符串内且行尾为分号 → 语句结束
+            if (!$inSQuote && !$inDQuote && !$inBQuote && substr($trimmed, -1) === ';') {
                 $stmtSql = trim($currentStmt);
                 $currentStmt = '';
 
@@ -1453,29 +1656,101 @@ function importSQL(string $sqlContent, array $whitelist = []): void {
                     continue;
                 }
 
+                // 合并模式：跳过 DROP TABLE 语句（保留目标库已有数据）
+                if ($isMerge && preg_match('/^\s*DROP\s+TABLE\s+/i', $stmtSql)) {
+                    $skippedCount++;
+                    continue;
+                }
+
                 try {
                     $db->exec($stmtSql);
                     $executedCount++;
                     heartbeat(20); // 每执行 20 条 SQL 发送一次心跳
                 } catch (\Throwable $e) {
+                    // 记录失败语句原文（截断到 500 字节），便于诊断 "near ''" 的真实原因
+                    $failedSql = (strlen($stmtSql) > 500) ? (substr($stmtSql, 0, 500) . '...') : $stmtSql;
+                    error_log('[MIGRATION] SQL exec failed at line ' . ($lineNum + 1) . ': ' . $e->getMessage() . ' | SQL: ' . $failedSql);
                     $errorMessages[] = 'Line ' . ($lineNum + 1) . ': ' . $e->getMessage();
+                    $failedStatements[] = $failedSql;
                 }
+            }
+        }
+
+        // 文件末尾仍有未执行语句（最后一行无分号或旧文件被截断）：
+        // 引号闭合则补执行，否则报告错误提示
+        if ($currentStmt !== '') {
+            if (!$inSQuote && !$inDQuote && !$inBQuote) {
+                $stmtSql = trim($currentStmt);
+                $currentStmt = '';
+                if ($stmtSql !== '') {
+                    try {
+                        $db->exec($stmtSql);
+                        $executedCount++;
+                    } catch (\Throwable $e) {
+                        $failedSql = (strlen($stmtSql) > 500) ? (substr($stmtSql, 0, 500) . '...') : $stmtSql;
+                        error_log('[MIGRATION] SQL tail statement failed: ' . $e->getMessage() . ' | SQL: ' . $failedSql);
+                        $errorMessages[] = t('admin_mig_sql_tail_error', '文件末尾语句执行失败：') . $e->getMessage();
+                        $failedStatements[] = $failedSql;
+                    }
+                }
+            } else {
+                $errorMessages[] = t('admin_mig_sql_unclosed', '文件末尾存在未闭合的引号（语句被截断），请检查备份文件。');
             }
         }
 
         // 恢复外键
         restoreForeignKeys($db, $isSqlite);
 
-        echo safeJsonEncode([
-            'success'         => !empty($errorMessages) ? false : true,
+        // 纯 INSERT 模式：无错误则提交，有错误则回滚
+        if ($useTransaction && $inTransaction) {
+            if (empty($errorMessages)) {
+                $db->commit();
+            } else {
+                $db->rollBack();
+            }
+            $inTransaction = false;
+        }
+
+        $hasErrors = !empty($errorMessages);
+        $response = [
+            'success'         => !$hasErrors,
             'total_executed'  => $executedCount,
             'errors'          => $errorMessages,
             'snapshot'        => $snapshotName,
-            'message'         => empty($errorMessages)
-                ? t('admin_mig_sql_import_done', 'SQL 导入完成，共执行 {n} 条语句。', ['n' => $executedCount])
-                : t('admin_mig_sql_import_partial', 'SQL 导入部分成功（{n} 条执行），{c} 条出错。', ['n' => $executedCount, 'c' => count($errorMessages)]),
-        ]);
+        ];
+        if ($isMerge) {
+            $response['skipped_drop'] = $skippedCount;
+        }
+        if (!empty($failedStatements)) {
+            $response['failed_statements'] = array_slice($failedStatements, 0, 10);
+        }
+        if (empty($errorMessages)) {
+            $msg = t('admin_mig_sql_import_done', 'SQL 导入完成，共执行 {n} 条语句。', ['n' => $executedCount]);
+            if ($isMerge && $skippedCount > 0) {
+                $msg .= ' ' . t('admin_mig_sql_merge_skipped', '合并模式：已跳过 {n} 条 DROP TABLE 语句，保留目标库已有数据。', ['n' => $skippedCount]);
+            }
+            $response['message'] = $msg;
+        } else {
+            $msg = t('admin_mig_sql_import_partial', 'SQL 导入部分成功（{n} 条执行），{c} 条出错。', ['n' => $executedCount, 'c' => count($errorMessages)]);
+            // 含 DDL 的 SQL 无法回滚，提示用户从快照恢复
+            if ($hasDDL) {
+                $msg .= ' ' . t('admin_mig_sql_ddl_no_rollback', '由于包含建表/删表语句无法自动回滚，建议从快照恢复以确保数据一致性。');
+            } else {
+                $msg .= ' ' . t('admin_mig_sql_rolled_back', '已自动回滚所有更改。');
+            }
+            $response['message'] = $msg;
+            // 前端失败分支显示 error 字段，这里同步填充（附前 5 条错误详情）
+            $response['error'] = $msg;
+            if (!empty($errorMessages)) {
+                $response['error'] .= ' ' . t('admin_mig_sql_errors_detail', '错误详情：') . implode(' | ', array_slice($errorMessages, 0, 5));
+            }
+        }
+        echo safeJsonEncode($response);
     } catch (\Throwable $e) {
+        // 事务模式下自动回滚
+        if ($useTransaction && $inTransaction) {
+            try { $db->rollBack(); } catch (\Throwable $e2) {}
+        }
         restoreForeignKeys($db, $isSqlite);
         echo safeJsonEncode([
             'success' => false,
@@ -1539,30 +1814,10 @@ function importZipBackup(string $tmpPath, array $whitelist, string $format): voi
         return;
     }
 
-    // ===== 1) 还原上传文件（uploads/ → 项目 uploads/） =====
-    $restoredFiles = 0;
-    $uploadsSrc = $tmpExtract . 'uploads';
+    // ===== 1) 先判断 ZIP 内是 JSON 迁移文件还是 SQL 迁移文件（先不还原文件） =====
+    // 原则：先成功导入数据库，再还原上传文件，避免数据库导入失败时文件已无法回滚。
     $uploadsDest = defined('UPLOAD_PATH') ? UPLOAD_PATH : (ROOT_PATH . 'uploads' . DIRECTORY_SEPARATOR);
-    if (is_dir($uploadsSrc)) {
-        $iterator = new RecursiveIteratorIterator(
-            new RecursiveDirectoryIterator($uploadsSrc, RecursiveDirectoryIterator::SKIP_DOTS),
-            RecursiveIteratorIterator::LEAVES_ONLY
-        );
-        $baseLen = strlen(rtrim($uploadsSrc, DIRECTORY_SEPARATOR)) + 1;
-        foreach ($iterator as $file) {
-            if ($file->isFile()) {
-                $relative = substr($file->getPathname(), $baseLen);
-                $targetDir = dirname($uploadsDest . $relative);
-                if (!is_dir($targetDir)) { mkdir($targetDir, 0755, true); }
-                if (copy($file->getPathname(), $uploadsDest . $relative)) {
-                    $restoredFiles++;
-                    heartbeat(50); // 每还原 50 个上传文件发送一次心跳
-                }
-            }
-        }
-    }
-
-    // ===== 2) 判断 ZIP 内是 JSON 迁移文件还是 SQL 迁移文件 =====
+    $restoredFiles = 0;
     $jsonFile = null;
     $jsonCandidates = glob($tmpExtract . '*.json');
     foreach ($jsonCandidates as $candidate) {
@@ -1580,17 +1835,19 @@ function importZipBackup(string $tmpPath, array $whitelist, string $format): voi
     // 如果有 JSON 迁移文件，按 JSON 方式导入（支持合并/覆盖）
     if ($jsonFile !== null && is_file($jsonFile)) {
         $raw = file_get_contents($jsonFile);
-        removeDirRecursive($tmpExtract);
         if ($raw === false || $raw === '') {
+            removeDirRecursive($tmpExtract);
             echo safeJsonEncode(['success' => false, 'error' => t('admin_mig_file_read_failed', '无法读取 JSON 文件')]);
             return;
         }
         $data = json_decode($raw, true);
         if (!is_array($data)) {
+            removeDirRecursive($tmpExtract);
             echo safeJsonEncode(['success' => false, 'error' => t('admin_mig_json_invalid', 'ZIP 内的迁移文件不是有效的 JSON 数据')]);
             return;
         }
         if (($data['format'] ?? '') !== $format) {
+            removeDirRecursive($tmpExtract);
             echo safeJsonEncode(['success' => false, 'error' => t('admin_mig_format_mismatch', 'ZIP 内迁移文件格式不匹配')]);
             return;
         }
@@ -1600,6 +1857,7 @@ function importZipBackup(string $tmpPath, array $whitelist, string $format): voi
         $currentType = $driver->isFileBased() ? 'sqlite' : 'mysql';
         $fileDbType = detectFileDbType($raw, false);
         if ($fileDbType !== null && $fileDbType !== 'unknown' && $fileDbType !== $currentType) {
+            removeDirRecursive($tmpExtract);
             echo safeJsonEncode([
                 'success' => false,
                 'error'   => t('admin_mig_cross_db_blocked',
@@ -1610,15 +1868,37 @@ function importZipBackup(string $tmpPath, array $whitelist, string $format): voi
         }
 
         $mode = ($_POST['mode'] ?? 'overwrite') === 'merge' ? 'merge' : 'overwrite';
-        importJsonData($data, $mode, $whitelist);
+        // 先导入数据库（成功），再还原上传文件，避免数据库导入失败时文件已无法回滚
+        importJsonDataWithFileRestore($data, $mode, $whitelist, $tmpExtract, $uploadsDest, $restoredFiles);
         return;
     }
 
-    // ===== 3) 无 JSON 则查找 SQL 文件 =====
+    // ===== 2) 无 JSON 则查找 SQL 文件 =====
+    // 根据用户选择的模式，优先选择对应的 SQL 文件
+    $mode = ($_POST['mode'] ?? 'overwrite') === 'merge' ? 'merge' : 'overwrite';
     $sqlFile = null;
     $candidates = glob($tmpExtract . '*.sql');
     if (!empty($candidates)) {
-        $sqlFile = reset($candidates); // 取第一个 .sql 文件
+        // 优先按模式匹配文件名（database_merge.sql / database_overwrite.sql）
+        $preferredName = $mode === 'merge' ? 'database_merge.sql' : 'database_overwrite.sql';
+        foreach ($candidates as $candidate) {
+            if (basename($candidate) === $preferredName) {
+                $sqlFile = $candidate;
+                break;
+            }
+        }
+        // 如果没找到匹配模式的文件，回退到旧版单文件名或任意 .sql 文件
+        if ($sqlFile === null) {
+            foreach ($candidates as $candidate) {
+                if (basename($candidate) === 'database_backup.sql') {
+                    $sqlFile = $candidate;
+                    break;
+                }
+            }
+        }
+        if ($sqlFile === null) {
+            $sqlFile = reset($candidates);
+        }
     }
     if ($sqlFile === null || !is_file($sqlFile)) {
         removeDirRecursive($tmpExtract);
@@ -1652,11 +1932,98 @@ function importZipBackup(string $tmpPath, array $whitelist, string $format): voi
         return;
     }
 
-    // 清理临时目录（SQL 已读入内存）
-    removeDirRecursive($tmpExtract);
+    // 先执行 SQL 导入（成功），再还原上传文件
+    importSQLWithFileRestore($sqlContent, $whitelist, $tmpExtract, $uploadsDest, $restoredFiles, $mode);
+}
 
-    // 执行 SQL 导入（复用 importSQL，它会创建快照 + 执行语句）
-    importSQL($sqlContent, $whitelist);
+/**
+ * 还原上传文件（从解压临时目录 → 项目 uploads/）
+ * 仅在数据库导入成功后调用，避免数据库导入失败时文件已无法回滚。
+ */
+function restoreUploadsFromExtract(string $tmpExtract, string $uploadsDest, int &$restoredFiles): void {
+    $uploadsSrc = $tmpExtract . 'uploads';
+    if (!is_dir($uploadsSrc)) {
+        return;
+    }
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($uploadsSrc, RecursiveDirectoryIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::LEAVES_ONLY
+    );
+    $baseLen = strlen(rtrim($uploadsSrc, DIRECTORY_SEPARATOR)) + 1;
+    foreach ($iterator as $file) {
+        if ($file->isFile()) {
+            $relative = substr($file->getPathname(), $baseLen);
+            $targetDir = dirname($uploadsDest . $relative);
+            if (!is_dir($targetDir)) { mkdir($targetDir, 0755, true); }
+            if (copy($file->getPathname(), $uploadsDest . $relative)) {
+                $restoredFiles++;
+                heartbeat(50);
+            }
+        }
+    }
+}
+
+/**
+ * JSON 导入 + 成功后还原上传文件（包装 importJsonData）
+ * 通过输出缓冲捕获 importJsonData 的 JSON 响应，判断是否成功后再还原文件。
+ */
+function importJsonDataWithFileRestore(array $data, string $mode, array $whitelist, string $tmpExtract, string $uploadsDest, int $alreadyRestored = 0): void {
+    $restoredFiles = $alreadyRestored;
+    // 设置捕获模式：阻止 startHeartbeat() 清除输出缓冲
+    $GLOBALS['_mig_capture_mode'] = true;
+    ob_start();
+    importJsonData($data, $mode, $whitelist);
+    $output = ob_get_clean();
+    $GLOBALS['_mig_capture_mode'] = false;
+
+    // 剥离心跳保持活字节（heartbeat() 输出的空白行），确保 JSON 解析正确
+    $cleanOutput = trim(preg_replace('/^\s+$/m', '', $output));
+
+    // 判断导入是否成功
+    $result = json_decode($cleanOutput, true);
+    $success = is_array($result) && !empty($result['success']);
+
+    // 无论成功与否都输出原始响应
+    echo $output;
+
+    // 仅在数据库导入成功后还原上传文件
+    if ($success) {
+        restoreUploadsFromExtract($tmpExtract, $uploadsDest, $restoredFiles);
+    }
+
+    // 清理临时目录
+    removeDirRecursive($tmpExtract);
+}
+
+/**
+ * SQL 导入 + 成功后还原上传文件（包装 importSQL）
+ */
+function importSQLWithFileRestore(string $sqlContent, array $whitelist, string $tmpExtract, string $uploadsDest, int $alreadyRestored = 0, string $mode = 'overwrite'): void {
+    $restoredFiles = $alreadyRestored;
+    // 设置捕获模式：阻止 startHeartbeat() 清除输出缓冲
+    $GLOBALS['_mig_capture_mode'] = true;
+    ob_start();
+    importSQL($sqlContent, $whitelist, $mode);
+    $output = ob_get_clean();
+    $GLOBALS['_mig_capture_mode'] = false;
+
+    // 剥离心跳保持活字节，确保 JSON 解析正确
+    $cleanOutput = trim(preg_replace('/^\s+$/m', '', $output));
+
+    // 判断导入是否成功
+    $result = json_decode($cleanOutput, true);
+    $success = is_array($result) && !empty($result['success']);
+
+    // 无论成功与否都输出原始响应
+    echo $output;
+
+    // 仅在数据库导入成功后还原上传文件
+    if ($success) {
+        restoreUploadsFromExtract($tmpExtract, $uploadsDest, $restoredFiles);
+    }
+
+    // 清理临时目录
+    removeDirRecursive($tmpExtract);
 }
 
 /**

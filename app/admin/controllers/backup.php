@@ -361,6 +361,22 @@ if ($flash): ?>
     <span id="backup-toast-text"></span>
 </div>
 
+<!-- 恢复进度模态框 -->
+<div class="modal-overlay" id="restore-progress-modal" style="display:none;z-index:11000;">
+    <div class="modal-box" style="max-width:420px;">
+        <div class="modal-header">
+            <h3 class="modal-title"><?php echo e(t('admin_backup_js_restore_progress_title', '正在恢复备份')); ?></h3>
+        </div>
+        <div class="modal-body" style="padding:1.5rem 1.25rem;">
+            <p style="margin:0 0 1rem;color:var(--text-muted);"><?php echo e(t('admin_backup_js_restore_progress_desc', '请勿关闭或刷新页面，恢复完成后将自动刷新。')); ?></p>
+            <div class="backup-progress-track">
+                <div class="backup-progress-bar" id="restore-progress-bar"></div>
+            </div>
+            <div class="backup-progress-status" id="restore-progress-status"><?php echo e(t('admin_backup_js_restore_progress_step', '正在执行恢复操作...')); ?></div>
+        </div>
+    </div>
+</div>
+
 <style>
 /* === 备份页面专用样式 === */
 .backup-status-banner {
@@ -544,7 +560,7 @@ if ($flash): ?>
 .backup-size-current { font-weight: 600; color: var(--text); }
 .backup-size-orig { font-size: 0.75rem; color: var(--text-muted); }
 .backup-cell-desc { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.backup-cell-actions { white-space: nowrap; text-align: right; }
+.backup-cell-actions { white-space: nowrap; text-align: right; min-width: 180px; }
 .backup-action-btn {
     padding: 0.3rem 0.55rem !important;
     font-size: 0.75rem !important;
@@ -589,6 +605,32 @@ if ($flash): ?>
 .backup-toast.is-success { border-left: 4px solid #10b981; }
 .backup-toast.is-error { border-left: 4px solid #ef4444; }
 .backup-toast.is-info { border-left: 4px solid var(--primary); }
+
+/* 恢复进度条 */
+.backup-progress-track {
+    width: 100%;
+    height: 8px;
+    background: var(--border);
+    border-radius: 999px;
+    overflow: hidden;
+    margin-bottom: 0.75rem;
+}
+.backup-progress-bar {
+    width: 30%;
+    height: 100%;
+    background: linear-gradient(90deg, var(--primary), #8b5cf6);
+    border-radius: 999px;
+    animation: backup-progress-move 1.5s ease-in-out infinite;
+}
+@keyframes backup-progress-move {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(400%); }
+}
+.backup-progress-status {
+    text-align: center;
+    font-size: 0.8125rem;
+    color: var(--text-muted);
+}
 
 /* 行操作中的状态 */
 .backup-table tbody tr.is-processing { opacity: 0.6; pointer-events: none; }
@@ -779,6 +821,9 @@ if ($flash): ?>
                 <?php echo json_encode(t('admin_backup_js_restore_warn', '恢复将覆盖当前数据库的所有数据。系统会先自动创建一个"恢复前快照"作为安全网。恢复完成后建议刷新页面。')); ?>,
                 function () {
                     row.classList.add('is-restoring');
+                    // 显示恢复进度模态框，防止用户重复操作并明确进度
+                    var progressModal = document.getElementById('restore-progress-modal');
+                    if (progressModal) progressModal.style.display = 'flex';
                     var formData = new FormData();
                     formData.append('action', 'restore');
                     formData.append('csrf_token', csrfToken);
@@ -796,9 +841,10 @@ if ($flash): ?>
                             } else {
                                 showToast(<?php echo json_encode(t('admin_backup_js_restore_failed', '恢复失败：')); ?> + (res.error || <?php echo json_encode(t('admin_backup_js_unknown_error', '未知错误')); ?>), 'error');
                                 row.classList.remove('is-restoring');
+                                if (progressModal) progressModal.style.display = 'none';
                             }
                         })
-                        .catch(function () { showToast(<?php echo json_encode(t('admin_backup_js_network_restore_fail', '网络错误，恢复失败。')); ?>, 'error'); row.classList.remove('is-restoring'); });
+                        .catch(function () { showToast(<?php echo json_encode(t('admin_backup_js_network_restore_fail', '网络错误，恢复失败。')); ?>, 'error'); row.classList.remove('is-restoring'); if (progressModal) progressModal.style.display = 'none'; });
                 }
             );
         });

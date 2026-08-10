@@ -40,6 +40,8 @@ if ($action === 'init') {
             $result = captcha_click_challenge($cap);
         } elseif ($testType === 'swap') {
             $result = captcha_swap_challenge($cap);
+        } elseif ($testType === 'letter') {
+            $result = captcha_letter_challenge($cap);
         } else {
             $result = captcha_slider_challenge($cap);
         }
@@ -53,6 +55,8 @@ if ($action === 'init') {
             $result = captcha_click_challenge($cap);
         } elseif ($testType === 'swap') {
             $result = captcha_swap_challenge($cap);
+        } elseif ($testType === 'letter') {
+            $result = captcha_letter_challenge($cap);
         } else {
             $result = captcha_slider_challenge($cap);
         }
@@ -72,6 +76,11 @@ if ($action === 'init') {
     $order = is_array($_POST['order'] ?? null) ? $_POST['order'] : [];
     $token = $_SESSION['captcha']['token'] ?? '';
     $result = captcha_swap_verify($token, $order);
+    $sessionCaptcha = $_SESSION['captcha'];
+} elseif ($action === 'verify_letter') {
+    $input = $_POST['input'] ?? '';
+    $token = $_SESSION['captcha']['token'] ?? '';
+    $result = captcha_letter_verify($token, $input);
     $sessionCaptcha = $_SESSION['captcha'];
 }
 
@@ -103,7 +112,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
         <tr><td style="padding:4px 12px 4px 0;width:140px;color:var(--text-muted);"><?php echo e(t('debug_captcha_enabled', '验证码开关')); ?></td>
             <td><span class="badge <?php echo $captchaEnabled ? 'badge-success' : 'badge-muted'; ?>"><?php echo $captchaEnabled ? t('common_on', '开启') : t('common_off', '关闭'); ?></span></td></tr>
         <tr><td style="padding:4px 12px 4px 0;color:var(--text-muted);"><?php echo e(t('debug_captcha_style', '验证方式')); ?></td>
-            <td><strong><?php echo e($captchaStyle); ?></strong> <span class="text-muted">(<?php echo $captchaStyle === 'slider' ? '拼图' : ($captchaStyle === 'click' ? '点文字' : ($captchaStyle === 'swap' ? '推理交换' : '智能混合')); ?>)</span></td></tr>
+            <td><strong><?php echo e($captchaStyle); ?></strong> <span class="text-muted">(<?php echo $captchaStyle === 'slider' ? '拼图' : ($captchaStyle === 'click' ? '点文字' : ($captchaStyle === 'swap' ? '推理交换' : ($captchaStyle === 'letter' ? '图片字母' : '智能混合'))); ?>)</span></td></tr>
         <tr><td style="padding:4px 12px 4px 0;color:var(--text-muted);"><?php echo e(t('debug_mode', '调试模式')); ?></td>
             <td><span class="badge <?php echo $debugMode ? 'badge-warning' : 'badge-muted'; ?>"><?php echo $debugMode ? t('debug_on', '已开启（前端旁路）') : t('debug_off', '未开启'); ?></span></td></tr>
         <tr><td style="padding:4px 12px 4px 0;color:var(--text-muted);">Session Token</td>
@@ -147,6 +156,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
                     <option value="slider" <?php echo ($_POST['type'] ?? '') === 'slider' ? 'selected' : ''; ?>><?php echo e(t('debug_type_slider', '拼图滑块')); ?></option>
                     <option value="click" <?php echo ($_POST['type'] ?? '') === 'click' ? 'selected' : ''; ?>><?php echo e(t('debug_type_click', '点文字')); ?></option>
                     <option value="swap" <?php echo ($_POST['type'] ?? '') === 'swap' ? 'selected' : ''; ?>><?php echo e(t('debug_type_swap', '推理交换')); ?></option>
+                    <option value="letter" <?php echo ($_POST['type'] ?? '') === 'letter' ? 'selected' : ''; ?>><?php echo e(t('debug_type_letter', '图片字母')); ?></option>
                 </select>
             </div>
             <input type="hidden" name="csrf_token" value="<?php echo csrf_token(); ?>">
@@ -166,6 +176,13 @@ require_once dirname(__DIR__) . '/layout/header.php';
             <input type="hidden" name="action" value="force_challenge">
             <input type="hidden" name="type" value="swap">
             <button type="submit" class="btn btn-secondary btn-sm" style="width:100%;">&#9654; <?php echo e(t('debug_force_swap', '强制下发推理交换挑战')); ?></button>
+        </form>
+
+        <form method="POST" style="margin-top:0.5rem;">
+            <input type="hidden" name="csrf_token" value="<?php echo csrf_token(); ?>">
+            <input type="hidden" name="action" value="force_challenge">
+            <input type="hidden" name="type" value="letter">
+            <button type="submit" class="btn btn-secondary btn-sm" style="width:100%;">&#9654; <?php echo e(t('debug_force_letter', '强制下发图片字母挑战')); ?></button>
         </form>
     </div>
 
@@ -338,6 +355,60 @@ require_once dirname(__DIR__) . '/layout/header.php';
         <?php endif; ?>
 
         <?php if ($action === 'verify_swap' && !empty($result)): ?>
+        <div class="alert <?php echo !empty($result['ok']) ? 'alert-success' : 'alert-error'; ?>" style="margin-top:0.5rem;">
+            <?php echo !empty($result['ok']) ? '&#10003; ' . e(t('debug_verify_pass', '验证通过')) : '&#10007; ' . e(t('debug_verify_fail', '验证失败')); ?>
+        </div>
+        <?php endif; ?>
+    </div>
+    <?php elseif ($action === 'force_challenge' && $testType === 'letter' && !empty($result) && empty($result['ok'])): ?>
+    <!-- 图片字母预览 -->
+    <div class="card" style="margin-bottom:1rem;">
+        <h3 style="margin-top:0;"><?php echo e(t('debug_letter_preview', '图片字母预览')); ?></h3>
+        <p class="text-muted" style="font-size:13px;margin-bottom:0.5rem;">
+            <?php echo e(t('debug_answer', '正确答案')); ?>: <code><?php echo e(implode('', $sessionCaptcha['answer'] ?? [])); ?></code>
+            &nbsp;|&nbsp;
+            <?php echo e(t('debug_letter_len', '字符数')); ?>: <strong><?php echo (int)($result['length'] ?? 0); ?></strong>
+        </p>
+
+        <!-- 真实图片展示 -->
+        <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--surface-2);margin-bottom:0.75rem;">
+            <img src="<?php echo e($result['bg_b64'] ?? ''); ?>" alt="letter captcha" style="display:block;width:100%;height:auto;">
+        </div>
+
+        <!-- 手动输入验证 -->
+        <form method="POST" style="display:flex;gap:0.5rem;align-items:flex-end;">
+            <input type="hidden" name="csrf_token" value="<?php echo csrf_token(); ?>">
+            <input type="hidden" name="action" value="verify_letter">
+            <div class="form-group" style="margin-bottom:0;flex:1;">
+                <label class="form-label" style="font-size:13px;"><?php echo e(t('debug_enter_letter', '输入图中的字符')); ?></label>
+                <input type="text" name="input" class="form-control form-control-sm" placeholder="<?php echo e(implode('', $sessionCaptcha['answer'] ?? [])); ?>" value="<?php echo e(implode('', $sessionCaptcha['answer'] ?? [])); ?>" style="max-width:200px;">
+            </div>
+            <?php if (($sessionCaptcha['mode'] ?? '') === 'letter'): ?>
+            <button type="submit" class="btn btn-primary btn-sm"><?php echo e(t('debug_verify', '校验')); ?></button>
+            <?php else: ?>
+            <span class="text-muted" style="font-size:12px;"><?php echo e(t('debug_need_letter_first', '需先下发图片字母挑战')); ?></span>
+            <?php endif; ?>
+        </form>
+
+        <!-- 快捷测试按钮 -->
+        <?php if (($sessionCaptcha['mode'] ?? '') === 'letter'): ?>
+        <div style="margin-top:0.75rem;display:flex;gap:0.5rem;flex-wrap:wrap;">
+            <form method="POST" style="display:inline;">
+                <input type="hidden" name="csrf_token" value="<?php echo csrf_token(); ?>">
+                <input type="hidden" name="action" value="verify_letter">
+                <input type="hidden" name="input" value="<?php echo e(implode('', $sessionCaptcha['answer'] ?? [])); ?>">
+                <button type="submit" class="btn btn-success btn-sm">&#10003; <?php echo e(t('debug_test_correct', '测试正确输入')); ?></button>
+            </form>
+            <form method="POST" style="display:inline;">
+                <input type="hidden" name="csrf_token" value="<?php echo csrf_token(); ?>">
+                <input type="hidden" name="action" value="verify_letter">
+                <input type="hidden" name="input" value="WRONG">
+                <button type="submit" class="btn btn-error btn-sm">&#10007; <?php echo e(t('debug_test_wrong', '测试错误输入')); ?></button>
+            </form>
+        </div>
+        <?php endif; ?>
+
+        <?php if ($action === 'verify_letter' && !empty($result)): ?>
         <div class="alert <?php echo !empty($result['ok']) ? 'alert-success' : 'alert-error'; ?>" style="margin-top:0.5rem;">
             <?php echo !empty($result['ok']) ? '&#10003; ' . e(t('debug_verify_pass', '验证通过')) : '&#10007; ' . e(t('debug_verify_fail', '验证失败')); ?>
         </div>

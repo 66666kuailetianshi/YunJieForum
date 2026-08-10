@@ -340,6 +340,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
                     else if (res.error === 'no_package_hash') msg = '<?php echo e(t('update_no_package_hash', '更新包缺少哈希校验值（package_hash）。为安全起见默认禁止无校验更新。请在 version.json 中加入 package_hash（sha256 值）后重试，或在「更新设置」中开启「跳过哈希校验」。')); ?>';
                     else if (res.error === 'hash_mismatch') msg = '<?php echo e(t('update_hash_fail', '更新包校验失败（哈希不匹配），已自动取消以保障安全。')); ?>';
                     else if (res.error === 'backup_failed') msg = '<?php echo e(t('update_backup_err', '更新前备份失败，已取消更新以防数据丢失。')); ?>';
+                    else if (res.error && res.error.indexOf('check_failed') === 0) msg = '<?php echo e(t('update_check_failed', '检查更新失败（网络错误或更新源不可用）：')); ?>' + escapeHtml((res.error || '').replace('check_failed: ', ''));
                     else msg += '：' + escapeHtml(res.error || '');
                     if (res.hint) msg += '<br><small style="color:var(--text-muted);word-break:break-word">' + escapeHtml(res.hint) + '</small>';
                     if (res.backup) msg += '<br><?php echo e(t('update_backup_kept', '已保留备份')); ?>：' + escapeHtml(res.backup.split(/[\\/]/).pop()) + '';

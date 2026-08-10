@@ -117,7 +117,7 @@ function admin_menu_icon(string $key): string {
     <link rel="stylesheet" href="/public/css/base.css?v=<?php echo e(APP_VERSION); ?>-ui3">
     <link rel="stylesheet" href="/public/css/utilities.css?v=<?php echo e(APP_VERSION); ?>-ui3">
     <link rel="stylesheet" href="/public/css/dark.css?v=<?php echo e(APP_VERSION); ?>-ui3">
-    <link rel="stylesheet" href="/public/css/header.css?v=<?php echo e(APP_VERSION); ?>-ui2">
+    <link rel="stylesheet" href="/public/css/header.css?v=<?php echo e(APP_VERSION); ?>-ui3">
     <link rel="icon" type="image/x-icon" href="/favicon.ico">
 </head>
 <body>

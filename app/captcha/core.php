@@ -58,6 +58,10 @@ const SWAP_CAPTCHA_ROWS       = 2;
 const SWAP_CAPTCHA_PAD        = 2;
 const SWAP_CAPTCHA_GAP        = 3;
 
+/* ==================== 图片字母验证参数 ==================== */
+const LETTER_CAPTCHA_WIDTH    = 300;
+const LETTER_CAPTCHA_HEIGHT   = 150;
+
 /* ==================== 抗绕过安全增强 ==================== */
 const CAPTCHA_POW_DEFAULT_BITS = 3;   // 默认可选 3（约 4096 次哈希，人类瞬时，机器人昂贵）
 const CAPTCHA_HONEYPOT_LEN     = 10;
@@ -562,14 +566,14 @@ function captcha_check(string $token, array $signals, bool $refresh = false): ar
 
     $style = captcha_style();
     if ($style === 'auto') {
-        // 启用轮换时随机选一种；升级时强制滑块（位置型对机器人最难）
-        $styles = captcha_rotation_enabled() ? ['slider', 'click', 'swap'] : ['slider'];
+        // 启用轮换时随机选一种（含图片字母验证）；升级时强制滑块（位置型对机器人最难）
+        $styles = captcha_rotation_enabled() ? ['slider', 'click', 'swap', 'letter'] : ['slider'];
         if ($escalate) {
             $styles = ['slider'];
         }
         $style = $styles[random_int(0, count($styles) - 1)];
     } elseif ($escalate && $style !== 'slider') {
-        // 升级时即便配置了 click/swap 也回落到 slider
+        // 升级时即便配置了 click/swap/letter 也回落到 slider
         $style = 'slider';
     }
     if ($style === 'click') {
@@ -577,6 +581,9 @@ function captcha_check(string $token, array $signals, bool $refresh = false): ar
     }
     if ($style === 'swap') {
         return captcha_swap_challenge($cap);
+    }
+    if ($style === 'letter') {
+        return captcha_letter_challenge($cap);
     }
     return captcha_slider_challenge($cap);
 }
@@ -805,7 +812,7 @@ function captcha_style(): string {
         return 'slider';
     }
     $v = get_site_setting('captcha_style', 'slider');
-    return in_array($v, ['slider', 'click', 'swap', 'auto'], true) ? $v : 'slider';
+    return in_array($v, ['slider', 'click', 'swap', 'letter', 'auto'], true) ? $v : 'slider';
 }
 
 /**
@@ -857,6 +864,50 @@ function captcha_click_word_count(): array {
         return [4, 4];
     }
     return [CAPTCHA_CLICK_ANSWER_WORDS_MIN, CAPTCHA_CLICK_ANSWER_WORDS_MAX];
+}
+
+/**
+ * 图片字母验证参数（按难度区分）
+ *
+ * 简单：4 位大写字母+数字（去除易混淆字符）、小角度旋转、少量干扰线/噪点
+ * 普通：5 位大小写字母+数字、中等旋转与干扰
+ * 困难：6 位大小写字母+数字、大角度旋转、多干扰线与噪点
+ *
+ * 字符集刻意剔除 I/l/1/O/0 等易混淆字符，保证人机都容易辨认。
+ */
+function captcha_letter_params(): array {
+    $d = captcha_difficulty();
+    if ($d === 'easy') {
+        return [
+            'len'      => 4,
+            'charset'  => 'ABCDEFGHJKMNPQRSTUVWXYZ23456789', // 仅大写+数字，最易辨认
+            'angle'    => 12,   // 最大旋转角度（度）
+            'lines'    => 3,    // 干扰线数量
+            'dots'     => 50,   // 噪点数量
+            'size_min' => 30,
+            'size_max' => 36,
+        ];
+    }
+    if ($d === 'hard') {
+        return [
+            'len'      => 6,
+            'charset'  => 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789',
+            'angle'    => 30,
+            'lines'    => 9,
+            'dots'     => 200,
+            'size_min' => 24,
+            'size_max' => 38,
+        ];
+    }
+    return [
+        'len'      => 5,
+        'charset'  => 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789',
+        'angle'    => 22,
+        'lines'    => 6,
+        'dots'     => 110,
+        'size_min' => 26,
+        'size_max' => 36,
+    ];
 }
 
 /**
@@ -1104,8 +1155,170 @@ function captcha_click_verify(string $token, $seq, ?string $powNonce = null): ar
 }
 
 /**
- * 滑块拖拽松手后的即时校验：|x - gap| <= 容差 则标记已通过
+ * 使用 GD 生成图片字母验证码（传统输入式验证码）
+ *
+ * - 浅色渐变背景 + 干扰线/噪点 + 逐字符扭曲旋转绘制
+ * - 字符集由 captcha_letter_params() 按难度决定
+ * - 返回 base64 data URL 供前端 <img> 直接使用
  */
+function letter_captcha_image(string $code, array $params): string {
+    $w = LETTER_CAPTCHA_WIDTH;
+    $h = LETTER_CAPTCHA_HEIGHT;
+    $img = imagecreatetruecolor($w, $h);
+
+    // 背景：浅色随机渐变（保证深色字母可读）
+    $bgR = random_int(232, 250);
+    $bgG = random_int(232, 250);
+    $bgB = random_int(232, 250);
+    for ($y = 0; $y < $h; $y++) {
+        $ratio = $y / max(1, $h - 1);
+        $color = imagecolorallocate($img, (int)($bgR - $ratio * 28), (int)($bgG - $ratio * 18), (int)($bgB - $ratio * 24));
+        imageline($img, 0, $y, $w - 1, $y, $color);
+    }
+
+    // 干扰线（直线 + 正弦波浪线，绘制在字母下层）
+    for ($i = 0; $i < $params['lines']; $i++) {
+        $c = imagecolorallocatealpha($img, random_int(70, 190), random_int(70, 190), random_int(70, 190), random_int(20, 60));
+        if (random_int(0, 1)) {
+            imageline($img, random_int(0, $w), random_int(0, $h), random_int(0, $w), random_int(0, $h), $c);
+        } else {
+            $yBase = random_int(12, $h - 12);
+            $amp = random_int(4, 14);
+            $freq = random_int(2, 4);
+            $phase = random_int(0, 628) / 100;
+            $prevX = 0;
+            $prevY = $yBase + $amp * sin($phase);
+            for ($x = 4; $x <= $w; $x += 4) {
+                $curY = $yBase + $amp * sin($x / $w * $freq * 2 * M_PI + $phase);
+                imageline($img, $prevX, (int)$prevY, $x, (int)$curY, $c);
+                $prevX = $x;
+                $prevY = $curY;
+            }
+        }
+    }
+
+    // 噪点
+    for ($i = 0; $i < $params['dots']; $i++) {
+        $c = imagecolorallocatealpha($img, random_int(0, 255), random_int(0, 255), random_int(0, 255), random_int(0, 100));
+        imagesetpixel($img, random_int(0, $w - 1), random_int(0, $h - 1), $c);
+    }
+
+    // 字体：优先项目内置字体（若已放置），其次常见系统字体（Windows/Linux），兜底 GD 内置字体
+    $fontCandidates = [
+        __DIR__ . '/fonts/chinese.ttf',
+        __DIR__ . '/fonts/SourceHanSansSC-Regular.otf',
+        'C:/Windows/Fonts/arialbd.ttf',
+        'C:/Windows/Fonts/segoeuib.ttf',
+        '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+    ];
+    $font = '';
+    foreach ($fontCandidates as $fc) {
+        if (file_exists($fc)) {
+            $font = $fc;
+            break;
+        }
+    }
+
+    // 逐字符绘制：随机字号、旋转角、深色系颜色（保证可读性）
+    $palette = [
+        [40, 42, 90], [110, 35, 60], [25, 80, 120], [90, 70, 25], [55, 30, 95], [20, 90, 75],
+    ];
+    $total = strlen($code);
+    $charW = (int)(($w - 48) / $total);
+    for ($i = 0; $i < $total; $i++) {
+        $ch = $code[$i];
+        $size = random_int($params['size_min'], $params['size_max']);
+        $angle = random_int(-$params['angle'], $params['angle']);
+        $pc = $palette[random_int(0, count($palette) - 1)];
+        $color = imagecolorallocate($img, $pc[0], $pc[1], $pc[2]);
+        // 横向均匀分布 + 随机抖动；纵向居中 + 上下抖动
+        $x = 24 + $i * $charW + random_int(0, max(0, $charW - (int)($size * 0.75)));
+        $y = (int)($h / 2) + random_int(-14, 14);
+        if ($font !== '' && function_exists('imagettftext')) {
+            imagettftext($img, $size, $angle, $x, $y, $color, $font, $ch);
+        } else {
+            imagestring($img, 5, $x, $y - 8, $ch, $color);
+        }
+    }
+
+    // 字母上层轻量抗 AI 噪声（不遮挡可读性）
+    captcha_anti_ai_noise($img, $w, $h, 12);
+
+    ob_start();
+    imagepng($img);
+    $b64 = base64_encode(ob_get_clean());
+    imagedestroy($img);
+    return 'data:image/png;base64,' . $b64;
+}
+
+/**
+ * 下发图片字母挑战（传统输入式验证码）
+ *
+ * - 按难度生成字符序列（长度/字符集/干扰强度均随难度变化）
+ * - 答案存 Session（小写化，校验时不区分大小写）
+ */
+function captcha_letter_challenge(array $cap): array {
+    $params = captcha_letter_params();
+    $charset = $params['charset'];
+    $code = '';
+    for ($i = 0, $n = $params['len']; $i < $n; $i++) {
+        $code .= $charset[random_int(0, strlen($charset) - 1)];
+    }
+
+    $cap['mode']    = 'letter';
+    $cap['answer']  = strtolower($code); // 大小写不敏感校验
+    $cap['attempts'] = 0;
+    $_SESSION['captcha'] = $cap;
+
+    return [
+        'ok'        => false,
+        'challenge' => 'letter',
+        'bg_b64'    => letter_captcha_image($code, $params),
+        'length'    => $params['len'],
+        'width'     => LETTER_CAPTCHA_WIDTH,
+        'height'    => LETTER_CAPTCHA_HEIGHT,
+    ];
+}
+
+/**
+ * 图片字母校验：用户输入与答案一致（不区分大小写、忽略空白）则通过
+ */
+function captcha_letter_verify(string $token, $input, ?string $powNonce = null): array {
+    $cap = $_SESSION['captcha'] ?? null;
+    if (!is_array($cap) || ($cap['token'] ?? '') !== $token) {
+        return ['ok' => false, 'reason' => 'invalid_token'];
+    }
+    if (($cap['expires'] ?? 0) < time()) {
+        unset($_SESSION['captcha']);
+        return ['ok' => false, 'reason' => 'expired'];
+    }
+    if (($cap['mode'] ?? '') !== 'letter') {
+        return ['ok' => false, 'reason' => 'mode_mismatch'];
+    }
+    if (($cap['sig'] ?? '') !== captcha_token_sig($token)) {
+        unset($_SESSION['captcha']);
+        return ['ok' => false, 'reason' => 'invalid_token'];
+    }
+    // PoW 校验（软失败：仅记录不阻断）
+    if (!captcha_verify_pow($cap['pow'] ?? null, $powNonce)) {
+        // PoW 失败不拒绝，继续走后续校验
+    }
+
+    // 清理输入：忽略空白、限制长度、大小写不敏感
+    $got = strtolower(preg_replace('/\s+/', '', (string)$input));
+    $got = substr($got, 0, 10);
+    if ($got !== '' && $got === strtolower((string)($cap['answer'] ?? ''))) {
+        $cap['passed'] = true;
+        $_SESSION['captcha'] = $cap;
+        return ['ok' => true];
+    }
+
+    $cap['attempts'] = ($cap['attempts'] ?? 0) + 1;
+    captcha_rl_hit();
+    $_SESSION['captcha'] = $cap;
+    return ['ok' => false, 'reason' => 'wrong_answer'];
+}
+
 /**
  * 校验拼图滑块拖拽位置是否对齐缺口（含机器人行为风控）
  *

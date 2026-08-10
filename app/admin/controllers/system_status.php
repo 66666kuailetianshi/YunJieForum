@@ -728,6 +728,9 @@ $dbSize = defined('DB_FILE') && is_file(DB_FILE) ? (int)filesize(DB_FILE) : 0;
                     '</div></div>';
             }
             setIfChanged(el.diskPartitions, 'disks', disksHtml, true);
+        } else {
+            // 空列表（Docker overlay 挂载被过滤等）：显示空态而非停留在“正在加载”
+            setIfChanged(el.diskPartitions, 'disks', '<p class="text-muted text-center py-2">' + <?php echo json_encode(t('admin_sys_no_disk_part', '未能获取磁盘分区信息。')); ?> + '</p>', true);
         }
 
         // 系统负载平均值

@@ -93,7 +93,7 @@ if (function_exists('get_db_driver')) {
     </div>
     <div class="mig-body">
         <p class="form-hint mig-import-hint">
-            <?php echo e(t('admin_mig_import_hint', '选择此前导出的迁移文件（支持 .json、.sql 和 .zip），选择导入模式后点击"开始导入"。导入前会自动创建快照。注意：系统会自动校验文件来源数据库类型，禁止在不同数据库类型之间迁移。.zip 格式包含完整的上传文件（头像等），推荐用于完整迁移。')); ?>
+            <?php echo e(t('admin_mig_import_hint', '选择此前导出的迁移文件（支持 .json、.sql 和 .zip），选择导入模式后点击“开始导入”。导入前会自动创建快照。注意：系统会自动校验文件来源数据库类型，禁止在不同数据库类型之间迁移。.zip 格式包含完整的上传文件（头像等），推荐用于完整迁移。SQL 格式同时包含覆盖和合并两种模式，导入时自动根据所选模式匹配对应文件。')); ?>
         </p>
         <div class="mig-import-form">
             <div class="form-group">
@@ -118,11 +118,11 @@ if (function_exists('get_db_driver')) {
         </div>
         <div class="mig-cleanup-bar">
             <p class="form-hint mig-cleanup-hint">
-                <?php echo e(t('admin_mig_cleanup_hint', '如果合并导入后发现首页出现重复的分类或版块，可点击右侧按钮一键合并重复项：保留最早创建的一条，将其余重复项下的版块/帖子归并到保留项后删除。')); ?>
+                <?php echo e(t('admin_mig_cleanup_hint', '如果合并导入后发现首页出现重复的分类、版块、帖子或回复，可点击右侧按钮一键合并重复项：保留最早创建的一条，将其余重复项下的关联数据归并到保留项后删除，并自动重新计算用户帖子统计。')); ?>
             </p>
             <button type="button" class="btn btn-secondary" id="mig-cleanup-btn">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;vertical-align:-3px;"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
-                <?php echo e(t('admin_mig_cleanup_btn', '清理重复分类/版块')); ?>
+                <?php echo e(t('admin_mig_cleanup_btn', '清理重复数据')); ?>
             </button>
         </div>
         <div class="mig-import-footer">
@@ -400,9 +400,9 @@ if (function_exists('get_db_driver')) {
     });
 
     // ===== 导入模式随文件类型联动 =====
-    // .sql 文件内部包含 DROP TABLE + CREATE TABLE，只能覆盖导入；
-    // .json 文件支持"合并"与"覆盖"两种模式；
-    // .zip 文件内部可能是 SQL（仅覆盖）或 JSON（支持合并），由后端根据实际内容判断。
+    // .sql 文件支持覆盖/合并两种模式（合并模式通过 -- MIG-MODE: merge 头部控制，跳过 DROP TABLE）；
+    // .json 文件支持“合并”与“覆盖”两种模式；
+    // .zip 文件内部可能是 SQL（覆盖/合并）或 JSON（支持合并），由后端根据实际内容判断。
     var fileInputForMode = document.getElementById('mig-file');
     var mergeRadio = document.querySelector('input[name=mig_mode][value=merge]');
     var overwriteRadio = document.querySelector('input[name=mig_mode][value=overwrite]');
@@ -410,19 +410,20 @@ if (function_exists('get_db_driver')) {
     modeFileTip.className = 'form-hint';
     modeFileTip.style.cssText = 'color:#991b1b;margin-top:0.5rem;display:none;';
     document.querySelector('.mig-mode-options').after(modeFileTip);
-
+    
     function updateModeByFile() {
         var name = (fileInputForMode.files && fileInputForMode.files[0] && fileInputForMode.files[0].name) || '';
         var ext = name.split('.').pop().toLowerCase();
         if (ext === 'sql') {
-            mergeRadio.disabled = true;
-            if (mergeRadio.checked) overwriteRadio.checked = true;
+            mergeRadio.disabled = false;
             modeFileTip.style.display = '';
-            modeFileTip.textContent = '<?php echo e(t('admin_mig_sql_merge_disabled', 'SQL 格式包含 DROP TABLE + CREATE TABLE，仅支持覆盖导入，合并选项已自动禁用。')); ?>';
+            modeFileTip.textContent = '<?php echo e(t('admin_mig_sql_merge_enabled', 'SQL 文件支持覆盖/合并两种模式。合并模式将跳过 DROP TABLE 语句，保留目标库已有数据，并使用 INSERT IGNORE 跳过主键冲突。')); ?>';
+            modeFileTip.style.color = '#15803d';
         } else if (ext === 'zip') {
             mergeRadio.disabled = false;
             modeFileTip.style.display = '';
-            modeFileTip.textContent = '<?php echo e(t('admin_mig_zip_merge_hint', 'ZIP 文件若内含 JSON 迁移文件可合并导入；若内含 SQL 文件则只能覆盖导入，系统会自动判断。')); ?>';
+            modeFileTip.textContent = '<?php echo e(t('admin_mig_zip_merge_hint', 'ZIP 文件同时包含覆盖和合并两种 SQL（或 JSON），导入时系统会根据您选择的模式自动匹配对应文件。')); ?>';
+            modeFileTip.style.color = '#15803d';
         } else {
             mergeRadio.disabled = false;
             modeFileTip.style.display = 'none';
@@ -528,7 +529,29 @@ if (function_exists('get_db_driver')) {
                 if (!res.success) {
                     hideProgress(false);
                     resultBox.className = 'mig-import-result is-error';
-                    var html = escapeHtml(res.error || '<?php echo e(t('admin_mig_import_failed', '导入失败')); ?>');
+                    // 优先显示 error 字段，其次 message（SQL 部分失败时带具体错误）
+                    var html = escapeHtml(res.error || res.message || '<?php echo e(t('admin_mig_import_failed', '导入失败')); ?>');
+                    // 显示详细错误列表：error 字段已附带前 5 条时仅补显剩余条目，避免重复展示造成视觉重叠
+                    if (res.errors && res.errors.length) {
+                        var errOffset = (res.error && res.errors.length > 5) ? 5 : 0;
+                        var restErrors = res.errors.slice(errOffset);
+                        if (restErrors.length) {
+                            html += '<div class="mig-result-table" style="margin-top:0.5rem;">';
+                            restErrors.slice(0, 20).forEach(function (err) {
+                                html += escapeHtml(err) + '<br>';
+                            });
+                            html += '</div>';
+                        }
+                    }
+                    // 显示失败 SQL 原文（前 10 条），便于定位 "near ''" 被截断位置
+                    if (res.failed_statements && res.failed_statements.length) {
+                        html += '<details style="margin-top:0.5rem;"><summary style="cursor:pointer;color:var(--text-muted);"><?php echo e(t('admin_mig_failed_statements', '查看失败 SQL 原文（用于诊断）')); ?></summary>';
+                        html += '<pre style="margin-top:0.5rem;padding:0.5rem;background:var(--surface-3);border-radius:4px;white-space:pre-wrap;word-break:break-all;font-size:0.75rem;">';
+                        res.failed_statements.forEach(function (stmt) {
+                            html += escapeHtml(stmt) + "\n\n";
+                        });
+                        html += '</pre></details>';
+                    }
                     if (res.snapshot) html += '<div class="mig-result-snapshot"><?php echo e(t('admin_mig_snapshot_created', '已创建导入前快照：')); ?>' + escapeHtml(res.snapshot) + '</div>';
                     resultBox.innerHTML = html;
                     resultBox.style.display = '';
@@ -583,7 +606,7 @@ if (function_exists('get_db_driver')) {
     // ===== 清理重复分类/版块 =====
     var cleanupBtn = document.getElementById('mig-cleanup-btn');
     cleanupBtn.addEventListener('click', function () {
-        if (!confirm('<?php echo e(t('admin_mig_cleanup_confirm', '确定要合并重复的分类/版块吗？此操作会保留每组重复项中最早创建的一条，并将其余重复项下的帖子/版块迁移到保留项。建议先创建备份。')); ?>')) return;
+        if (!confirm('<?php echo e(t('admin_mig_cleanup_confirm', '确定要合并重复的分类/版块/帖子/回复吗？此操作会保留每组重复项中最早创建的一条，并将其余重复项下的关联数据迁移到保留项，并自动重新计算用户帖子统计。建议先创建备份。')); ?>')) return;
         var orig = cleanupBtn.innerHTML;
         cleanupBtn.disabled = true;
         cleanupBtn.innerHTML = '<?php echo e(t('admin_mig_cleaning', '清理中…')); ?>';

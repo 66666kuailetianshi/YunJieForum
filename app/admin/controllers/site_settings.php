@@ -101,9 +101,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && validate_csrf()) {
             $captchaEnabled = !empty($_POST['captcha_enabled']) ? '1' : '0';
             set_site_setting('captcha_enabled', $captchaEnabled);
             set_site_setting('slider_captcha_enabled', $captchaEnabled);
-            // 验证方式：拼图 / 点文字 / 推理交换 / 智能混合
+            // 验证方式：拼图 / 点文字 / 推理交换 / 图片字母 / 智能混合
             $captchaStyle = $_POST['captcha_style'] ?? 'slider';
-            if (!in_array($captchaStyle, ['slider', 'click', 'swap', 'auto'], true)) {
+            if (!in_array($captchaStyle, ['slider', 'click', 'swap', 'letter', 'auto'], true)) {
                 $captchaStyle = 'slider';
             }
             set_site_setting('captcha_style', $captchaStyle);
@@ -229,9 +229,10 @@ if ($flash): ?>
                 <option value="slider" <?php echo $captchaStyle === 'slider' ? 'selected' : ''; ?>><?php echo e(t('settings_captcha_slider', '拼图验证（拖拽滑块对齐缺口）')); ?></option>
                 <option value="click" <?php echo $captchaStyle === 'click' ? 'selected' : ''; ?>><?php echo e(t('settings_captcha_click', '点文字验证（按顺序点击文字）')); ?></option>
                 <option value="swap" <?php echo $captchaStyle === 'swap' ? 'selected' : ''; ?>><?php echo e(t('settings_captcha_swap', '推理交换验证（交换图块复原图片）')); ?></option>
+                <option value="letter" <?php echo $captchaStyle === 'letter' ? 'selected' : ''; ?>><?php echo e(t('settings_captcha_letter', '图片字母验证（输入图中的字符）')); ?></option>
                 <option value="auto" <?php echo $captchaStyle === 'auto' ? 'selected' : ''; ?>><?php echo e(t('settings_captcha_auto', '智能混合（随机切换两种）')); ?></option>
             </select>
-            <p class="form-hint"><?php echo e(t('settings_captcha_style_hint', '拼图验证：拖动拼图块与缺口对齐；点文字验证：按提示词顺序依次点击候选字；推理交换：拖动交换打乱的图块使其恢复完整。智能混合会在多种验证间随机切换，安全性与体验的平衡更好。')); ?></p>
+            <p class="form-hint"><?php echo e(t('settings_captcha_style_hint', '拼图验证：拖动拼图块与缺口对齐；点文字验证：按提示词顺序依次点击候选字；推理交换：拖动交换打乱的图块使其恢复完整；图片字母：输入图片中显示的字符。智能混合会在多种验证间随机切换，安全性与体验的平衡更好。')); ?></p>
             <label class="form-label" for="captcha_display" style="margin-top: 0.75rem;"><?php echo e(t('settings_captcha_display', '显示方式')); ?></label>
             <select class="form-control" id="captcha_display" name="captcha_display">
                 <option value="inline" <?php echo $captchaDisplay === 'inline' ? 'selected' : ''; ?>><?php echo e(t('settings_captcha_display_inline', '内嵌式（验证框直接显示在表单中）')); ?></option>

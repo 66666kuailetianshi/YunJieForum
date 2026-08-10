@@ -419,7 +419,8 @@ if (!defined('SS_ALLOW_SUBPROCESS')) define('SS_ALLOW_SUBPROCESS', false);
  * - SS_ALLOW_SUBPROCESS 为 false（默认）：
  *     Windows 下若 FFI 与 COM 均不可用，则自动回退允许子进程采集，
  *     保证系统信息页在 PHP 7.3（无 FFI）且未加载 com_dotnet 的环境下仍能显示数据；
- *     Linux 下默认不允许子进程（/proc 文件系统已覆盖绝大多数场景）。
+ *     Linux 下若 shell_exec 可用则允许子进程（/proc 文件系统覆盖核心数据，
+ *     但 GPU/硬盘型号/内存条/IP 地址等增强信息依赖 lspci/lsblk/dmidecode/ip 等只读命令）。
  */
 function ss_subprocess_allowed(): bool {
     if (SS_ALLOW_SUBPROCESS) return true;
@@ -427,6 +428,11 @@ function ss_subprocess_allowed(): bool {
     // 注意：FFI 只能读取内存/运行时间/CPU 核数等少量数据，无法读取硬盘型号、内存条、
     // 显卡、主板等硬件信息（这些只有 WMI 才能提供），因此即使 FFI 可用也需要子进程兜底。
     if (ss_os_type() === 'windows' && !ss_com_available()) {
+        return true;
+    }
+    // Linux：lspci/lsblk/dmidecode/sensors/ip 均为只读命令且通常无需 root（dmidecode 除外），
+    // shell_exec 未被禁用即可执行；被禁用或 open_basedir 限制时保持禁用，仅返回 /proc、/sys 数据。
+    if (ss_os_type() === 'linux' && ss_shell_enabled()) {
         return true;
     }
     return false;
@@ -1814,9 +1820,11 @@ function ss_get_memory_banks(): array {
             $lines = explode("\n", $output);
             $bank = [];
             foreach ($lines as $line) {
-                if (preg_match('/^\s*Size:\s*(\d+)\s*MB/i', $line, $m)) {
+                // dmidecode 大容量内存条输出 GB 单位（如 "Size: 16 GB"），需同时支持 MB/GB
+                if (preg_match('/^\s*Size:\s*([\d.]+)\s*(MB|GB)/i', $line, $m)) {
                     if (!empty($bank)) $list[] = $bank;
-                    $bank = ['capacity' => (int)$m[1] * 1048576, 'slot' => '', 'speed' => 0, 'model' => ''];
+                    $mult = strtoupper($m[2]) === 'GB' ? 1073741824 : 1048576;
+                    $bank = ['capacity' => (int)round((float)$m[1] * $mult), 'slot' => '', 'speed' => 0, 'model' => ''];
                 } elseif (preg_match('/^\s*Locator:\s*(.+)/i', $line, $m) && !empty($bank)) {
                     $bank['slot'] = trim($m[1]);
                 } elseif (preg_match('/^\s*Speed:\s*(\d+)\s*MHz/i', $line, $m) && !empty($bank)) {
@@ -3039,7 +3047,8 @@ function ss_get_gpu_info(): array {
                         'ram_formatted' => t('admin_ajax_shared_or_unknown', '共享/未知'),
                         'driver' => '',
                         'processor' => '',
-                        'is_integrated' => true,
+                        // 与 Windows 分支一致：按名称关键词判断集显/独显，避免独显被误标为集成
+                        'is_integrated' => ss_gpu_name_looks_integrated($name),
                     ];
                 }
             }
@@ -3509,9 +3518,9 @@ function ss_get_network_interfaces(): array {
                         $mac = trim((string)@file_get_contents($macFile));
                     }
 
-                    // 尝试获取 IP
+                    // 尝试获取 IP（用 awk/cut 替代 grep -oP，兼容 BusyBox 等精简环境）
                     $ip = '--';
-                    $ipOutput = ss_shell_exec("ip -4 addr show $name 2>/dev/null | grep -oP 'inet \\K[\\d.]+'");
+                    $ipOutput = ss_shell_exec("ip -4 addr show $name 2>/dev/null | grep 'inet ' | awk '{print \$2}' | cut -d/ -f1 | head -n1");
                     if (!empty($ipOutput)) {
                         $ip = trim($ipOutput);
                     }
@@ -3620,7 +3629,11 @@ if ($wantDiag || $wantDebug) {
         'ffi_init_error' => $ffiInitError,
     ];
 
-    // 测试 PowerShell 子进程兜底（FFI/COM 均不可用时的唯一采集途径）
+    // 测试 PowerShell 子进程兜底（Windows 下 FFI/COM 均不可用时的唯一采集途径）
+    if (ss_os_type() === 'linux') {
+        // Linux 无 PowerShell：跳过测试，避免显示误导性失败提示
+        $diag['ps_test'] = ['output' => null, 'note' => 'N/A (Linux: 使用 /proc、/sys 与只读命令采集)'];
+    } else {
     $psOut = ss_ps_run(t('admin_api_system_status_ajax_edc586','\'PowerShell\\:采集通道测试OK\''));
     if ($psOut !== null) {
         $diag['ps_test']['output'] = $psOut;
@@ -3639,6 +3652,7 @@ if ($wantDiag || $wantDebug) {
             'output' => null,
             'note' => t('admin_ajax_ss_shell_disabled', 'FAILED：shell_exec 被禁用、PowerShell 不在 PATH 或子进程被禁止。请检查 disable_functions 与 php.ini。'),
         ];
+    }
     }
 
     // 测试 FFI 是否能正常调用

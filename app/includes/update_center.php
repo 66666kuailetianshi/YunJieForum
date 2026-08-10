@@ -421,7 +421,18 @@ if (!function_exists('uc_get_current_version')) {
         uc_progress_write(['stage' => 'preparing', 'stage_label' => 'preparing', 'progress' => 0, 'total' => 0, 'downloaded' => 0, 'message' => '', 'error' => null, 'done' => false]);
 
         $check = uc_check_for_update();
-        if (!empty($check['success']) && empty($check['update_available'])) {
+        // 区分「检查失败（网络错误等）」与「确实无更新」
+        if (empty($check['success'])) {
+            // 检查接口本身失败（网络错误、源未配置等），不应误报为「无更新」
+            uc_progress_write(['stage' => 'error', 'stage_label' => 'error', 'progress' => 0, 'total' => 0, 'downloaded' => 0, 'message' => '', 'error' => 'check_failed: ' . ($check['error'] ?? 'unknown'), 'done' => true]);
+            return [
+                'success' => false,
+                'error'   => 'check_failed: ' . ($check['error'] ?? 'unknown'),
+                'current' => $check['current'] ?? '',
+                'latest'  => $check['latest'] ?? '',
+            ];
+        }
+        if (empty($check['update_available'])) {
             uc_progress_write(['stage' => 'error', 'stage_label' => 'error', 'progress' => 0, 'total' => 0, 'downloaded' => 0, 'message' => '', 'error' => 'no_update_available', 'done' => true]);
             return [
                 'success' => false,

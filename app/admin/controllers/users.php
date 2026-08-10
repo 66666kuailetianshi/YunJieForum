@@ -746,6 +746,16 @@ require_once dirname(__DIR__) . '/layout/header.php';
                     return;
                 }
 
+                // 安全检查：如果 AJAX 返回的用户数远少于初始渲染行数（且无筛选条件），
+                // 可能是服务端异常，保留当前 DOM 避免表格突然变空/出现大片空白
+                var initialRowCount = <?php echo count($users); ?>;
+                if (initialRowCount > 1 && users.length < initialRowCount
+                    && currentSearch === '' && currentStatus === '' && currentRole === ''
+                    && currentGroup === '' && currentDateFrom === '' && currentDateTo === '') {
+                    // 无筛选条件下返回行数少于初始渲染，跳过重绘保留当前 DOM
+                    return;
+                }
+
                 // 签名未变 → 跳过重绘，保留当前 DOM（悬浮/焦点状态不丢失，无闪烁）
                 var sig = computeSignature(users);
                 if (sig === lastSignature) return;
