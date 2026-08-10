@@ -652,11 +652,11 @@ require_once dirname(__DIR__) . '/layout/header.php';
         var riskLevelClass = u.risk_level === 'critical' ? 'badge-soft-danger' : (u.risk_level === 'high' || u.risk_level === 'medium' ? 'badge-soft-warning' : (u.risk_level === 'low' ? 'badge-soft-success' : 'badge-soft-secondary'));
         var riskHtml = '<div class="risk-cell">';
         if (u.role === 'admin') {
-            riskHtml += '<span class="badge badge-soft-primary" data-risk-user="' + u.id + <?php echo json_encode(t('admin_users_risk_exempt_title', '" title="管理员账号不参与风险评分&#10;点击查看详情"')); ?> + '>' + <?php echo json_encode(t('admin_users_risk_exempt', '豁免')); ?> + '</span>';
+            riskHtml += '<span class="badge badge-soft-primary" data-risk-user="' + u.id + <?php echo json_encode(t('admin_users_js_risk_exempt_title', '" title="管理员账号不参与风险评分&#10;点击查看详情"')); ?> + '>' + <?php echo json_encode(t('admin_users_risk_exempt', '豁免')); ?> + '</span>';
         } else {
             riskHtml += '<span class="badge ' + riskLevelClass + '" data-risk-user="' + u.id + <?php echo json_encode(t('admin_users_js_risk_title_prefix','" title="风险：')); ?> + escapeHtml(u.risk_label) + <?php echo json_encode(t('admin_users_left_paren','（')); ?> + (parseInt(u.risk_score, 10) || 0) + <?php echo json_encode(t('admin_users_js_risk_title_suffix',' 分）&#10;点击查看详情">')); ?> + escapeHtml(u.risk_label) + ' · ' + (parseInt(u.risk_score, 10) || 0) + '</span>';
         }
-        riskHtml += '<a href="javascript:void(0);" class="detail-link" data-open-drawer="' + u.id + <?php echo json_encode(t('admin_users_view_detail', '" title="点击查看用户详情">详情</a>')); ?>;
+        riskHtml += '<a href="javascript:void(0);" class="detail-link" data-open-drawer="' + u.id + <?php echo json_encode(t('admin_users_js_view_detail_link', '" title="点击查看用户详情">详情</a>')); ?>;
 
         // 用户组
         var groupBadge = '<span class="badge badge-outline" style="color:' + escapeHtml(u.group_color) + ';border-color:' + escapeHtml(u.group_color) + ';background:' + escapeHtml(u.group_color) + '15;">' + escapeHtml(u.group_title) + '</span>';
