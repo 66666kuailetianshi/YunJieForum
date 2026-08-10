@@ -559,7 +559,12 @@ $dbSize = defined('DB_FILE') && is_file(DB_FILE) ? (int)filesize(DB_FILE) : 0;
 
         var cpu = data.cpu_static || {};
         el.cpuModel.textContent = cpu.model || '--';
-        var coresText = (cpu.cores || 0) + <?php echo json_encode(t('admin_sys_cpu_cores', ' 核 ')); ?> + (cpu.threads || 0) + <?php echo json_encode(t('admin_sys_cpu_threads', ' 线程')); ?>;
+        // 受限环境下返回估算核数（cores==threads，estimated=true）→ 标注「估算」
+        if (cpu.estimated) {
+            var coresText = '≈' + (cpu.threads || cpu.cores || 0) + <?php echo json_encode(t('admin_sys_cpu_cores', ' 核 ')); ?> + <?php echo json_encode(t('admin_sys_estimated', '（估算）')); ?>;
+        } else {
+            var coresText = (cpu.cores || 0) + <?php echo json_encode(t('admin_sys_cpu_cores', ' 核 ')); ?> + (cpu.threads || 0) + <?php echo json_encode(t('admin_sys_cpu_threads', ' 线程')); ?>;
+        }
         if ((cpu.sockets || 0) > 1) {
             coresText += ' · ' + cpu.sockets + <?php echo json_encode(t('admin_sys_cpu_sockets', ' 路处理器')); ?>;
         }
@@ -651,19 +656,25 @@ $dbSize = defined('DB_FILE') && is_file(DB_FILE) ? (int)filesize(DB_FILE) : 0;
         setIfChanged(el.loadStatusBadge, 'status_text', status.text);
 
         if (typeof data.uptime_seconds === 'number') {
-            var serverUptime = Math.max(0, data.uptime_seconds);
-            if (!uptimeInitialized) {
-                uptimeSeconds = serverUptime;
-                uptimeSyncedAt = Date.now();
-                tickUptime();
-                startUptimeTicker();
+            if (data.uptime_seconds < 0) {
+                // 受限环境无法获取系统运行时间：显示「不可用」，不启动计时器
+                el.uptimeValue.textContent = <?php echo json_encode(t('admin_sys_unavailable', '不可用')); ?>;
                 uptimeInitialized = true;
             } else {
-                var clientUptime = uptimeSeconds + Math.floor((Date.now() - uptimeSyncedAt) / 1000);
-                if (Math.abs(clientUptime - serverUptime) > 2) {
+                var serverUptime = Math.max(0, data.uptime_seconds);
+                if (!uptimeInitialized) {
                     uptimeSeconds = serverUptime;
                     uptimeSyncedAt = Date.now();
                     tickUptime();
+                    startUptimeTicker();
+                    uptimeInitialized = true;
+                } else {
+                    var clientUptime = uptimeSeconds + Math.floor((Date.now() - uptimeSyncedAt) / 1000);
+                    if (Math.abs(clientUptime - serverUptime) > 2) {
+                        uptimeSeconds = serverUptime;
+                        uptimeSyncedAt = Date.now();
+                        tickUptime();
+                    }
                 }
             }
         }
@@ -677,7 +688,9 @@ $dbSize = defined('DB_FILE') && is_file(DB_FILE) ? (int)filesize(DB_FILE) : 0;
             var _ubc = 'progress-fill off';
             if (lastValues.cpu_bar_c !== _ubc) { lastValues.cpu_bar_c = _ubc; el.cpuUsageBar.className = _ubc; }
         } else {
-            setIfChanged(el.cpuUsageText, 'cpu_usage', cpuUsage + '%');
+            // 受限环境（/proc 不可读）：CPU 使用率由 sys_getloadavg 系统调用（1 分钟负载 ÷ 核数）估算，标注「估算」
+            var cpuUsageText = (data.cpu_estimated ? '≈' : '') + cpuUsage + '%' + (data.cpu_estimated ? <?php echo json_encode(t('admin_sys_estimated', '（估算）')); ?> : '');
+            setIfChanged(el.cpuUsageText, 'cpu_usage', cpuUsageText);
             var cpuBarWidth = Math.min(100, Math.max(0, cpuUsage)) + '%';
             if (lastValues.cpu_bar_w !== cpuBarWidth) {
                 lastValues.cpu_bar_w = cpuBarWidth;
@@ -692,7 +705,10 @@ $dbSize = defined('DB_FILE') && is_file(DB_FILE) ? (int)filesize(DB_FILE) : 0;
 
         var mem = data.memory || {};
         setIfChanged(el.memUsed, 'mem_used', mem.used_formatted || '--');
-        setIfChanged(el.memTotal, 'mem_total', <?php echo json_encode(t('admin_sys_mem_total_pre', '总共 ')); ?> + (mem.total_formatted || '--') + <?php echo json_encode(t('admin_sys_mem_total_avail', '，可用 ')); ?> + (mem.available_formatted || '--'));
+        var memTotalHtml = <?php echo json_encode(t('admin_sys_mem_total_pre', '总共 ')); ?> + (mem.total_formatted || '--') + <?php echo json_encode(t('admin_sys_mem_total_avail', '，可用 ')); ?> + (mem.available_formatted || '--');
+        // 受限环境下内存为估算值 → 标注「估算」
+        if (mem.estimated) memTotalHtml += <?php echo json_encode(t('admin_sys_estimated', '（估算）')); ?>;
+        setIfChanged(el.memTotal, 'mem_total', memTotalHtml);
         setIfChanged(el.memUsageText, 'mem_pct', (mem.usage_percent || 0) + '%');
         var memBarWidth = Math.min(100, Math.max(0, mem.usage_percent || 0)) + '%';
         if (lastValues.mem_bar_w !== memBarWidth) {
@@ -849,7 +865,14 @@ $dbSize = defined('DB_FILE') && is_file(DB_FILE) ? (int)filesize(DB_FILE) : 0;
         if (osi.php_uname) {
             mbHtml += '<div style="margin-top:0.875rem;padding-top:0.875rem;border-top:1px solid var(--border);font-size:0.8125rem;color:var(--text-muted);">' +
                 '<strong>' + <?php echo json_encode(t('admin_sys_hostname', '主机名：')); ?> + '</strong>' + escapeHtml(osi.hostname || '--') + ' · ' +
-                '<strong>' + <?php echo json_encode(t('admin_sys_os', '系统：')); ?> + '</strong>' + escapeHtml(osi.php_uname) + '</div>';
+                '<strong>' + <?php echo json_encode(t('admin_sys_os', '系统：')); ?> + '</strong>' + escapeHtml(osi.php_uname);
+            // Linux 受限环境补充：getrusage(2) 系统调用读取的 PHP 进程 CPU 时间（不读 /proc、不启动子进程）
+            if (osi.process_cpu && osi.process_cpu.available) {
+                mbHtml += '<br><strong>' + <?php echo json_encode(t('admin_sys_proc_cpu', 'PHP 进程 CPU：')); ?> + '</strong>' +
+                    osi.process_cpu.user_cpu_seconds + 's + ' + osi.process_cpu.system_cpu_seconds + 's' +
+                    <?php echo json_encode(t('admin_sys_proc_rss', ' · 峰值内存 ')); ?> + osi.process_cpu.max_rss_kb + ' KB';
+            }
+            mbHtml += '</div>';
         }
         setIfChanged(el.motherboardPanel, 'mb', mbHtml, true);
 

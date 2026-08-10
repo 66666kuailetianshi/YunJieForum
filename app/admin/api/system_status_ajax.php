@@ -165,7 +165,7 @@ function ss_get_realtime_cache(): array {
                 if ($fresh !== false) {
                     $freshData = json_decode($fresh, true);
                     if (is_array($freshData) && (float)($freshData['last_sample_time'] ?? 0) > $cache['last_sample_time']) {
-                        foreach (['cpu_samples', 'memory', 'network', 'last_sample_time', 'cpu_times_prev', 'boot_time', 'queue_length'] as $fk) {
+                        foreach (['cpu_samples', 'cpu_estimated', 'memory', 'network', 'last_sample_time', 'cpu_times_prev', 'boot_time', 'queue_length'] as $fk) {
                             if (array_key_exists($fk, $freshData)) $cache[$fk] = $freshData[$fk];
                         }
                     }
@@ -175,6 +175,7 @@ function ss_get_realtime_cache(): array {
                     $sample = ss_sample_cpu_and_memory($cache['cpu_times_prev']);
                     $cache['cpu_samples'][] = $sample['cpu'];
                     $cache['cpu_samples'] = array_slice($cache['cpu_samples'], -5);
+                    $cache['cpu_estimated'] = !empty($sample['cpu_estimated']);
                     $cache['memory'] = $sample['memory'];
                     // 保存本次 CPU 时间供下次差值计算
                     if ($sample['cpu_times'] !== null) {
@@ -226,6 +227,7 @@ function ss_get_realtime_cache(): array {
 
     return [
         'cpu_usage' => $cpuAvg,
+        'cpu_estimated' => !empty($cache['cpu_estimated']),
         'memory' => $memory,
         'network' => $cache['network'],
     ];
@@ -249,6 +251,7 @@ function ss_sample_cpu_and_memory(?array $prevCpuTimes = null): array {
     $memory = null;
     $cpuTimes = null;
     $psRealtime = null; // 子进程合并采样结果（内存+CPU+网络计数器）
+    $cpuEstimated = false; // 受限环境下用 1 分钟负载 ÷ 核数估算 CPU 使用率时置 true，前端标注「估算」
     $os = ss_os_type();
 
     if ($os === 'windows') {
@@ -357,8 +360,18 @@ function ss_sample_cpu_and_memory(?array $prevCpuTimes = null): array {
                 $cpu = (int)round((1 - $diffIdle / $diffTotal) * 100);
             }
         } else {
-            // /proc/stat 不可读（open_basedir 限制等）：标记为受限环境
-            $cpu = -1; // -1 表示「不可用」，前端应显示 N/A 而非 0%
+            // /proc/stat 不可读（open_basedir 限制等）：改用系统 API 估算 CPU 使用率
+            // sys_getloadavg() 封装 getloadavg(2) 系统调用（glibc 内部读取 /proc/loadavg，
+            // PHP 层无文件访问，不受 open_basedir 限制）；用 1 分钟负载 ÷ 核数近似使用率
+            $cpu = -1; // 默认「不可用」，前端显示 N/A 而非 0%
+            $la = @sys_getloadavg();
+            if (is_array($la) && isset($la[0])) {
+                $cores = ss_get_cpu_cores_quick();
+                if ($cores > 0) {
+                    $cpu = (int)round(min(100, max(0, $la[0]) / $cores * 100));
+                    $cpuEstimated = true;
+                }
+            }
         }
     }
 
@@ -371,6 +384,7 @@ function ss_sample_cpu_and_memory(?array $prevCpuTimes = null): array {
         'memory' => $memory,
         'cpu_times' => $cpuTimes,
         'ps_realtime' => $psRealtime,
+        'cpu_estimated' => $cpuEstimated,
     ];
 }
 
@@ -1035,6 +1049,88 @@ function ss_ffi_available(): bool {
 }
 
 /**
+ * Linux 下 FFI 是否可用（调用 libc 系统调用 API 读取系统信息）
+ *
+ * 通过 FFI 直接调用 libc 的 sysconf()/sysinfo() 系统调用，走内核 syscall：
+ *   - 不受 open_basedir 限制（不读取 /proc、/sys 文件系统）
+ *   - 不受 disable_functions 限制（不依赖 exec/shell 类函数）
+ * 要求：PHP 7.4+ 编译时启用 FFI，且 php.ini 中 ffi.enable=true。
+ */
+function ss_linux_ffi_available(): bool {
+    static $cached = null;
+    if ($cached !== null) return $cached;
+    if (ss_os_type() !== 'linux' || !extension_loaded('ffi') || !class_exists('FFI', false)) {
+        $cached = false;
+        return false;
+    }
+    $cached = ss_linux_ffi_api() !== null;
+    return $cached;
+}
+
+/**
+ * 获取缓存的 Linux libc FFI 实例（sysconf / sysinfo 系统调用）
+ */
+function ss_linux_ffi_api() {
+    if (ss_os_type() !== 'linux') return null;
+    static $libc = null;
+    static $tried = false;
+    if ($tried) return $libc;
+    $tried = true;
+    if (!extension_loaded('ffi') || !class_exists('FFI', false)) return null;
+    try {
+        $libc = \FFI::cdef(<<<'CDEF'
+long sysconf(int name);
+struct sysinfo {
+    long uptime;
+    unsigned long loads[3];
+    unsigned long totalram;
+    unsigned long freeram;
+    unsigned long sharedram;
+    unsigned long bufferram;
+    unsigned long totalswap;
+    unsigned long freeswap;
+    unsigned short procs;
+    unsigned short pad;
+    unsigned long totalhigh;
+    unsigned long freehigh;
+    unsigned int mem_unit;
+};
+int sysinfo(struct sysinfo *info);
+CDEF
+        , 'libc.so.6');
+        // PHP 7.4 下 cdef 即解析符号；实际调用一次 sysconf(_SC_NPROCESSORS_ONLN=84) 确认可用
+        if ($libc !== null && (int)$libc->sysconf(84) <= 0) {
+            $libc = null;
+        }
+    } catch (\Throwable $e) {
+        $libc = null;
+    }
+    return $libc;
+}
+
+/**
+ * 通过 FFI libc sysinfo() 读取内存与运行时间（Linux 专用）
+ *
+ * @return array|null ['total'=>int, 'free'=>int, 'uptime'=>int] 字节单位
+ */
+function ss_linux_ffi_sysinfo(): ?array {
+    $libc = ss_linux_ffi_api();
+    if ($libc === null) return null;
+    try {
+        $info = $libc->new('struct sysinfo');
+        if ($libc->sysinfo(\FFI::addr($info)) !== 0) return null;
+        $unit = (int)$info->mem_unit ?: 1;
+        return [
+            'total'  => (int)$info->totalram * $unit,
+            'free'   => (int)$info->freeram * $unit,
+            'uptime' => (int)$info->uptime,
+        ];
+    } catch (\Throwable $e) {
+        return null;
+    }
+}
+
+/**
  * 获取缓存的 FFI kernel32 实例（避免重复 cdef，提升性能）
  *
  * @param string|null $error 输出初始化错误信息（引用参数）
@@ -1507,6 +1603,7 @@ function ss_get_cpu_info(): array {
     $cores = 0;
     $threads = 0;
     $sockets = 0;
+    $estimated = false; // 受限环境下用估算值（如内存推断）时置 true，前端标注「估算」
 
     if ($os === 'windows') {
         // COM 进程内查询 WMI，使用直接字段访问（比 Properties_ 遍历更稳定）
@@ -1638,21 +1735,42 @@ function ss_get_cpu_info(): array {
             }
         }
 
-        // ===== 方案 6（受限环境最终兜底）：PHP 原生信息 =====
-        // 当 /proc 和 /sys 均不可读时，用 php_uname() 获取至少一些系统标识
+        // ===== 方案 6（受限环境最终兜底）：PHP 原生 uname(2) 系统调用 =====
+        // php_uname() 封装 uname(2) 系统调用，PHP 层无文件访问，不受 open_basedir 限制；
+        // 当 /proc、/sys 均不可读时，用内核版本 + 硬件架构标识系统
         if ($model === $unknownLabel) {
-            $machine = php_uname('m'); // 如 x86_64
-            $nodeName = php_uname('n'); // 主机名（可能包含实例信息）
+            $kernel = php_uname('r');   // 内核版本，如 3.10.0-1160.el7.x86_64
+            $machine = php_uname('m');  // 硬件架构，如 x86_64
             if ($machine && $machine !== 'Unknown') {
-                $model = 'Linux (' . $machine . ')';
+                $model = 'Linux ' . (($kernel && $kernel !== 'Unknown') ? $kernel . ' ' : '') . '(' . $machine . ')';
             }
         }
         // 尝试从 $_SERVER 获取进程数信息（部分面板会注入）
         if ($threads <= 0) {
-            $ncpu = getenv('_NPROCESSORS_ONLN') ?: '';
+            $ncpu = getenv('_NPROCESSORS_ONLN') ?: getenv('NPROCESSORS_ONLN') ?: '';
             if ($ncpu !== '' && is_numeric($ncpu)) {
                 $threads = (int)$ncpu;
                 $cores = $threads;
+            }
+        }
+
+        // ===== 方案 7：swoole 扩展（宝塔常装，swoole_cpu_num 走系统调用，不受 open_basedir 限制）=====
+        if ($threads <= 0 && function_exists('swoole_cpu_num')) {
+            $swCores = (int)@swoole_cpu_num();
+            if ($swCores > 0) {
+                $threads = $swCores;
+                $cores = $swCores;
+            }
+        }
+
+        // ===== 方案 8（open_basedir 封锁 /proc 且无扩展时的最终兜底）：按内存总量估算核数 =====
+        // 云服务器普遍 1GB 内存 ≈ 1 核，用已估算出的内存规模推断，并明确标注「估算」
+        if ($threads <= 0) {
+            $memTotal = ss_get_memory_usage()['total'] ?? 0;
+            if ($memTotal > 0) {
+                $threads = max(1, (int)round($memTotal / (2 * 1024 * 1024 * 1024))); // 每 2GB 估 1 核，至少 1 核
+                $cores = $threads;
+                $estimated = true;
             }
         }
     }
@@ -1664,7 +1782,23 @@ function ss_get_cpu_info(): array {
         'cores' => $cores,
         'threads' => $threads,
         'sockets' => $sockets > 0 ? $sockets : 1,
+        'estimated' => $estimated,
     ];
+}
+
+/**
+ * 快速获取 CPU 核数（进程内静态缓存）。
+ *
+ * 供受限环境采样估算 CPU 使用率时调用，避免每次采样都重复执行
+ * ss_get_cpu_info() 的全部分案探测。
+ */
+function ss_get_cpu_cores_quick(): int {
+    static $cached = null;
+    if ($cached === null) {
+        $info = ss_get_cpu_info();
+        $cached = (int)($info['cores'] ?? 0);
+    }
+    return $cached;
 }
 
 /* ======================== 内存 ======================== */
@@ -1673,6 +1807,7 @@ function ss_get_memory_usage(): array {
     $os = ss_os_type();
     $total = 0;
     $free = 0;
+    $estimated = false; // 受限环境下用估算值时置 true，前端标注「估算」
 
     if ($os === 'windows') {
         // 方案 1（优先）：FFI GlobalMemoryStatusEx（进程内，不启动子进程，最准确）
@@ -1746,6 +1881,7 @@ function ss_get_memory_usage(): array {
                 if ($iniBytes > 0) {
                     $total = $iniBytes * 8;
                     $free = (int)($total * 0.6);
+                    $estimated = true;
                 }
             }
         }
@@ -1760,6 +1896,7 @@ function ss_get_memory_usage(): array {
                 // 这不是精确值，但比全零信息更有参考价值
                 $total = max((int)($diskTotal / 50), 512 * 1024 * 1024); // 至少 512MB
                 $free = (int)($total * 0.5);
+                $estimated = true;
             }
         }
     }
@@ -1772,6 +1909,7 @@ function ss_get_memory_usage(): array {
         'total_formatted' => ss_format_bytes($total),
         'used_formatted' => ss_format_bytes($used),
         'available_formatted' => ss_format_bytes($free),
+        'estimated' => $estimated,
     ];
 }
 
@@ -2695,19 +2833,15 @@ function ss_get_uptime_seconds(): int {
             if ($uptime && strlen($uptime) > 3 && preg_match('/^(\d+(?:\.\d+)?)/', trim($uptime), $m)) {
                 return time() - (int)$m[1];
             }
-            // /proc/uptime 不可读时：尝试从 PHP 进程启动时间推断（不精确但优于 0）
-            // 注意：这是 FPM worker 启动时间，非系统启动时间；仅在无法读取 /proc 时作为最后兜底
-            if (defined('REQUEST_TIME_FLOAT')) {
-                // REQUEST_TIME_FLOAT 是请求开始时间戳，不能用于系统 uptime
-                // 返回 0 让前端显示「未知」
-                return 0;
-            }
+            // /proc/uptime 不可读时：无法获取系统运行时间（open_basedir 限制等）
+            // 返回 -1 标记「未知」，前端显示「不可用」而非误导性的 0 秒
+            return -1;
         }
-        return 0;
+        return -1;
     }, 300); // 缓存 5 分钟
 
     if ($bootTime > 0) return max(0, time() - $bootTime);
-    return 0;
+    return -1;
 }
 
 function ss_get_load_status(int $cpuUsage, int $memUsage): array {
@@ -2788,6 +2922,30 @@ function ss_get_load_average(): array {
         }
     }
     return ['load_1' => 0, 'load_5' => 0, 'load_15' => 0];
+}
+
+/**
+ * getrusage(2) 系统调用摘要（Linux 进程资源使用情况）。
+ *
+ * PHP 的 getrusage() 直接封装 getrusage(2)，纯系统调用：
+ *   - 不读取 /proc、/sys，不受 open_basedir 限制
+ *   - 不依赖 exec/shell 类函数，不受 disable_functions 限制
+ * 返回 PHP 进程自身累计消耗的 CPU 时间与峰值内存，可证明系统 API 采集通道可用。
+ */
+function ss_rusage_summary(): array {
+    $r = @getrusage();
+    if (!is_array($r)) {
+        return ['available' => false];
+    }
+    $userSec = (int)($r['ru_utime.tv_sec'] ?? 0) + (int)($r['ru_utime.tv_usec'] ?? 0) / 1000000;
+    $sysSec  = (int)($r['ru_stime.tv_sec'] ?? 0) + (int)($r['ru_stime.tv_usec'] ?? 0) / 1000000;
+    return [
+        'available' => true,
+        'user_cpu_seconds' => round($userSec, 2),
+        'system_cpu_seconds' => round($sysSec, 2),
+        'max_rss_kb' => (int)($r['ru_maxrss'] ?? 0),
+        'minor_page_faults' => (int)($r['ru_minflt'] ?? 0),
+    ];
 }
 
 /**
@@ -3501,7 +3659,46 @@ function ss_get_network_interfaces(): array {
             ];
         }
     } elseif ($os === 'linux') {
-        // /proc/net/dev 接口名 + /sys/class/net/<if>/address 读取 MAC
+        // ===== 方案 1（优先）：net_get_interfaces() 系统调用 =====
+        // PHP 内置函数封装 getifaddrs(3) + ioctl，直接返回接口/IP/MAC/状态，
+        // PHP 层不读 /proc、/sys，不受 open_basedir 限制，也不依赖 shell 命令
+        if (function_exists('net_get_interfaces')) {
+            $nics = @net_get_interfaces();
+            if (is_array($nics) && !empty($nics)) {
+                foreach ($nics as $nicName => $info) {
+                    $nicName = (string)$nicName;
+                    if ($nicName === 'lo') continue; // 跳过回环接口
+                    $ip = '--';
+                    // PHP 7.4/8.x 标准结构：IP 在 unicast 数组（family 整数，AF_INET=2；address 为 IP）
+                    // 兼容结构：addresses 数组（type='ipv4'；ip 为 IP）
+                    $addrList = $info['unicast'] ?? $info['addresses'] ?? [];
+                    foreach ($addrList as $addr) {
+                        if (!is_array($addr)) continue;
+                        $addrVal = (string)($addr['address'] ?? $addr['ip'] ?? '');
+                        $family  = (int)($addr['family'] ?? -1);
+                        $type    = (string)($addr['type'] ?? '');
+                        $isV4 = ($family === 2) || ($type === 'ipv4'); // AF_INET = 2
+                        if ($isV4 && $addrVal !== '' && filter_var($addrVal, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+                            $ip = $addrVal;
+                            break;
+                        }
+                    }
+                    // Linux 上 net_get_interfaces 不返回 MAC（mac 键仅 Windows）→ 保持 '--'
+                    $mac = trim((string)($info['mac'] ?? ''));
+                    $list[] = [
+                        'name'         => $nicName,
+                        'desc'         => $nicName,
+                        'ip'           => $ip,
+                        'mac'          => $mac !== '' ? $mac : '--',
+                        'enabled'      => !empty($info['up']),
+                        'manufacturer' => '',
+                    ];
+                }
+                return $list;
+            }
+        }
+
+        // ===== 方案 2（回退）：/proc/net/dev 接口名 + /sys/class/net/<if>/address 读取 MAC =====
         $content = @file_get_contents('/proc/net/dev');
         if ($content) {
             $lines = explode("\n", $content);
@@ -3818,6 +4015,24 @@ if ($wantDiag || $wantDebug) {
         $cpuDirs = @glob('/sys/devices/system/cpu/cpu[0-9]*');
         $linuxDiag['cpu_count_methods'] = [
             'glob_cpu_dirs' => !empty($cpuDirs) ? count($cpuDirs) : 0,
+            'env_nproc' => getenv('_NPROCESSORS_ONLN') ?: getenv('NPROCESSORS_ONLN') ?: null,
+            'swoole_cpu_num' => function_exists('swoole_cpu_num') ? (int)@swoole_cpu_num() : null,
+        ];
+        // 系统调用 API 可用性：PHP 内置函数封装 Linux 系统调用（uname/getloadavg/getrusage/statvfs），
+        // PHP 层无文件访问、不启动子进程，不受 open_basedir 与 disable_functions 限制
+        $laTest = @sys_getloadavg();
+        $linuxDiag['api_methods'] = [
+            'sys_getloadavg' => function_exists('sys_getloadavg'),
+            'getrusage' => function_exists('getrusage'),
+            'php_uname' => function_exists('php_uname'),
+            'gethostname' => function_exists('gethostname'),
+            'disk_total_space' => function_exists('disk_total_space'),
+            'net_get_interfaces' => function_exists('net_get_interfaces'),
+        ];
+        $linuxDiag['api_test'] = [
+            'load_average' => (is_array($laTest) && count($laTest) >= 3) ? $laTest : null,
+            'uname' => php_uname(),
+            'getrusage' => function_exists('getrusage') ? ss_rusage_summary() : null,
         ];
         $diag['linux_diag'] = $linuxDiag;
     }
@@ -3886,10 +4101,10 @@ if ($memory['total'] <= 0 && ss_os_type() === 'windows') {
 if ($uptime <= 0 && ss_os_type() === 'windows') {
     $warnings[] = t('admin_ajax_ss_uptime_failed', '运行时间获取失败。');
 }
-// Linux 下 /proc 不可读（多为 open_basedir 限制）：提示用户修复以获取完整信息
+// Linux 下 /proc 不可读（多为 open_basedir 限制）：已用系统 API 兜底，提示剩余不可用项
 if (ss_os_type() === 'linux' && @file_get_contents('/proc/stat') === false) {
     $ob = (string)ini_get('open_basedir');
-    $warnings[] = t('admin_ajax_ss_linux_proc_warning', '系统信息受限：open_basedir 限制了 PHP 读取 /proc、/sys（当前值：{ob}），CPU 核数/内存/温度等数据不可用。请在面板（如宝塔）的站点配置中将 open_basedir 追加 :/proc:/sys 后刷新，或直接关闭 open_basedir。', ['ob' => $ob]);
+    $warnings[] = t('admin_ajax_ss_linux_proc_warning', '系统信息受限：open_basedir 限制了 PHP 读取 /proc、/sys（当前值：{ob}）。已改用系统调用 API（sys_getloadavg/php_uname/getrusage 等）自动采集负载与系统标识；CPU 核数/内存/CPU 使用率为估算值（页面已标注）；温度/显卡/主板等硬件信息仍不可用，如需精确数据可在面板（如宝塔）的站点配置中将 open_basedir 追加 :/proc:/sys 后刷新。', ['ob' => $ob]);
 }
 
 $response = [
@@ -3898,7 +4113,7 @@ $response = [
     'memory' => $memory,
     'network' => $network,
     'uptime_seconds' => $uptime,
-    'uptime_formatted' => ss_format_duration($uptime),
+    'uptime_formatted' => $uptime < 0 ? t('admin_ajax_unknown', '未知') : ss_format_duration($uptime),
     'load_status' => $status,
     'timestamp' => time(),
     'warnings' => $warnings,
@@ -3927,6 +4142,7 @@ if ($wantStatic) {
             'cores' => $info['cores'],
             'threads' => $info['threads'],
             'sockets' => $info['sockets'] ?? 1,
+            'estimated' => !empty($info['estimated']), // 受限环境估算值标记，前端标注「估算」
         ];
     }, 3600);
 
@@ -3951,6 +4167,8 @@ if ($wantStatic) {
         'php_uname' => php_uname(),
         'hostname'  => gethostname(),
         'os_family' => PHP_OS_FAMILY,
+        // Linux 下补充 getrusage(2) 系统调用数据（PHP 进程 CPU 时间，纯系统调用，不受 open_basedir 限制）
+        'process_cpu' => (ss_os_type() === 'linux' && function_exists('getrusage')) ? ss_rusage_summary() : null,
     ];
     // 数据库详细统计（含逐表 COUNT，静态端点专用，5 分钟缓存）
     try { $response['db_stats_full'] = ss_get_static_cache('db_stats_full', 'ss_get_db_stats', 300); } catch (\Throwable $e) { $response['db_stats_full'] = null; }
