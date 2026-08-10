@@ -55,8 +55,8 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     });
 
-    // 输入框移除错误状态
-    document.querySelectorAll('.form-control').forEach(function (input) {
+    // 输入框移除错误状态（仅对已标记错误的输入框监听，避免全页面多余监听）
+    document.querySelectorAll('.form-control.is-invalid').forEach(function (input) {
         input.addEventListener('input', function () {
             input.classList.remove('is-invalid');
         });
@@ -79,7 +79,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // 自动隐藏成功提示（4 秒后）
     document.querySelectorAll('.alert-success[data-alert]').forEach(function (alert) {
-        setTimeout(function () {
+        var hideTimer = setTimeout(function () {
             if (alert && alert.parentNode) {
                 alert.style.opacity = '0';
                 alert.style.transform = 'translateY(-8px)';
@@ -91,6 +91,13 @@ document.addEventListener('DOMContentLoaded', function () {
                 }, 250);
             }
         }, 4000);
+        // 用户手动关闭时取消自动隐藏定时器，避免重复执行
+        const closeBtn = alert.querySelector('[data-close]');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', function () {
+                clearTimeout(hideTimer);
+            }, { once: true });
+        }
     });
 
     // 帖子删除确认（使用 data-confirm 属性）
@@ -196,13 +203,18 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         });
 
-        // 窗口尺寸变化或滚动时重新定位
-        window.addEventListener('resize', function () {
-            if (isOpen) positionPanel();
-        });
-        window.addEventListener('scroll', function () {
-            if (isOpen) positionPanel();
-        }, { passive: true });
+        // 窗口尺寸变化或滚动时重新定位（requestAnimationFrame 节流，避免强制重排导致卡顿）
+        var rafPending = false;
+        function scheduleReposition() {
+            if (rafPending || !isOpen) return;
+            rafPending = true;
+            requestAnimationFrame(function () {
+                rafPending = false;
+                if (isOpen) positionPanel();
+            });
+        }
+        window.addEventListener('resize', scheduleReposition);
+        window.addEventListener('scroll', scheduleReposition, { passive: true });
 
         // 点击外部关闭
         document.addEventListener('click', function (e) {

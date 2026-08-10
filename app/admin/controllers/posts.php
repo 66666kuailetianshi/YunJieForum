@@ -378,7 +378,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
                     <th style="width:55px;"><?php echo e(t('admin_posts_th_risk', '风险')); ?></th>
                     <th style="width:70px;"><?php echo e(t('admin_posts_th_interact', '互动')); ?></th>
                     <th style="width:130px;">
-                        <a href="<?php echo site_url('admin/posts', array_merge(array_diff_key($_GET, ['page' => 1, 'route' => 1]), ['sort' => 'created_at', 'order' => ($sort === 'created_at' && $order === 'asc') ? 'desc' : 'asc'])); ?>" class="sort-link<?php echo $sort === 'created_at' ? ' active ' . $order : ''; ?>"><?php echo e(t('admin_posts_th_time', '时间')); ?></a>
+                        <a href="<?php echo e(site_url('admin/posts', array_merge(array_diff_key($_GET, ['page' => 1, 'route' => 1]), ['sort' => 'created_at', 'order' => ($sort === 'created_at' && $order === 'asc') ? 'desc' : 'asc']))); ?>" class="sort-link<?php echo $sort === 'created_at' ? ' active ' . $order : ''; ?>"><?php echo e(t('admin_posts_th_time', '时间')); ?></a>
                     </th>
                     <th style="width:155px;"><?php echo e(t('admin_posts_th_actions', '操作')); ?></th>
                 </tr>

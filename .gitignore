@@ -15,6 +15,7 @@ uploads/
 .vscode/
 .idea/
 *.code-workspace
+.qoder
 
 # ===== 备份压缩包 =====
 *.7z

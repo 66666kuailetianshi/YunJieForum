@@ -20,7 +20,7 @@
         overlay.style.display = 'none';
 
         var img = document.createElement('img');
-        img.alt = '';
+        img.alt = '图片预览';
         overlay.appendChild(img);
 
         var closeBtn = document.createElement('button');
@@ -78,8 +78,10 @@
         currentIndex = index;
 
         var src = images[currentIndex].getAttribute('src') || '';
+        var alt = images[currentIndex].getAttribute('alt') || '图片预览';
         var img = overlay.querySelector('img');
         img.src = src;
+        img.alt = alt;
 
         if (images.length > 1) {
             var counter = overlay.querySelector('.lightbox-counter');

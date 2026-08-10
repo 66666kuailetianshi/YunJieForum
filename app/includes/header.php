@@ -172,7 +172,7 @@ if (is_logged_in() && $currentUser) {
                                     <span class="notification-panel-title"><?php echo e(t('notifications', '通知')); ?></span>
                                     <div class="notification-panel-actions">
                                         <?php if ($unreadNotify > 0): ?>
-                                            <a href="<?php echo site_url('notifications', ['action' => 'mark_all_read', 'csrf_token' => csrf_token(), 'redirect' => $_SERVER['REQUEST_URI'] ?? '/']); ?>" class="notification-panel-mark"><?php echo e(t('mark_all_read', '全部已读')); ?></a>
+                                            <a href="<?php echo e(site_url('notifications', ['action' => 'mark_all_read', 'csrf_token' => csrf_token(), 'redirect' => $_SERVER['REQUEST_URI'] ?? '/'])); ?>" class="notification-panel-mark"><?php echo e(t('mark_all_read', '全部已读')); ?></a>
                                         <?php endif; ?>
                                         <a href="<?php echo site_url('notifications'); ?>" class="notification-panel-all"><?php echo e(t('view_all', '查看全部')); ?></a>
                                     </div>

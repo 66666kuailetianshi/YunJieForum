@@ -267,7 +267,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
                     <th style="width:85px;"><?php echo e(t('admin_replies_th_author', '作者')); ?></th>
                     <th style="width:160px;"><?php echo e(t('admin_replies_th_post', '所属帖子')); ?></th>
                     <th style="width:130px;">
-                        <a href="<?php echo site_url('admin/replies', array_merge(array_diff_key($_GET, ['page' => 1, 'route' => 1]), ['sort' => 'created_at', 'order' => ($sort === 'created_at' && $order === 'asc') ? 'desc' : 'asc'])); ?>" class="sort-link<?php echo $sort === 'created_at' ? ' active ' . $order : ''; ?>"><?php echo e(t('admin_replies_th_time', '时间')); ?></a>
+                        <a href="<?php echo e(site_url('admin/replies', array_merge(array_diff_key($_GET, ['page' => 1, 'route' => 1]), ['sort' => 'created_at', 'order' => ($sort === 'created_at' && $order === 'asc') ? 'desc' : 'asc']))); ?>" class="sort-link<?php echo $sort === 'created_at' ? ' active ' . $order : ''; ?>"><?php echo e(t('admin_replies_th_time', '时间')); ?></a>
                     </th>
                     <th style="width:100px;"><?php echo e(t('admin_replies_th_actions', '操作')); ?></th>
                 </tr>
