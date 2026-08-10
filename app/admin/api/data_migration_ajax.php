@@ -16,6 +16,14 @@ require_once dirname(__DIR__) . '/layout/admin-init.php';
 require_once APP_ROOT . 'app/includes/backup_manager.php';
 require_once APP_ROOT . 'app/includes/db.php';
 
+// 迁移导入前的快照范围：
+// false（默认）= 仅备份本次迁移涉及的白名单业务表，mysqldump 耗时短，避免代理超时；
+// true         = 备份完整数据库，安全性更高，但大库可能触发超时。
+// 可在 data/site_config.php 中定义：define('MIGRATION_SNAPSHOT_FULL_DB', true);
+if (!defined('MIGRATION_SNAPSHOT_FULL_DB')) {
+    define('MIGRATION_SNAPSHOT_FULL_DB', false);
+}
+
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-cache, no-store, must-revalidate');
 
@@ -88,6 +96,8 @@ try {
                     exit;
                 }
                 exportDataSQL($MIGRATABLE_TABLES, $format);
+            } elseif ($format === 'json_zip') {
+                exportDataJsonZip($MIGRATABLE_TABLES, $MIGRATION_FORMAT);
             } else {
                 exportData($MIGRATABLE_TABLES, $MIGRATION_FORMAT);
             }
@@ -245,6 +255,127 @@ function exportData(array $whitelist, string $format): void {
     header('Content-Length: ' . strlen($json));
     header('Cache-Control: no-cache, no-store, must-revalidate');
     echo $json;
+    exit;
+}
+
+/**
+ * 将选中的业务表导出为 JSON 并打包为 ZIP（含 uploads 头像/附件）
+ * 这种 ZIP 内部是 migration.json，导入端可按 JSON 逻辑处理，支持合并/覆盖。
+ */
+function exportDataJsonZip(array $whitelist, string $format): void {
+    $requested = $_POST['tables'] ?? [];
+    if (is_string($requested)) {
+        $requested = explode(',', $requested);
+    }
+    $requested = array_filter(array_map('trim', (array)$requested), function ($t) { return $t !== ''; });
+
+    if (empty($requested)) {
+        http_response_code(400);
+        echo safeJsonEncode(['success' => false, 'error' => t('admin_mig_no_table_selected', '请至少选择一张表进行导出')]);
+        return;
+    }
+
+    $selected = array_values(array_intersect($requested, $whitelist));
+    if (empty($selected)) {
+        http_response_code(400);
+        echo safeJsonEncode(['success' => false, 'error' => t('admin_mig_invalid_tables', '所选表不在可迁移范围内')]);
+        return;
+    }
+
+    set_time_limit(300);
+
+    $db = get_db();
+    $driver = get_db_driver();
+    $data = [
+        'format'        => $format,
+        'product'       => 'yunjie-bbs',
+        'version'       => defined('APP_VERSION') ? APP_VERSION : '',
+        'exported_at'   => time(),
+        'source_driver' => $driver->isFileBased() ? 'sqlite' : (defined('DB_TYPE') ? DB_TYPE : 'mysql'),
+        'tables'        => [],
+    ];
+
+    foreach ($selected as $table) {
+        $rows = [];
+        try {
+            $q = $db->query('SELECT * FROM ' . $driver->quoteIdentifier($table));
+            if ($q) {
+                $rows = $q->fetchAll(PDO::FETCH_ASSOC);
+            }
+        } catch (\Throwable $e) {
+            $rows = [];
+        }
+        $data['tables'][$table] = $rows;
+    }
+
+    $json = json_encode($data, JSON_UNESCAPED_UNICODE);
+    if ($json === false) {
+        http_response_code(500);
+        echo safeJsonEncode(['success' => false, 'error' => t('admin_mig_json_encode_failed', '导出数据过大或包含非法字符，导出失败')]);
+        return;
+    }
+
+    $siteName = defined('SITE_NAME') ? SITE_NAME : '云界论坛';
+    $zipFilename = $siteName . '_数据迁移_含头像_' . date('Ymd_His') . '.zip';
+    $asciiName   = 'yunjie_migration_' . date('Ymd_His') . '.zip';
+
+    $tmpZip = tempnam(sys_get_temp_dir(), 'mig_');
+    if ($tmpZip === false) {
+        http_response_code(500);
+        echo safeJsonEncode(['success' => false, 'error' => t('admin_mig_zip_failed', '无法创建临时文件')]);
+        return;
+    }
+    @unlink($tmpZip);
+
+    $zip = new ZipArchive();
+    $res = $zip->open($tmpZip, ZipArchive::CREATE | ZipArchive::OVERWRITE);
+    if ($res !== true) {
+        http_response_code(500);
+        echo safeJsonEncode(['success' => false, 'error' => t('admin_mig_zip_failed', '无法创建压缩包') . ' (code: ' . $res . ')']);
+        return;
+    }
+
+    // 1) JSON 迁移文件
+    $zip->addFromString('migration.json', $json);
+
+    // 2) 打包 uploads 目录
+    $uploadsDir = defined('UPLOAD_PATH') ? UPLOAD_PATH : (ROOT_PATH . 'uploads' . DIRECTORY_SEPARATOR);
+    $fileCount = 0;
+    if (is_dir($uploadsDir)) {
+        $baseLen = strlen(rtrim($uploadsDir, DIRECTORY_SEPARATOR)) + 1;
+        $iterator = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($uploadsDir, RecursiveDirectoryIterator::SKIP_DOTS),
+            RecursiveIteratorIterator::LEAVES_ONLY
+        );
+        foreach ($iterator as $file) {
+            if ($file->isFile()) {
+                $localPath = 'uploads/' . substr($file->getPathname(), $baseLen);
+                $zip->addFile($file->getPathname(), $localPath);
+                $fileCount++;
+            }
+        }
+    }
+
+    // 3) 清单
+    $zip->addFromString('manifest.json', json_encode([
+        'product'     => 'yunjie-bbs',
+        'version'     => defined('APP_VERSION') ? APP_VERSION : '',
+        'exported_at' => date('Y-m-d H:i:s'),
+        'format'      => 'json_zip',
+        'json_file'   => 'migration.json',
+        'files_count' => $fileCount,
+    ], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
+
+    $zip->close();
+
+    $zipSize = filesize($tmpZip);
+    header('Content-Type: application/zip');
+    header('Content-Disposition: attachment; filename="' . $asciiName . '"; filename*=UTF-8\'\'' . rawurlencode($zipFilename));
+    header('Content-Length: ' . $zipSize);
+    header('Cache-Control: no-cache, no-store, must-revalidate');
+
+    readfile($tmpZip);
+    @unlink($tmpZip);
     exit;
 }
 
@@ -495,9 +626,9 @@ function importData(array $whitelist, string $format): void {
         return;
     }
 
-    // ===== ZIP 文件：解压 → 还原上传文件 → 提取 SQL 执行 =====
+    // ===== ZIP 文件：解压 → 还原上传文件 → 提取 SQL/JSON 执行 =====
     if ($isZip) {
-        importZipBackup($file['tmp_name'], $whitelist);
+        importZipBackup($file['tmp_name'], $whitelist, $format);
         return;
     }
 
@@ -542,6 +673,28 @@ function importData(array $whitelist, string $format): void {
 
     $mode = ($_POST['mode'] ?? 'overwrite') === 'merge' ? 'merge' : 'overwrite';
 
+    // SQL/ZIP 迁移文件内部包含 DROP TABLE + CREATE TABLE，本质只能是覆盖导入，
+    // 合并模式（保留目标数据、跳过主键冲突）仅 JSON 格式支持。
+    if ($mode === 'merge' && $isSql) {
+        echo safeJsonEncode([
+            'success' => false,
+            'error'   => t('admin_mig_sqlzip_no_merge', 'SQL 迁移文件包含 DROP TABLE + CREATE TABLE 语句，不支持合并导入。如需保留目标数据并跳过主键冲突，请使用 JSON 格式迁移文件，或改用覆盖模式。'),
+        ]);
+        return;
+    }
+
+    importJsonData($data, $mode, $whitelist);
+}
+
+/**
+ * 执行 JSON 数据导入（覆盖/合并）
+ *
+ * @param array  $data        已解析的迁移数据（含 tables）
+ * @param string $mode        'overwrite' | 'merge'
+ * @param array  $whitelist   允许写入的表白名单
+ * @param string $snapshotName 已创建的快照名（外部已创建则传入，否则内部创建）
+ */
+function importJsonData(array $data, string $mode, array $whitelist, string $snapshotName = ''): void {
     set_time_limit(600);
     startHeartbeat(); // 启用心跳，防止长时导入被代理超时断连
 
@@ -550,17 +703,21 @@ function importData(array $whitelist, string $format): void {
     $isSqlite = $driver->isFileBased();
 
     // 1) 导入前创建快照，作为回滚安全网
-    $snapshotName = '';
-    try {
-        $manager = new BackupManager();
-        $snap = $manager->createBackup(t('admin_mig_snapshot_desc', '数据迁移导入前自动快照'));
-        if (!empty($snap['filename'])) {
-            $snapshotName = $snap['filename'];
+    heartbeat(1); // 快照（尤其 MySQL mysqldump）可能耗时，先发一次心跳保持连接活跃
+    if ($snapshotName === '') {
+        try {
+            $manager = new BackupManager();
+            $snapTables = MIGRATION_SNAPSHOT_FULL_DB ? null : $whitelist;
+            $snap = $manager->createBackup(t('admin_mig_snapshot_desc', '数据迁移导入前自动快照'), $snapTables);
+            if (!empty($snap['filename'])) {
+                $snapshotName = $snap['filename'];
+            }
+        } catch (\Throwable $e) {
+            // 快照失败不阻断导入，但提示
+            $snapshotName = '';
         }
-    } catch (\Throwable $e) {
-        // 快照失败不阻断导入，但提示
-        $snapshotName = '';
     }
+    heartbeat(1); // 快照结束后再次确认连接活跃
 
     // 2) 确保目标实例 schema 就绪
     if (function_exists('auto_migrate')) {
@@ -574,22 +731,157 @@ function importData(array $whitelist, string $format): void {
         $db->exec('SET FOREIGN_KEY_CHECKS = 0;');
     }
 
+    // 迁移拓扑顺序：被依赖的表优先导入，避免外键指向尚未导入的记录。
+    // 注意：users.group_id 依赖 user_groups，因此 user_groups 必须在 users 之前。
+    $migrationOrder = [
+        'user_groups', 'roles', 'medals', 'forum_categories',
+        'users',
+        'forums',
+        'user_roles', 'user_medals',
+        'posts',
+        'replies',
+        'pm_conversations',
+        'pm_messages',
+        'favorites', 'checkins', 'user_points_log',
+        'notifications', 'reports', 'ban_appeals', 'password_reset_requests',
+        'announcements', 'site_pages', 'site_settings',
+        'mail_logs', 'mail_bounce_config', 'mail_bounce_logs',
+        'sensitive_words', 'sensitive_word_whitelist', 'sensitive_word_logs', 'sensitive_word_status_logs',
+        'traffic_stats', 'traffic_visitors',
+    ];
+
+    // 合并模式下可重映射的核心表：主键冲突时自动分配新 ID，并同步更新下游外键引用。
+    // 这能避免「主键冲突被跳过、但关联表仍指向旧 ID」导致的数据混乱。
+    $remapConfig = [
+        'users' => [
+            'pk' => 'id',
+            'refs' => [
+                ['table' => 'posts', 'column' => 'user_id'],
+                ['table' => 'replies', 'column' => 'user_id'],
+                ['table' => 'pm_conversations', 'column' => 'user1_id'],
+                ['table' => 'pm_conversations', 'column' => 'user2_id'],
+                ['table' => 'pm_messages', 'column' => 'sender_id'],
+                ['table' => 'favorites', 'column' => 'user_id'],
+                ['table' => 'checkins', 'column' => 'user_id'],
+                ['table' => 'user_points_log', 'column' => 'user_id'],
+                ['table' => 'notifications', 'column' => 'user_id'],
+                ['table' => 'reports', 'column' => 'reporter_id'],
+                ['table' => 'reports', 'column' => 'handled_by'],
+                ['table' => 'ban_appeals', 'column' => 'user_id'],
+                ['table' => 'ban_appeals', 'column' => 'handled_by'],
+                ['table' => 'password_reset_requests', 'column' => 'user_id'],
+                ['table' => 'password_reset_requests', 'column' => 'handled_by'],
+                ['table' => 'user_roles', 'column' => 'user_id'],
+                ['table' => 'user_medals', 'column' => 'user_id'],
+                ['table' => 'user_medals', 'column' => 'awarded_by'],
+            ],
+        ],
+        // user_groups 仅通过 points 范围与用户关联，没有外键列，无需重映射下游引用。
+        'roles' => [
+            'pk' => 'id',
+            'refs' => [
+                ['table' => 'user_roles', 'column' => 'role_id'],
+            ],
+        ],
+        'medals' => [
+            'pk' => 'id',
+            'refs' => [
+                ['table' => 'user_medals', 'column' => 'medal_id'],
+            ],
+        ],
+        'forum_categories' => [
+            'pk' => 'id',
+            'refs' => [
+                ['table' => 'forums', 'column' => 'category_id'],
+            ],
+        ],
+        'forums' => [
+            'pk' => 'id',
+            'refs' => [
+                ['table' => 'posts', 'column' => 'forum_id'],
+            ],
+        ],
+        'posts' => [
+            'pk' => 'id',
+            'refs' => [
+                ['table' => 'replies', 'column' => 'post_id'],
+                ['table' => 'favorites', 'column' => 'post_id'],
+                ['table' => 'reports', 'column' => 'post_id'],
+            ],
+        ],
+        'replies' => [
+            'pk' => 'id',
+            'refs' => [
+                ['table' => 'replies', 'column' => 'reply_to'],
+                ['table' => 'reports', 'column' => 'reply_id'],
+            ],
+        ],
+        'pm_conversations' => [
+            'pk' => 'id',
+            'unique' => ['user1_id', 'user2_id'],
+            'refs' => [
+                ['table' => 'pm_messages', 'column' => 'conversation_id'],
+            ],
+        ],
+    ];
+
+    // 按拓扑顺序排列；未在顺序中的表放在最后
+    $orderedTables = [];
+    foreach ($migrationOrder as $t) {
+        if (isset($data['tables'][$t])) {
+            $orderedTables[$t] = $data['tables'][$t];
+        }
+    }
+    foreach ($data['tables'] as $t => $rows) {
+        if (!array_key_exists($t, $orderedTables)) {
+            $orderedTables[$t] = $rows;
+        }
+    }
+
     $results = [];
     $totalInserted = 0;
     $totalSkipped = 0;
     $rowErrors = [];
+    $idMaps = [];          // ['表名' => [旧ID => 新ID], ...]
+    $existingIdCache = [];
     $inTransaction = false;
+
     try {
         $db->beginTransaction();
         $inTransaction = true;
 
-        foreach ($data['tables'] as $table => $rows) {
+        foreach ($orderedTables as $table => &$rows) {
             if (!in_array($table, $whitelist, true)) {
-                continue; // 跳过白名单外的表，避免误写系统表
+                continue;
             }
             if (!is_array($rows) || empty($rows)) {
-                $results[$table] = ['inserted' => 0, 'skipped' => 0];
+                $results[$table] = ['inserted' => 0, 'skipped' => 0, 'remapped' => 0];
                 continue;
+            }
+
+            // 应用已生成的上游 ID 映射到本表数据，确保外键指向正确的新 ID
+            foreach ($idMaps as $srcTable => $map) {
+                if (empty($map) || !isset($remapConfig[$srcTable])) {
+                    continue;
+                }
+                foreach ($remapConfig[$srcTable]['refs'] as $ref) {
+                    if ($ref['table'] === $table) {
+                        remapColumn($rows, $ref['column'], $map);
+                    }
+                }
+            }
+
+            // 会话表规范化：保证 user1_id < user2_id，与目标库 UNIQUE 约束一致
+            if ($table === 'pm_conversations') {
+                foreach ($rows as &$convRow) {
+                    if (is_array($convRow) && isset($convRow['user1_id'], $convRow['user2_id'])
+                        && (int)$convRow['user1_id'] > (int)$convRow['user2_id']) {
+                        $tmp = $convRow['user1_id'];
+                        $convRow['user1_id'] = $convRow['user2_id'];
+                        $convRow['user2_id'] = $tmp;
+                    }
+                }
+                unset($convRow);
             }
 
             // 覆盖模式：先清空目标表
@@ -597,41 +889,132 @@ function importData(array $whitelist, string $format): void {
                 $db->exec('DELETE FROM ' . $driver->quoteIdentifier($table));
             }
 
-            $insertVerb = $mode === 'merge' ? $driver->insertIgnoreClause() : 'INSERT INTO';
             $inserted = 0;
             $skipped = 0;
-            foreach ($rows as $idx => $row) {
-                if (!is_array($row)) {
-                    continue;
-                }
-                heartbeat(30); // 每插入 30 行发送一次心跳，维持 HTTP/2 连接
-                $cols = array_keys($row);
-                if (empty($cols)) {
-                    continue;
-                }
-                $colList = implode(', ', array_map([$driver, 'quoteIdentifier'], $cols));
-                $placeholders = rtrim(str_repeat('?, ', count($cols)), ', ');
-                $sql = $insertVerb . ' ' . $driver->quoteIdentifier($table) . ' (' . $colList . ') VALUES (' . $placeholders . ')';
-                try {
-                    $stmt = $db->prepare($sql);
-                    $stmt->execute(array_values($row));
-                    $inserted++;
-                } catch (\Throwable $e) {
-                    // 合并模式下单条冲突/外键错误应跳过，避免整批失败
-                    if ($mode === 'merge') {
-                        $skipped++;
-                        if (count($rowErrors) < 20) {
-                            $rowErrors[] = $table . '#' . ($idx + 1) . ': ' . $e->getMessage();
-                        }
+            $remapped = 0;
+
+            if ($mode === 'merge' && isset($remapConfig[$table])) {
+                // 合并模式：可重映射表，主键冲突时自动分配新 ID
+                $pk = $remapConfig[$table]['pk'];
+                $existingIds = getExistingIds($db, $driver, $table, $pk, $existingIdCache);
+                foreach ($rows as $idx => $row) {
+                    if (!is_array($row)) {
                         continue;
                     }
-                    // 覆盖模式下直接抛出，回滚事务
-                    throw $e;
+                    // 用户表：导入前规范化，避免空用户名/邮箱产生空白行
+                    if ($table === 'users') {
+                        $row = normalizeUserImportRow($row);
+                    }
+                    heartbeat(30);
+                    if (!array_key_exists($pk, $row)) {
+                        $skipped++;
+                        continue;
+                    }
+                    $oldId = $row[$pk];
+                    $oldIdKey = is_numeric($oldId) ? (int)$oldId : (string)$oldId;
+                    if (!in_array($oldIdKey, $existingIds, true)) {
+                        // 主键不冲突，直接插入并保留原 ID
+                        if (insertRow($db, $driver, $table, $row)) {
+                            $inserted++;
+                            $idMaps[$table][$oldId] = $oldId;
+                            $existingIds[] = $oldIdKey;
+                        } else {
+                            $skipped++;
+                            if (count($rowErrors) < 20) {
+                                $rowErrors[] = $table . '#' . ($idx + 1) . ': ' . t('admin_mig_insert_failed', '插入失败');
+                            }
+                        }
+                    } else {
+                        // 主键冲突：尝试重映射
+                        $needRemap = true;
+                        if ($table === 'pm_conversations' && isset($remapConfig[$table]['unique'])) {
+                            // 会话表优先复用已有会话 ID，避免同一对用户产生多个会话
+                            $uCols = $remapConfig[$table]['unique'];
+                            $uVals = [];
+                            $hasAll = true;
+                            foreach ($uCols as $c) {
+                                if (!array_key_exists($c, $row)) {
+                                    $hasAll = false;
+                                    break;
+                                }
+                                $uVals[] = $row[$c];
+                            }
+                            if ($hasAll) {
+                                $existingConvId = findExistingByUnique($db, $driver, $table, $pk, $uCols, $uVals);
+                                if ($existingConvId !== null) {
+                                    $idMaps[$table][$oldId] = $existingConvId;
+                                    $remapped++;
+                                    $needRemap = false;
+                                }
+                            }
+                        }
+                        if ($needRemap) {
+                            $newRow = $row;
+                            unset($newRow[$pk]);
+                            $newId = insertRowReturningId($db, $driver, $table, $newRow, $pk);
+                            if ($newId !== null) {
+                                $idMaps[$table][$oldId] = $newId;
+                                $remapped++;
+                                $existingIds[] = is_numeric($newId) ? (int)$newId : (string)$newId;
+                            } else {
+                                $skipped++;
+                                if (count($rowErrors) < 20) {
+                                    $rowErrors[] = $table . '#' . ($idx + 1) . ': ' . t('admin_mig_remap_failed', '无法为冲突主键分配新 ID');
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                // 覆盖模式 或 不可重映射表：批量插入
+                $insertVerb = $mode === 'merge' ? $driver->insertIgnoreClause() : 'INSERT INTO';
+                foreach ($rows as $idx => $row) {
+                    if (!is_array($row)) {
+                        continue;
+                    }
+                    // 用户表：导入前规范化，避免空用户名/邮箱产生空白行
+                    if ($table === 'users') {
+                        $row = normalizeUserImportRow($row);
+                    }
+                    heartbeat(30);
+                    $cols = array_keys($row);
+                    if (empty($cols)) {
+                        continue;
+                    }
+                    $colList = implode(', ', array_map([$driver, 'quoteIdentifier'], $cols));
+                    $placeholders = rtrim(str_repeat('?, ', count($cols)), ', ');
+                    $sql = $insertVerb . ' ' . $driver->quoteIdentifier($table) . ' (' . $colList . ') VALUES (' . $placeholders . ')';
+                    try {
+                        $stmt = $db->prepare($sql);
+                        $stmt->execute(array_values($row));
+                        $inserted++;
+                    } catch (\Throwable $e) {
+                        // 合并模式下单条冲突/外键错误应跳过，避免整批失败
+                        if ($mode === 'merge') {
+                            $skipped++;
+                            if (count($rowErrors) < 20) {
+                                $rowErrors[] = $table . '#' . ($idx + 1) . ': ' . $e->getMessage();
+                            }
+                            continue;
+                        }
+                        // 覆盖模式下直接抛出，回滚事务
+                        throw $e;
+                    }
                 }
             }
+
             $totalInserted += $inserted;
             $totalSkipped += $skipped;
-            $results[$table] = ['inserted' => $inserted, 'skipped' => $skipped];
+            $results[$table] = ['inserted' => $inserted, 'skipped' => $skipped, 'remapped' => $remapped];
+
+            // 对本表自引用列应用本表 ID 映射（例如 replies.reply_to）
+            if ($mode === 'merge' && isset($remapConfig[$table]) && isset($idMaps[$table])) {
+                foreach ($remapConfig[$table]['refs'] as $ref) {
+                    if ($ref['table'] === $table) {
+                        applyIdMapToDbColumn($db, $driver, $table, $ref['column'], $idMaps[$table]);
+                    }
+                }
+            }
 
             // 覆盖模式后重置自增计数器
             if ($mode === 'overwrite' && $inserted > 0) {
@@ -645,6 +1028,13 @@ function importData(array $whitelist, string $format): void {
                     // 表无自增列时忽略
                 }
             }
+        }
+        unset($rows); // 释放引用，避免意外修改 $orderedTables
+
+        // 汇总重映射数量
+        $totalRemapped = 0;
+        foreach ($results as $r) {
+            $totalRemapped += (int)($r['remapped'] ?? 0);
         }
 
         $db->commit();
@@ -668,22 +1058,186 @@ function importData(array $whitelist, string $format): void {
 
     $message = ($mode === 'overwrite'
         ? t('admin_mig_import_done_overwrite', '覆盖导入完成，共写入 {n} 行数据。', ['n' => $totalInserted])
-        : t('admin_mig_import_done_merge', '合并导入完成，共写入 {n} 行数据（已跳过主键冲突）。', ['n' => $totalInserted])
+        : t('admin_mig_import_done_merge', '合并导入完成，共写入 {n} 行数据（已自动处理主键冲突）。', ['n' => $totalInserted])
     );
     if ($mode === 'merge' && $totalSkipped > 0) {
         $message = t('admin_mig_import_done_merge_with_skip', '合并导入完成，共写入 {n} 行，跳过 {s} 行（主键冲突或外键约束）。', ['n' => $totalInserted, 's' => $totalSkipped]);
     }
 
     echo safeJsonEncode([
-        'success'        => true,
-        'mode'           => $mode,
-        'total_inserted' => $totalInserted,
-        'total_skipped'  => $totalSkipped,
-        'results'        => $results,
-        'snapshot'       => $snapshotName,
-        'message'        => $message,
-        'row_errors'     => $rowErrors,
+        'success'         => true,
+        'mode'            => $mode,
+        'total_inserted'  => $totalInserted,
+        'total_skipped'   => $totalSkipped,
+        'total_remapped'  => $totalRemapped,
+        'results'         => $results,
+        'snapshot'        => $snapshotName,
+        'message'         => $message,
+        'row_errors'      => $rowErrors,
     ]);
+}
+
+/**
+ * 获取目标表中已存在的主键集合
+ */
+function getExistingIds(PDO $db, $driver, string $table, string $pk, array &$cache): array {
+    $key = $table . '.' . $pk;
+    if (isset($cache[$key])) {
+        return $cache[$key];
+    }
+    $ids = [];
+    try {
+        $stmt = $db->query('SELECT ' . $driver->quoteIdentifier($pk) . ' FROM ' . $driver->quoteIdentifier($table));
+        if ($stmt) {
+            while ($v = $stmt->fetchColumn()) {
+                $ids[] = is_numeric($v) ? (int)$v : (string)$v;
+            }
+        }
+    } catch (\Throwable $e) {
+        // 表不存在则视为空
+    }
+    $cache[$key] = $ids;
+    return $ids;
+}
+
+/**
+ * 按唯一键查找已存在的记录主键
+ */
+function findExistingByUnique(PDO $db, $driver, string $table, string $pk, array $uCols, array $uVals): ?int {
+    if (empty($uCols) || count($uCols) !== count($uVals)) {
+        return null;
+    }
+    $conds = [];
+    $params = [];
+    foreach ($uCols as $i => $c) {
+        $conds[] = $driver->quoteIdentifier($c) . ' = ?';
+        $params[] = $uVals[$i];
+    }
+    try {
+        $stmt = $db->prepare('SELECT ' . $driver->quoteIdentifier($pk) . ' FROM ' . $driver->quoteIdentifier($table) . ' WHERE ' . implode(' AND ', $conds) . ' LIMIT 1');
+        $stmt->execute($params);
+        $v = $stmt->fetchColumn();
+        return $v !== false ? (int)$v : null;
+    } catch (\Throwable $e) {
+        return null;
+    }
+}
+
+/**
+ * 插入单行（保留主键）
+ */
+function insertRow(PDO $db, $driver, string $table, array $row): bool {
+    $cols = array_keys($row);
+    if (empty($cols)) {
+        return false;
+    }
+    $colList = implode(', ', array_map([$driver, 'quoteIdentifier'], $cols));
+    $placeholders = rtrim(str_repeat('?, ', count($cols)), ', ');
+    $sql = 'INSERT INTO ' . $driver->quoteIdentifier($table) . ' (' . $colList . ') VALUES (' . $placeholders . ')';
+    try {
+        $stmt = $db->prepare($sql);
+        $stmt->execute(array_values($row));
+        return true;
+    } catch (\Throwable $e) {
+        return false;
+    }
+}
+
+/**
+ * 插入单行（不指定主键），返回新主键
+ */
+function insertRowReturningId(PDO $db, $driver, string $table, array $row, string $pk): ?int {
+    if (empty($row)) {
+        return null;
+    }
+    $cols = array_keys($row);
+    $colList = implode(', ', array_map([$driver, 'quoteIdentifier'], $cols));
+    $placeholders = rtrim(str_repeat('?, ', count($cols)), ', ');
+    $sql = 'INSERT INTO ' . $driver->quoteIdentifier($table) . ' (' . $colList . ') VALUES (' . $placeholders . ')';
+    try {
+        $stmt = $db->prepare($sql);
+        $stmt->execute(array_values($row));
+        $id = $db->lastInsertId();
+        return $id !== false && $id !== '' && $id !== '0' ? (int)$id : null;
+    } catch (\Throwable $e) {
+        return null;
+    }
+}
+
+/**
+ * 规范化待导入的用户行：保证 username / email / password 非空，
+ * 避免合并导入后出现「用户名/邮箱为空」的空白行。
+ * 仅当字段为空时才生成占位值，已存在的合法值原样保留。
+ */
+function normalizeUserImportRow(array $row): array {
+    $base = $row['uid'] ?? $row['id'] ?? '';
+    $suffix = is_numeric($base) ? (string)$base : substr(md5(serialize($row)), 0, 6);
+    if (empty($row['username'])) {
+        $row['username'] = 'user_' . $suffix;
+    }
+    if (empty($row['email'])) {
+        $row['email'] = $row['username'] . '@migrated.local';
+    }
+    if (empty($row['password'])) {
+        $row['password'] = password_hash(bin2hex(random_bytes(8)), PASSWORD_DEFAULT);
+    }
+    return $row;
+}
+
+/**
+ * 根据映射关系更新数据集中的某一列
+ */
+function remapColumn(array &$rows, string $column, array $map): void {
+    foreach ($rows as &$row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        if (array_key_exists($column, $row)) {
+            $v = $row[$column];
+            if (isset($map[$v])) {
+                $row[$column] = $map[$v];
+            } elseif (is_numeric($v) && isset($map[(int)$v])) {
+                $row[$column] = $map[(int)$v];
+            }
+        }
+    }
+    unset($row);
+}
+
+/**
+ * 将数据库表中某一列的旧 ID 更新为新 ID（用于处理自引用表，如 replies.reply_to）
+ */
+function applyIdMapToDbColumn(PDO $db, $driver, string $table, string $column, array $map): void {
+    if (empty($map)) {
+        return;
+    }
+    $diffMap = [];
+    foreach ($map as $old => $new) {
+        if ((string)$old !== (string)$new) {
+            $diffMap[$old] = $new;
+        }
+    }
+    if (empty($diffMap)) {
+        return;
+    }
+
+    $cases = [];
+    $params = [];
+    foreach ($diffMap as $old => $new) {
+        $cases[] = 'WHEN ? THEN ?';
+        $params[] = $old;
+        $params[] = $new;
+    }
+    $colQ = $driver->quoteIdentifier($column);
+    $tableQ = $driver->quoteIdentifier($table);
+    $inPlaceholders = implode(', ', array_fill(0, count($diffMap), '?'));
+    $sql = "UPDATE {$tableQ} SET {$colQ} = CASE {$colQ} " . implode(' ', $cases) . " END WHERE {$colQ} IN ({$inPlaceholders})";
+    try {
+        $stmt = $db->prepare($sql);
+        $stmt->execute(array_merge($params, array_keys($diffMap)));
+    } catch (\Throwable $e) {
+        // 自引用列更新失败不阻断导入
+    }
 }
 
 /**
@@ -704,21 +1258,24 @@ function restoreForeignKeys(PDO $db, bool $isSqlite): void {
 /**
  * 执行 SQL 迁移文件导入（逐条执行，跳过注释和空行）
  */
-function importSQL(string $sqlContent): void {
+function importSQL(string $sqlContent, array $whitelist = []): void {
     set_time_limit(600);
     startHeartbeat(); // 启用心跳，防止长时 SQL 导入被代理超时断连
 
     // 创建快照
+    heartbeat(1); // 快照可能耗时，先发一次心跳保持连接活跃
     $snapshotName = '';
     try {
         $manager = new BackupManager();
-        $snap = $manager->createBackup(t('admin_mig_snapshot_desc', '数据迁移导入前自动快照'));
+        $snapTables = MIGRATION_SNAPSHOT_FULL_DB ? null : $whitelist;
+        $snap = $manager->createBackup(t('admin_mig_snapshot_desc', '数据迁移导入前自动快照'), $snapTables);
         if (!empty($snap['filename'])) {
             $snapshotName = $snap['filename'];
         }
     } catch (\Throwable $e) {
         $snapshotName = '';
     }
+    heartbeat(1); // 快照结束后再次确认连接活跃
 
     $db = get_db();
     $driver = get_db_driver();
@@ -790,11 +1347,11 @@ function importSQL(string $sqlContent): void {
 }
 
 /**
- * 导入 ZIP 备份包（含 SQL + uploads 目录）
+ * 导入 ZIP 备份包（含 SQL/JSON + uploads 目录）
  *
- * 流程：解压 ZIP → 还原 uploads/ 文件到项目目录 → 读取 .sql 执行导入
+ * 流程：解压 ZIP → 还原 uploads/ 文件到项目目录 → 读取 .sql 或 .json 执行导入
  */
-function importZipBackup(string $tmpPath, array $whitelist): void {
+function importZipBackup(string $tmpPath, array $whitelist, string $format): void {
     set_time_limit(600);
     startHeartbeat(); // 启用心跳，防止 ZIP 解压+导入被代理超时断连
 
@@ -866,7 +1423,59 @@ function importZipBackup(string $tmpPath, array $whitelist): void {
         }
     }
 
-    // ===== 2) 查找并执行 SQL 文件 =====
+    // ===== 2) 判断 ZIP 内是 JSON 迁移文件还是 SQL 迁移文件 =====
+    $jsonFile = null;
+    $jsonCandidates = glob($tmpExtract . '*.json');
+    foreach ($jsonCandidates as $candidate) {
+        // 优先使用 manifest.json 中声明的 json_file，否则取第一个非 manifest 的 JSON
+        $bn = basename($candidate);
+        if ($bn === 'migration.json') {
+            $jsonFile = $candidate;
+            break;
+        }
+        if ($bn !== 'manifest.json' && $jsonFile === null) {
+            $jsonFile = $candidate;
+        }
+    }
+
+    // 如果有 JSON 迁移文件，按 JSON 方式导入（支持合并/覆盖）
+    if ($jsonFile !== null && is_file($jsonFile)) {
+        $raw = file_get_contents($jsonFile);
+        removeDirRecursive($tmpExtract);
+        if ($raw === false || $raw === '') {
+            echo safeJsonEncode(['success' => false, 'error' => t('admin_mig_file_read_failed', '无法读取 JSON 文件')]);
+            return;
+        }
+        $data = json_decode($raw, true);
+        if (!is_array($data)) {
+            echo safeJsonEncode(['success' => false, 'error' => t('admin_mig_json_invalid', 'ZIP 内的迁移文件不是有效的 JSON 数据')]);
+            return;
+        }
+        if (($data['format'] ?? '') !== $format) {
+            echo safeJsonEncode(['success' => false, 'error' => t('admin_mig_format_mismatch', 'ZIP 内迁移文件格式不匹配')]);
+            return;
+        }
+
+        // 跨库检测
+        $driver = get_db_driver();
+        $currentType = $driver->isFileBased() ? 'sqlite' : 'mysql';
+        $fileDbType = detectFileDbType($raw, false);
+        if ($fileDbType !== null && $fileDbType !== 'unknown' && $fileDbType !== $currentType) {
+            echo safeJsonEncode([
+                'success' => false,
+                'error'   => t('admin_mig_cross_db_blocked',
+                    '不支持跨数据库类型迁移：文件来源为 {src}，当前数据库为 {cur}。',
+                    ['src' => $fileDbType, 'cur' => $currentType]),
+            ]);
+            return;
+        }
+
+        $mode = ($_POST['mode'] ?? 'overwrite') === 'merge' ? 'merge' : 'overwrite';
+        importJsonData($data, $mode, $whitelist);
+        return;
+    }
+
+    // ===== 3) 无 JSON 则查找 SQL 文件 =====
     $sqlFile = null;
     $candidates = glob($tmpExtract . '*.sql');
     if (!empty($candidates)) {
@@ -876,7 +1485,7 @@ function importZipBackup(string $tmpPath, array $whitelist): void {
         removeDirRecursive($tmpExtract);
         echo safeJsonEncode([
             'success'        => false,
-            'error'          => t('admin_mig_zip_no_sql', '压缩包中未找到 SQL 文件'),
+            'error'          => t('admin_mig_zip_no_sql', '压缩包中未找到 SQL 或 JSON 迁移文件'),
             'files_restored' => $restoredFiles,
         ]);
         return;
@@ -908,7 +1517,7 @@ function importZipBackup(string $tmpPath, array $whitelist): void {
     removeDirRecursive($tmpExtract);
 
     // 执行 SQL 导入（复用 importSQL，它会创建快照 + 执行语句）
-    importSQL($sqlContent);
+    importSQL($sqlContent, $whitelist);
 }
 
 /**

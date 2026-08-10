@@ -65,15 +65,15 @@ class BackupManager {
      * @param string $description 备份描述（可选）
      * @return array ['success'=>bool, 'error'=>string, 'filename'=>string, 'meta'=>array]
      */
-    public function createBackup(string $description = ''): array {
+    public function createBackup(string $description = '', array $tables = null): array {
         $timestamp = date('Ymd_His');
 
         if ($this->isSqlite()) {
-            return $this->createSqliteBackup($timestamp, $description);
+            return $this->createSqliteBackup($timestamp, $description, $tables);
         }
 
         if ($this->isMysql()) {
-            return $this->createMysqlBackup($timestamp, $description);
+            return $this->createMysqlBackup($timestamp, $description, $tables);
         }
 
         return ['success' => false, 'error' => t('backup_unsupported_db_type', '不支持的数据库类型：') . ($this->dbConfig['type'] ?? 'unknown')];
@@ -82,7 +82,7 @@ class BackupManager {
     /**
      * SQLite 备份
      */
-    private function createSqliteBackup(string $timestamp, string $description): array {
+    private function createSqliteBackup(string $timestamp, string $description, array $tables = null): array {
         $filename = 'backup_' . $timestamp . '.db.gz';
         $filepath = $this->backupDir . $filename;
         $tempDb = $this->backupDir . 'temp_' . $timestamp . '.db';
@@ -144,21 +144,27 @@ class BackupManager {
     /**
      * MySQL 备份（调用 mysqldump）
      */
-    private function createMysqlBackup(string $timestamp, string $description): array {
+    private function createMysqlBackup(string $timestamp, string $description, array $tables = null): array {
         $filename = 'backup_' . $timestamp . '.sql.gz';
         $filepath = $this->backupDir . $filename;
         $tempSql = $this->backupDir . 'temp_' . $timestamp . '.sql';
 
-        $cmd = $this->buildMysqlDumpCommand($tempSql);
+        // 注意：mysqldump 的密码警告等 stderr 必须重定向到独立文件，
+        // 不能合并进 SQL 文件（不要用 2>&1），否则警告行会污染备份文件首部，
+        // 导致恢复时 mysql 报 ERROR 1064 语法错误。
+        $errFile = $tempSql . '.err';
+        $cmd = $this->buildMysqlDumpCommand($tempSql, $tables) . ' 2> ' . escapeshellarg($errFile);
         $output = [];
         $returnCode = 0;
-        @exec($cmd . ' 2>&1', $output, $returnCode);
+        @exec($cmd, $output, $returnCode);
 
         if ($returnCode !== 0 || !is_file($tempSql) || filesize($tempSql) === 0) {
+            $error = @file_get_contents($errFile);
+            @unlink($errFile);
             @unlink($tempSql);
-            $error = implode("\n", $output);
             return ['success' => false, 'error' => t('backup_mysqldump_failed', 'mysqldump 执行失败，请确保服务器已安装 mysqldump 并加入环境变量') . ($error ? t('backup_error_suffix', '：') . $error : '')];
         }
+        @unlink($errFile);
 
         // gzip 压缩
         $data = @file_get_contents($tempSql);
@@ -231,7 +237,7 @@ class BackupManager {
     /**
      * 构造 mysqldump 命令
      */
-    private function buildMysqlDumpCommand(string $outputFile): string {
+    private function buildMysqlDumpCommand(string $outputFile, array $tables = null): string {
         $config = $this->dbConfig;
         $cmd = escapeshellarg($this->findMysqlBinary('mysqldump'));
         $cmd .= ' -h ' . escapeshellarg($config['host'] ?? 'localhost');
@@ -243,6 +249,12 @@ class BackupManager {
         $cmd .= ' --single-transaction --routines --triggers --events';
         $cmd .= ' --hex-blob --skip-lock-tables';
         $cmd .= ' ' . escapeshellarg($config['dbname'] ?? '');
+        // 若指定了表，则只导出这些表（用于导入前轻量快照，显著缩短 mysqldump 耗时，避免代理超时）
+        if (!empty($tables) && is_array($tables)) {
+            foreach ($tables as $t) {
+                $cmd .= ' ' . escapeshellarg($t);
+            }
+        }
         $cmd .= ' > ' . escapeshellarg($outputFile);
         return $cmd;
     }
@@ -503,6 +515,10 @@ class BackupManager {
             return ['success' => false, 'error' => t('backup_corrupted', '备份文件已损坏或格式不正确')];
         }
 
+        // 1.5 清洗可能混入的命令行工具警告（如旧备份中 mysqldump/mysql 的 stderr 被写入
+        // SQL 文件首部）。这些行不是合法 SQL，会导致 mysql 恢复时报 ERROR 1064 语法错误。
+        $sql = preg_replace('/^[ \t]*(mysqldump|mysql):[^\n]*\n/m', '', $sql);
+
         // 2. 简单完整性校验：检查是否包含 CREATE TABLE 或 INSERT
         if (stripos($sql, 'CREATE TABLE') === false && stripos($sql, 'INSERT INTO') === false) {
             return ['success' => false, 'error' => t('backup_sql_incomplete', '备份文件内容不完整，缺少必要的 SQL 语句')];
@@ -553,8 +569,13 @@ class BackupManager {
      */
     private function createMysqlDumpToString(): string {
         $tempFile = $this->backupDir . 'snapshot_temp_' . date('Ymd_His') . '.sql';
-        $cmd = $this->buildMysqlDumpCommand($tempFile);
-        @exec($cmd . ' 2>&1', $output, $returnCode);
+        $errFile = $tempFile . '.err';
+        // stderr 重定向到独立文件，避免污染 SQL 字符串（原理同 createMysqlBackup）
+        $cmd = $this->buildMysqlDumpCommand($tempFile) . ' 2> ' . escapeshellarg($errFile);
+        $output = [];
+        $returnCode = 0;
+        @exec($cmd, $output, $returnCode);
+        @unlink($errFile);
         if ($returnCode !== 0 || !is_file($tempFile)) {
             @unlink($tempFile);
             return '';

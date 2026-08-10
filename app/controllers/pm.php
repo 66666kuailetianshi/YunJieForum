@@ -379,7 +379,7 @@ if ($action === 'list') {
                             <div class="pm-conv-top">
                                 <span class="pm-conv-name"><?php echo e($conv['other_username']); ?></span>
                                 <?php if ($conv['last_created_at']): ?>
-                                    <span class="pm-conv-time"><?php echo time_ago($conv['last_created_at']); ?></span>
+                                    <span class="pm-conv-time"><?php echo e(db_datetime($conv['last_created_at'])); ?></span>
                                 <?php endif; ?>
                             </div>
                             <div class="pm-conv-preview<?php echo $lastIsMine ? ' is-mine' : ''; ?>"><?php echo e($lastPreview); ?></div>
@@ -458,7 +458,7 @@ if ($action === 'view') {
                         <div class="pm-msg-main">
                             <div class="pm-msg-meta">
                                 <span class="pm-msg-author"><a href="<?php echo $msgProfileUrl; ?>" title="<?php echo t('pm_view_profile_of', '查看 {name} 的主页', ['name' => e($msgName)]); ?>"><?php echo e($msgName); ?></a></span>
-                                <span><?php echo time_ago($msg['created_at']); ?></span>
+                                <span><?php echo e(db_datetime($msg['created_at'])); ?></span>
                                 <?php if ($isMine): ?>
                                     <form method="POST" action="<?php echo site_url('pm', ['action' => 'delete_message']); ?>" class="pm-msg-delete-form" onsubmit="<?php echo e(t('pm_109c2d', 'return confirm(\'确定删除这条消息吗？\');')); ?>">
                                         <input type="hidden" name="csrf_token" value="<?php echo csrf_token(); ?>">

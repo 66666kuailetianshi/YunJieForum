@@ -386,6 +386,10 @@ require_once dirname(__DIR__) . '/layout/header.php';
                 <?php foreach ($users as $u):
                     $group = get_user_group((int)$u['points']);
                     $lastActive = !empty($u['last_active']) ? time_ago($u['last_active']) : t('admin_users_never','从未');
+                    // 兼容迁移导入产生的「用户名/邮箱为空」记录，避免列表出现空白行
+                    $displayName  = !empty($u['username']) ? $u['username'] : ('UID ' . ($u['uid'] ?? '?'));
+                    $displayEmail = !empty($u['email']) ? $u['email'] : '—';
+                    $avatarName   = !empty($u['username']) ? $u['username'] : ('UID' . ($u['uid'] ?? '?'));
                     $statusClass = $u['status'] === 'banned' ? 'badge-soft-danger' : ($u['status'] === 'muted' ? 'badge-soft-warning' : 'badge-soft-success');
                     $statusTitle = '';
                     $remainingSecondsInit = 0;
@@ -409,13 +413,13 @@ require_once dirname(__DIR__) . '/layout/header.php';
                         </td>
                         <td data-open-drawer="<?php echo (int)$u['id']; ?>" style="cursor:pointer;" title="<?php echo e(t('admin_users_view_detail', '点击查看用户详情')); ?>">
                             <div class="user-cell">
-                                <img src="<?php echo avatar_url($u['avatar'], $u['username']); ?>" alt="" class="avatar avatar-sm">
+                                <img src="<?php echo avatar_url($u['avatar'] ?? null, $avatarName); ?>" alt="" class="avatar avatar-sm">
                                 <div class="user-cell-info">
                                     <div class="user-cell-name">
-                                        <?php echo e($u['username']); ?>
+                                        <?php echo e($displayName); ?>
                                         <?php if ($u['role'] === 'admin'): ?><span class="badge badge-danger text-xs"><?php echo e(t('admin_users_admin_badge', '管理员')); ?></span><?php endif; ?>
                                     </div>
-                                    <div class="user-cell-email"><?php echo e($u['email']); ?></div>
+                                    <div class="user-cell-email"><?php echo e($displayEmail); ?></div>
                                 </div>
                             </div>
                         </td>
@@ -685,7 +689,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
         return '<tr data-user-id="' + u.id + '">' +
             '<td class="col-check"><input type="checkbox" class="row-check" value="' + u.id + '"' + checked + '></td>' +
             '<td class="col-uid"><code class="uid-code">' + escapeHtml(u.uid || '-') + '</code></td>' +
-            '<td data-open-drawer="' + u.id + '" style="cursor:pointer;" title="点击查看用户详情"><div class="user-cell"><img src="' + escapeHtml(u.avatar_url) + '" alt="" class="avatar avatar-sm"><div class="user-cell-info"><div class="user-cell-name">' + escapeHtml(u.username) + adminBadge + '</div><div class="user-cell-email">' + escapeHtml(u.email) + '</div></div></div></td>' +
+            '<td data-open-drawer="' + u.id + '" style="cursor:pointer;" title="点击查看用户详情"><div class="user-cell"><img src="' + escapeHtml(u.avatar_url || '') + '" alt="" class="avatar avatar-sm"><div class="user-cell-info"><div class="user-cell-name">' + escapeHtml(u.username || ('UID ' + (u.uid != null ? u.uid : '?'))) + adminBadge + '</div><div class="user-cell-email">' + escapeHtml(u.email || '—') + '</div></div></div></td>' +
             '<td class="col-status">' + statusBadge + remainingHtml + '</td>' +
             '<td class="col-risk">' + riskHtml + '</td>' +
             '<td class="col-group">' + groupBadge + '</td>' +
@@ -797,7 +801,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
         // 顶部用户信息 + 风险徽章
         var html = '';
         html += '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:1rem;">';
-        html += '<div><div style="font-weight:700;font-size:1.05rem;">' + escapeHtml(u.username) + ' <span class="text-muted" style="font-weight:400;">(UID ' + escapeHtml(u.uid) + ')</span></div>';
+        html += '<div><div style="font-weight:700;font-size:1.05rem;">' + escapeHtml(u.username || ('UID ' + (u.uid != null ? u.uid : '?'))) + ' <span class="text-muted" style="font-weight:400;">(UID ' + escapeHtml(u.uid) + ')</span></div>';
         html += '<div class="text-muted" style="font-size:0.8rem;">' + escapeHtml(u.email) + <?php echo json_encode(t('admin_users_js_registered_at',' · 注册于 ')); ?> + escapeHtml(u.created_at) + <?php echo json_encode(t('admin_users_js_post_count',' · 帖子 ')); ?> + u.post_count + <?php echo json_encode(t('admin_users_js_reply_count',' · 回复 ')); ?> + u.reply_count + '</div></div>';
         html += '<span class="badge" style="background:' + escapeHtml(risk.color) + ';color:#fff;">' + escapeHtml(u.status_fmt) + <?php echo json_encode(t('admin_users_js_risk_label',' · 风险 ')); ?> + escapeHtml(risk.label) + <?php echo json_encode(t('admin_users_left_paren','（')); ?> + (parseInt(risk.score, 10) || 0) + <?php echo json_encode(t('admin_users_score_close',' 分）')); ?> + '</span>';
         html += '</div>';
@@ -1044,7 +1048,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
         var html = '';
         html += '<div class="drawer-head">';
         html += '<img src="' + escapeHtml(u.avatar) + '" alt="" class="avatar" style="width:48px;height:48px;border-radius:50%;">';
-        html += '<div style="flex:1;"><div style="font-weight:700;font-size:1.05rem;">' + escapeHtml(u.username) + ' <span class="text-muted" style="font-weight:400;">(UID ' + escapeHtml(u.uid != null ? String(u.uid) : '-') + ')</span></div>';
+        html += '<div style="flex:1;"><div style="font-weight:700;font-size:1.05rem;">' + escapeHtml(u.username || ('UID ' + (u.uid != null ? u.uid : '?'))) + ' <span class="text-muted" style="font-weight:400;">(UID ' + escapeHtml(u.uid != null ? String(u.uid) : '-') + ')</span></div>';
         html += '<div class="text-muted" style="font-size:0.8rem;">' + escapeHtml(u.email) + '</div></div>';
         html += <?php echo json_encode(t('admin_users_js_drawer_close_btn','<button type="button" class="btn btn-sm btn-secondary" data-close-drawer>关闭</button></div>')); ?>;
 

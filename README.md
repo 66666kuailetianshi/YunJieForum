@@ -1,12 +1,12 @@
 # 云界论坛 (Cloud Forum)
 
-> **当前状态：Beta 测试版**（`v1.3.5-beta`）｜ 轻量级社区论坛系统 · PHP + SQLite · 开箱即用
+> **当前状态：Beta 测试版**（`v1.3.7-beta`）｜ 轻量级社区论坛系统 · PHP + SQLite · 开箱即用
 
 **[English](README.en.md) · [繁體中文](README.zh-TW.md)**
 
 `云界论坛` 是一套纯 PHP 编写的轻量级社区论坛（BBS）系统，默认使用 SQLite 文件数据库，无需独立部署数据库服务器即可运行，适合个人博客社区、兴趣小组、内网知识库等场景。系统内置用户体系、版块/帖子/回复、私信、通知、签到积分、勋章角色、内容审核（敏感词）、邮件与流量统计等完整功能，并提供可视化的安装向导与后台管理。
 
-- **当前版本：** `1.3.5-beta`
+- **当前版本：** `1.3.7-beta`
 - **开发语言：** PHP 7.4+
 - **默认数据库：** SQLite（同时支持 MySQL / PostgreSQL）
 - **前端：** 原生 HTML + CSS + 少量原生 JS，无前端构建步骤
@@ -541,7 +541,12 @@ location ~ \.php$ {
 
 ## 15. 数据备份与维护
 
-- **数据库备份**：后台「备份」(`backup.php`) 调用 `app/includes/backup_manager.php`；SQLite 也可直接复制 `data/forum.db`。
+- **数据库备份**：后台「备份」(`backup.php`) 调用 `app/includes/backup_manager.php`，**默认执行完整数据库备份**（SQLite 全库文件 / MySQL 全库 `mysqldump`），也支持按指定表导出；SQLite 也可直接复制 `data/forum.db`。
+- **数据迁移**：后台「数据迁移」(`data_migration.php`) 支持把业务表导出为 JSON / SQL 格式，再导入到另一个实例，导入前会自动创建快照。导出格式适用场景如下：
+  - **通用 JSON**：跨 SQLite / MySQL 环境迁移，支持「合并」与「覆盖」两种导入模式，不带头像等上传文件。
+  - **通用 JSON（ZIP 含头像）**：跨环境迁移且需要保留头像、上传文件；ZIP 内为 JSON + `uploads/`，支持合并/覆盖导入。
+  - **SQLite / MySQL 数据库（ZIP 含头像）**：同类型数据库整库搬迁；ZIP 内为 SQL + `uploads/`，执行 `DROP TABLE + CREATE TABLE`，仅支持覆盖导入。
+- **全表快照开关**：迁移导入前默认只备份本次涉及的业务表，以缩短 `mysqldump` 时间、避免代理超时。如需完整数据库快照，可在 `data/site_config.php` 中定义 `define('MIGRATION_SNAPSHOT_FULL_DB', true);`。
 - **迁移与升级**：新版本解压覆盖代码后，运行期 `auto_migrate()` 会自动补全表/索引，无需手工改库。
 - **日志**：错误记录在 `data/error.log`；安装期 DDL 执行明细可通过 `get_ddl_install_log()` 查看（安装失败时向导会展示）。
 - **退信处理**：`app/includes/bounce_processor.php` 处理邮件退信并更新用户邮箱状态。
@@ -583,7 +588,7 @@ location ~ \.php$ {
 
 ---
 
-> 文档基于项目源码（`index.php`、`install.php`、`app/includes/*`、`public/*`）整理，版本 `1.3.5-beta`。
+> 文档基于项目源码（`index.php`、`install.php`、`app/includes/*`、`public/*`）整理，版本 `1.3.7-beta`。
 > 如与代码实现不符，请以代码与安装向导提示为准。
 
 ---

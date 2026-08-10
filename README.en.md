@@ -1,12 +1,12 @@
 # 云界论坛 (Cloud Forum)
 
-> **Current Status: Beta** (v1.3.5-beta) | Lightweight community forum · PHP + SQLite · Out-of-the-box
+> **Current Status: Beta** (v1.3.7-beta) | Lightweight community forum · PHP + SQLite · Out-of-the-box
 
 **[简体中文](README.md) · [繁體中文](README.zh-TW.md)**
 
 `Cloud Forum` is a lightweight community forum (BBS) system written entirely in PHP. It uses a SQLite file database by default, so it can run without a standalone database server — suitable for personal blog communities, interest groups, intranet knowledge bases, and similar scenarios. The system includes a built-in user system, forums/posts/replies, private messages, notifications, daily check-ins with points, medals and roles, content moderation (sensitive words), email and traffic statistics, and provides a visual installation wizard and admin panel.
 
-- **Current Version:** `1.3.5-beta`
+- **Current Version:** `1.3.7-beta`
 - **Language:** PHP 7.4+
 - **Default Database:** SQLite (also supports MySQL / PostgreSQL)
 - **Frontend:** Native HTML + CSS + a small amount of native JS, no frontend build step
@@ -533,7 +533,12 @@ Both a manual "Update now" click and an automatic trigger go through the same at
 
 ## 15. Data Backup & Maintenance
 
-- **Database backup**: the "Backup" page in admin (`backup.php`) calls `app/includes/backup_manager.php`; for SQLite you can also simply copy `data/forum.db`.
+- **Database backup**: the "Backup" page in admin (`backup.php`) calls `app/includes/backup_manager.php`. It **performs full-database backups by default** (complete SQLite database file / full MySQL `mysqldump`) and also supports table-level exports. For SQLite you can also simply copy `data/forum.db`.
+- **Data migration**: the "Data Migration" page in admin (`data_migration.php`) lets you export business tables to JSON / SQL and import them into another instance. A pre-import snapshot is created automatically. Export format use cases:
+  - **Universal JSON**: cross-environment migration between SQLite and MySQL; supports both "merge" and "overwrite" import modes; does not include avatars/uploads.
+  - **Universal JSON (ZIP with Avatars)**: cross-environment migration while keeping avatars and uploads; ZIP contains JSON + `uploads/`; supports merge/overwrite import.
+  - **SQLite / MySQL Database (ZIP+Avatars)**: whole-database relocation on the same database type; ZIP contains SQL + `uploads/` and runs `DROP TABLE + CREATE TABLE`; overwrite import only.
+- **Full-database snapshot switch**: by default, the pre-import snapshot only covers the business tables being migrated, reducing `mysqldump` time and avoiding proxy timeouts. To snapshot the entire database instead, define `define('MIGRATION_SNAPSHOT_FULL_DB', true);` in `data/site_config.php`.
 - **Migration & upgrade**: after overwriting the code with a new version, runtime `auto_migrate()` automatically creates missing tables/indexes — no manual database changes needed.
 - **Logs**: errors are recorded in `data/error.log`; installation-time DDL execution details can be inspected via `get_ddl_install_log()` (shown by the wizard on installation failure).
 - **Bounce handling**: `app/includes/bounce_processor.php` processes bounced emails and updates user email status.
@@ -575,7 +580,7 @@ In "Site Settings → CAPTCHA Settings", find the "Display Mode" dropdown and se
 
 ---
 
-> Documentation compiled from the project source (`index.php`, `install.php`, `app/includes/*`, `public/*`), version `1.3.5-beta`.
+> Documentation compiled from the project source (`index.php`, `install.php`, `app/includes/*`, `public/*`), version `1.3.7-beta`.
 > If it differs from the actual implementation, please follow the code and the installation wizard prompts.
 
 

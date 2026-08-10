@@ -61,7 +61,7 @@ $data = realtime_cache('pm_poll_' . $conversationId . '_' . $userId . '_' . $aft
             'avatar'     => avatar_url($row['avatar'], $row['username']),
             'profile'    => site_url('profile', ['user_id' => (int)$row['sender_id']]),
             'content'    => bbcode($row['content']),
-            'created_at' => time_ago($row['created_at']),
+            'created_at' => db_datetime($row['created_at']),
         ];
     }
 

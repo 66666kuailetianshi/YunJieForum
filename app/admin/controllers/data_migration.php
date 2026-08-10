@@ -62,21 +62,23 @@ if (function_exists('get_db_driver')) {
             <div class="mig-table-loading"><?php echo e(t('admin_mig_loading_tables', '正在加载数据表…')); ?></div>
         </div>
         <div class="mig-export-footer">
-            <div style="display:flex;align-items:center;gap:0.75rem;">
+            <div class="mig-export-row">
                 <span class="mig-selected-info" id="mig-selected-info"><?php echo e(t('admin_mig_selected_count', '已选 0 张表')); ?></span>
-                <label style="display:flex;align-items:center;gap:0.35rem;font-size:0.8125rem;color:var(--text-muted);cursor:pointer;">
-                    <?php echo e(t('admin_mig_export_format', '格式')); ?>:
-                    <select id="mig-export-format" style="font-size:0.8125rem;padding:2px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);">
+                <label class="mig-format-label">
+                    <span><?php echo e(t('admin_mig_export_format', '格式')); ?></span>
+                    <select id="mig-export-format" class="mig-format-select">
                         <option value="json"><?php echo e(t('admin_mig_format_json', '通用 JSON')); ?></option>
-                        <option value="sqlite"<?php echo $currentDbType === 'sqlite' ? ' selected' : ''; ?><?php echo $currentDbType !== 'sqlite' ? ' disabled' : ''; ?>><?php echo e(t('admin_mig_format_sqlite', 'SQLite 数据库 (ZIP含头像)')); ?><?php echo $currentDbType !== 'sqlite' ? '（' . e(t('admin_mig_format_current_mismatch', '当前为 MySQL')) . '）' : ''; ?></option>
-                        <option value="mysql"<?php echo $currentDbType === 'mysql' ? ' selected' : ''; ?><?php echo $currentDbType !== 'mysql' ? ' disabled' : ''; ?>><?php echo e(t('admin_mig_format_mysql', 'MySQL 数据库 (ZIP含头像)')); ?><?php echo $currentDbType !== 'mysql' ? '（' . e(t('admin_mig_format_current_mismatch2', '当前为 SQLite')) . '）' : ''; ?></option>
+                        <option value="json_zip"><?php echo e(t('admin_mig_format_json_zip', '通用 JSON（ZIP 含头像）')); ?></option>
+                        <option value="sqlite"<?php echo $currentDbType === 'sqlite' ? ' selected' : ''; ?><?php echo $currentDbType !== 'sqlite' ? ' disabled' : ''; ?>><?php echo e(t('admin_mig_format_sqlite', 'SQLite 数据库（ZIP 含头像）')); ?><?php echo $currentDbType !== 'sqlite' ? ' — ' . e(t('admin_mig_format_current_mismatch', '当前为 MySQL')) : ''; ?></option>
+                        <option value="mysql"<?php echo $currentDbType === 'mysql' ? ' selected' : ''; ?><?php echo $currentDbType !== 'mysql' ? ' disabled' : ''; ?>><?php echo e(t('admin_mig_format_mysql', 'MySQL 数据库（ZIP 含头像）')); ?><?php echo $currentDbType !== 'mysql' ? ' — ' . e(t('admin_mig_format_current_mismatch2', '当前为 SQLite')) : ''; ?></option>
                     </select>
                 </label>
+                <button type="button" class="btn btn-primary mig-export-btn" id="mig-export-btn">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                    <?php echo e(t('admin_mig_export_btn', '导出选中数据')); ?>
+                </button>
             </div>
-            <button type="button" class="btn btn-primary" id="mig-export-btn">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-                <?php echo e(t('admin_mig_export_btn', '导出选中数据')); ?>
-            </button>
+            <div id="mig-format-scene" class="mig-format-scene"></div>
         </div>
     </div>
 </div>
@@ -167,8 +169,35 @@ if (function_exists('get_db_driver')) {
 .mig-table-item .mig-tname { font-family: 'SF Mono', Monaco, Consolas, monospace; flex: 1; }
 .mig-table-item .mig-tcount { font-size: 0.75rem; color: var(--text-muted); white-space: nowrap; }
 
-.mig-export-footer, .mig-import-footer { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
-.mig-selected-info { font-size: 0.875rem; color: var(--text-secondary); font-weight: 600; }
+.mig-export-footer, .mig-import-footer { display: flex; flex-direction: column; gap: 0.875rem; }
+.mig-export-row {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 1rem;
+}
+.mig-selected-info { font-size: 0.875rem; color: var(--text-secondary); font-weight: 600; white-space: nowrap; }
+.mig-format-label {
+    display: flex; align-items: center; gap: 0.5rem;
+    font-size: 0.875rem; color: var(--text-secondary); cursor: pointer;
+}
+.mig-format-label > span { white-space: nowrap; }
+.mig-format-select {
+    font-size: 0.875rem; padding: 0.4rem 0.6rem;
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+    background: var(--surface); color: var(--text);
+    min-width: 220px; max-width: 100%;
+}
+.mig-format-select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-lighter); }
+.mig-export-btn {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    white-space: nowrap; margin-left: auto;
+}
+.mig-format-scene {
+    padding: 0.75rem 1rem; border-radius: var(--radius-sm);
+    background: #eff6ff; border: 1px solid #bfdbfe;
+    color: #1e40af; font-size: 0.8125rem; line-height: 1.6;
+}
+[data-theme="dark"] .mig-format-scene { background: rgba(59,130,246,0.12); border-color: rgba(59,130,246,0.3); color: #93c5fd; }
+.mig-format-scene:empty { display: none; }
+.mig-import-footer { flex-direction: row; justify-content: flex-end; align-items: center; }
 
 .mig-import-form { display: flex; flex-direction: column; gap: 1.25rem; margin-bottom: 1rem; }
 .mig-mode-options { display: flex; gap: 1rem; flex-wrap: wrap; }
@@ -295,6 +324,27 @@ if (function_exists('get_db_driver')) {
         updateSelectedInfo();
     });
 
+    // ===== 导出格式场景说明 =====
+    var formatSelect = document.getElementById('mig-export-format');
+    var formatScene = document.getElementById('mig-format-scene');
+    var formatScenes = {
+        json: '<?php echo e(t('admin_mig_scene_json', '适合跨 SQLite / MySQL 环境迁移；文件小巧、可读，支持合并导入（保留目标数据并跳过冲突）或覆盖导入。不带头像等上传文件。')); ?>',
+        json_zip: '<?php echo e(t('admin_mig_scene_json_zip', '适合跨环境迁移且需要保留头像、上传文件；ZIP 内为 JSON + uploads/，支持合并或覆盖导入。')); ?>',
+        sqlite: '<?php echo e(t('admin_mig_scene_sqlite', '适合相同 SQLite 环境做整库搬迁；ZIP 内为 SQL + uploads/，会执行 DROP TABLE + CREATE TABLE，仅支持覆盖导入。')); ?>',
+        mysql: '<?php echo e(t('admin_mig_scene_mysql', '适合相同 MySQL 环境做整库搬迁；ZIP 内为 SQL + uploads/，会执行 DROP TABLE + CREATE TABLE，仅支持覆盖导入。')); ?>'
+    };
+    function updateFormatScene() {
+        if (!formatScene) return;
+        var text = formatScenes[formatSelect.value];
+        if (text) {
+            formatScene.innerHTML = '<strong>' + '<?php echo e(t('admin_mig_scene_label', '适用场景')); ?>' + '</strong>：' + escapeHtml(text);
+        } else {
+            formatScene.innerHTML = '';
+        }
+    }
+    formatSelect.addEventListener('change', updateFormatScene);
+    updateFormatScene();
+
     // ===== 导出 =====
     var exportBtn = document.getElementById('mig-export-btn');
     exportBtn.addEventListener('click', function () {
@@ -330,6 +380,38 @@ if (function_exists('get_db_driver')) {
             .catch(function (e) { showToast(e.message || '<?php echo e(t('admin_mig_export_failed', '导出失败')); ?>', 'error'); })
             .finally(function () { exportBtn.disabled = false; exportBtn.innerHTML = orig; });
     });
+
+    // ===== 导入模式随文件类型联动 =====
+    // .sql 文件内部包含 DROP TABLE + CREATE TABLE，只能覆盖导入；
+    // .json 文件支持"合并"与"覆盖"两种模式；
+    // .zip 文件内部可能是 SQL（仅覆盖）或 JSON（支持合并），由后端根据实际内容判断。
+    var fileInputForMode = document.getElementById('mig-file');
+    var mergeRadio = document.querySelector('input[name=mig_mode][value=merge]');
+    var overwriteRadio = document.querySelector('input[name=mig_mode][value=overwrite]');
+    var modeFileTip = document.createElement('div');
+    modeFileTip.className = 'form-hint';
+    modeFileTip.style.cssText = 'color:#991b1b;margin-top:0.5rem;display:none;';
+    document.querySelector('.mig-mode-options').after(modeFileTip);
+
+    function updateModeByFile() {
+        var name = (fileInputForMode.files && fileInputForMode.files[0] && fileInputForMode.files[0].name) || '';
+        var ext = name.split('.').pop().toLowerCase();
+        if (ext === 'sql') {
+            mergeRadio.disabled = true;
+            if (mergeRadio.checked) overwriteRadio.checked = true;
+            modeFileTip.style.display = '';
+            modeFileTip.textContent = '<?php echo e(t('admin_mig_sql_merge_disabled', 'SQL 格式包含 DROP TABLE + CREATE TABLE，仅支持覆盖导入，合并选项已自动禁用。')); ?>';
+        } else if (ext === 'zip') {
+            mergeRadio.disabled = false;
+            modeFileTip.style.display = '';
+            modeFileTip.textContent = '<?php echo e(t('admin_mig_zip_merge_hint', 'ZIP 文件若内含 JSON 迁移文件可合并导入；若内含 SQL 文件则只能覆盖导入，系统会自动判断。')); ?>';
+        } else {
+            mergeRadio.disabled = false;
+            modeFileTip.style.display = 'none';
+        }
+    }
+    fileInputForMode.addEventListener('change', updateModeByFile);
+    updateModeByFile();
 
     // ===== 导入 =====
     var importBtn = document.getElementById('mig-import-btn');
@@ -411,7 +493,18 @@ if (function_exists('get_db_driver')) {
         fd.append('file', fileInput.files[0]);
 
         fetch(apiUrl, { method: 'POST', body: fd, cache: 'no-store', credentials: 'same-origin' })
-            .then(function (r) { return r.json(); })
+            .then(function (r) {
+                return r.text().then(function (text) {
+                    if (!text || text.trim() === '') {
+                        throw new Error('服务器未返回任何数据。常见原因：导入数据量较大，触发服务器或反向代理超时（通常 60 秒）。建议：1) 减少单次导入的数据量；2) 联系管理员调大 proxy_read_timeout 与 PHP max_execution_time；3) 改用覆盖模式分批导入。');
+                    }
+                    try {
+                        return JSON.parse(text);
+                    } catch (e) {
+                        throw new Error('服务器返回了非 JSON 内容（可能被截断或超时）：' + text.slice(0, 300));
+                    }
+                });
+            })
             .then(function (res) {
                 clearInterval(progTimer);
                 if (!res.success) {
@@ -431,6 +524,9 @@ if (function_exists('get_db_driver')) {
                 if (res.total_skipped > 0) {
                     html += '<div class="mig-result-table"><?php echo e(t('admin_mig_total_skipped', '总跳过行数')); ?>：' + res.total_skipped + '</div>';
                 }
+                if (res.total_remapped > 0) {
+                    html += '<div class="mig-result-table"><?php echo e(t('admin_mig_total_remapped', '总重映射行数')); ?>：' + res.total_remapped + '</div>';
+                }
                 if (res.results) {
                     html += '<div class="mig-result-table">';
                     Object.keys(res.results).forEach(function (t) {
@@ -440,6 +536,7 @@ if (function_exists('get_db_driver')) {
                         } else {
                             html += escapeHtml(t) + ': ' + (rinfo.inserted || 0) + ' <?php echo e(t('admin_mig_rows_inserted', '行写入')); ?>';
                             if (rinfo.skipped > 0) html += ' / ' + rinfo.skipped + ' <?php echo e(t('admin_mig_rows_skipped', '行跳过')); ?>';
+                            if (rinfo.remapped > 0) html += ' / ' + rinfo.remapped + ' <?php echo e(t('admin_mig_rows_remapped', '行重映射')); ?>';
                             html += '<br>';
                         }
                     });
@@ -457,10 +554,10 @@ if (function_exists('get_db_driver')) {
                 resultBox.style.display = '';
                 showToast('<?php echo e(t('admin_mig_import_done', '导入完成')); ?>', 'success');
             })
-            .catch(function () {
+            .catch(function (e) {
                 clearInterval(progTimer);
                 hideProgress(false);
-                showToast('<?php echo e(t('admin_mig_import_network_fail', '网络错误，导入失败')); ?>', 'error');
+                showToast((e && e.message ? e.message : '<?php echo e(t('admin_mig_import_network_fail', '网络错误，导入失败')); ?>'), 'error');
             })
             .finally(function () { importBtn.disabled = false; importBtn.innerHTML = orig; });
     });
