@@ -1,12 +1,12 @@
 # 云界论坛 (Cloud Forum)
 
-> **Current Status: Beta** (v1.3.7-beta) | Lightweight community forum · PHP + SQLite · Out-of-the-box
+> **Current Status: Stable** (v1.3.9) | Lightweight community forum · PHP + SQLite · Out-of-the-box
 
 **[简体中文](README.md) · [繁體中文](README.zh-TW.md)**
 
 `Cloud Forum` is a lightweight community forum (BBS) system written entirely in PHP. It uses a SQLite file database by default, so it can run without a standalone database server — suitable for personal blog communities, interest groups, intranet knowledge bases, and similar scenarios. The system includes a built-in user system, forums/posts/replies, private messages, notifications, daily check-ins with points, medals and roles, content moderation (sensitive words), email and traffic statistics, and provides a visual installation wizard and admin panel.
 
-- **Current Version:** `1.3.7-beta`
+- **Current Version:** `1.3.9`
 - **Language:** PHP 7.4+
 - **Default Database:** SQLite (also supports MySQL / PostgreSQL)
 - **Frontend:** Native HTML + CSS + a small amount of native JS, no frontend build step
@@ -580,7 +580,7 @@ In "Site Settings → CAPTCHA Settings", find the "Display Mode" dropdown and se
 
 ---
 
-> Documentation compiled from the project source (`index.php`, `install.php`, `app/includes/*`, `public/*`), version `1.3.7-beta`.
+> Documentation compiled from the project source (`index.php`, `install.php`, `app/includes/*`, `public/*`), version `1.3.9`.
 > If it differs from the actual implementation, please follow the code and the installation wizard prompts.
 
 

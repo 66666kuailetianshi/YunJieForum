@@ -41,6 +41,8 @@
     'backup_compress_failed' => '壓縮備份檔案失敗',
     'backup_write_file_failed' => '無法寫入備份檔案，請檢查目錄權限',
     'backup_mysqldump_failed' => 'mysqldump 執行失敗，請確保伺服器已安裝 mysqldump 並加入環境變數',
+    'backup_no_tables' => '未找到可備份的資料表',
+    'backup_purephp_failed' => '純 PHP 匯出失敗',
     'backup_error_suffix' => '：',
     'backup_error_in_paren' => '（{err}）',
     'backup_pause_hint' => '。建議暫停站台後重試。',

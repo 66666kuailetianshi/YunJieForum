@@ -144,6 +144,7 @@
     'admin_ajax_ss_windows_warning'              => 'Windows 系統資訊採集不可用：請啟用 PHP 的 com_dotnet 擴充，或在 php.ini 中啟用 FFI（ffi.enable=true，需 PHP 7.4+），或確保 shell_exec 未被 disable_functions 停用（將自動使用 PowerShell 兜底）。',
     'admin_ajax_ss_memory_failed'                => '記憶體資料獲取失敗。',
     'admin_ajax_ss_uptime_failed'                => '執行時間獲取失敗。',
+    'admin_ajax_ss_linux_proc_warning'           => '系統資訊受限：open_basedir 限制了 PHP 讀取 /proc、/sys（目前值：{ob}），CPU 核心數/記憶體/溫度等資料不可用。請在面板（如寶塔）的站台設定中將 open_basedir 追加 :/proc:/sys 後重新整理，或直接關閉 open_basedir。',
     'admin_ajax_ss_no_method'                    => '當前 PHP 無法採集 Windows 硬體資訊：com_dotnet 擴充未載入、FFI 未啟用（php.ini 中 ffi.enable 需設為 true）、且 shell_exec/proc_open 被停用。請至少啟用以上任一方式。',
     'admin_ajax_ss_powershell_fallback'          => '未載入 com_dotnet 擴充，已透過 PowerShell 子程序兜底採集硬體資訊（首次載入稍慢，快取 1 小時）。如部分資訊仍缺失，可能是 WMI 服務未執行或被安全軟體攔截。',
     'admin_ajax_ss_motherboard_failed'           => '主機板/BIOS 資訊未能獲取。可嘗試以管理員身分執行 php-cgi/php-fpm，或在 php.ini 中啟用 com_dotnet / FFI。',

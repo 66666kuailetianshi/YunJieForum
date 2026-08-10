@@ -379,6 +379,10 @@ if (!function_exists('uc_get_current_version')) {
 
     /**
      * 将更新包解压覆盖到安装根目录（跳过 data/ 与路径穿越）
+     *
+     * 采用手动逐条目解压（getFromIndex + file_put_contents）而非 ZipArchive::extractTo：
+     * extractTo 在目标文件已存在/只读/权限不足等情况下可能静默失败且无法得知具体文件，
+     * 手动解压可精确感知每个文件的写入结果并返回失败清单。
      */
     function uc_extract_package(string $zipPath): array {
         if (!class_exists('ZipArchive')) {
@@ -389,7 +393,8 @@ if (!function_exists('uc_get_current_version')) {
         if ($zip->open($zipPath) !== true) {
             return ['ok' => false, 'error' => 'package_open_failed'];
         }
-        $count = 0;
+        $count  = 0;
+        $failed = [];
         for ($i = 0; $i < $zip->numFiles; $i++) {
             $name = $zip->getNameIndex($i);
             if ($name === false) {
@@ -404,19 +409,77 @@ if (!function_exists('uc_get_current_version')) {
             if ($norm === 'data' || preg_match('#^data(/|$)#i', $norm)) {
                 continue;
             }
-            if ($zip->extractTo($root, [$name])) {
-                $count++;
+            $dest = $root . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $norm);
+            // 目录条目：确保目录存在
+            if (substr($norm, -1) === '/') {
+                if (!is_dir($dest) && !@mkdir($dest, 0755, true)) {
+                    $failed[] = $norm . ' (mkdir)';
+                } else {
+                    $count++;
+                }
+                continue;
             }
+            // 文件条目：确保父目录存在
+            $parent = dirname($dest);
+            if (!is_dir($parent) && !@mkdir($parent, 0755, true)) {
+                $failed[] = $norm . ' (mkdir)';
+                continue;
+            }
+            // Windows 上只读文件会导致写入失败：先解除只读再写入
+            if (is_file($dest) && !is_writable($dest)) {
+                @chmod($dest, 0644);
+            }
+            $content = $zip->getFromIndex($i);
+            if ($content === false) {
+                $failed[] = $norm . ' (read)';
+                continue;
+            }
+            if (@file_put_contents($dest, $content) === false) {
+                $failed[] = $norm . ' (write)';
+                continue;
+            }
+            $count++;
         }
         $zip->close();
+        if (!empty($failed)) {
+            return ['ok' => false, 'files' => $count, 'failed' => $failed, 'error' => 'partial_extract_failed'];
+        }
         return ['ok' => true, 'files' => $count];
+    }
+
+    /**
+     * 读取更新包内 app/includes/config.php 声明的 APP_VERSION
+     *
+     * 用于解压前校验「包内实际版本」与「更新源声明版本」一致，
+     * 防止更新包版本名不副实导致更新后版本不变、反复提示可更新。
+     */
+    function uc_package_version(string $zipPath): string {
+        if (!class_exists('ZipArchive')) {
+            return '';
+        }
+        $zip = new ZipArchive();
+        if ($zip->open($zipPath) !== true) {
+            return '';
+        }
+        $content = $zip->getFromName('app/includes/config.php');
+        $zip->close();
+        if ($content === false) {
+            return '';
+        }
+        if (preg_match('/define\s*\(\s*[\'"]APP_VERSION[\'"]\s*,\s*[\'"]([^\'"]+)[\'"]\s*\)/', $content, $m)) {
+            return trim($m[1]);
+        }
+        return '';
     }
 
     /**
      * 执行一次完整更新：检查 → 下载 → 校验 → 备份 → 覆盖
      * 各阶段写入进度文件供前端轮询
+     *
+     * @param bool $force 强制模式：即使当前已是最新版本（版本号相同），
+     *                    也重新下载更新包并覆盖安装（用于修复代码未更新到位等情况）
      */
-    function uc_perform_update(): array {
+    function uc_perform_update(bool $force = false): array {
         // 阶段 0：准备
         uc_progress_write(['stage' => 'preparing', 'stage_label' => 'preparing', 'progress' => 0, 'total' => 0, 'downloaded' => 0, 'message' => '', 'error' => null, 'done' => false]);
 
@@ -432,7 +495,8 @@ if (!function_exists('uc_get_current_version')) {
                 'latest'  => $check['latest'] ?? '',
             ];
         }
-        if (empty($check['update_available'])) {
+        // 强制模式下允许同版本重新安装；非强制模式才拦截「已是最新」
+        if (empty($check['update_available']) && !$force) {
             uc_progress_write(['stage' => 'error', 'stage_label' => 'error', 'progress' => 0, 'total' => 0, 'downloaded' => 0, 'message' => '', 'error' => 'no_update_available', 'done' => true]);
             return [
                 'success' => false,
@@ -516,13 +580,28 @@ if (!function_exists('uc_get_current_version')) {
             }
         }
 
-        // 阶段 3：备份当前代码（85% → 95%）
+        // 阶段 3：备份当前代码（85% → 92%）
         uc_progress_write(['stage' => 'backing_up', 'stage_label' => 'backing_up', 'progress' => 85, 'total' => $dlTotalSize, 'downloaded' => $dlDownloaded, 'message' => '', 'error' => null, 'done' => false]);
         $backup = uc_backup_files();
         if (!$backup['ok']) {
             @unlink($pkgPath);
             uc_progress_write(['stage' => 'error', 'stage_label' => 'error', 'progress' => 85, 'total' => $dlTotalSize, 'downloaded' => $dlDownloaded, 'message' => '', 'error' => 'backup_failed: ' . ($backup['error'] ?? ''), 'done' => true]);
             return ['success' => false, 'error' => 'backup_failed: ' . ($backup['error'] ?? '')];
+        }
+
+        // 阶段 3.5：校验包内版本与声明版本一致（92% → 95%）
+        uc_progress_write(['stage' => 'verifying_pkg', 'stage_label' => 'verifying_pkg', 'progress' => 92, 'total' => $dlTotalSize, 'downloaded' => $dlDownloaded, 'message' => '', 'error' => null, 'done' => false]);
+        $pkgVersion = uc_package_version($pkgPath);
+        if ($pkgVersion !== '' && strcasecmp($pkgVersion, $check['latest']) !== 0) {
+            @unlink($pkgPath);
+            uc_progress_write(['stage' => 'error', 'stage_label' => 'error', 'progress' => 92, 'total' => $dlTotalSize, 'downloaded' => $dlDownloaded, 'message' => '', 'error' => 'package_version_mismatch', 'done' => true]);
+            return [
+                'success'        => false,
+                'error'          => 'package_version_mismatch',
+                'package_version'=> $pkgVersion,
+                'declared'       => $check['latest'],
+                'backup'         => $backup['path'],
+            ];
         }
 
         // 阶段 4：解压覆盖（95% → 100%）
@@ -534,6 +613,7 @@ if (!function_exists('uc_get_current_version')) {
             return [
                 'success' => false,
                 'error'   => 'extract_failed: ' . ($extract['error'] ?? ''),
+                'failed'  => $extract['failed'] ?? [],
                 'backup'  => $backup['path'],
             ];
         }

@@ -116,6 +116,27 @@ require_once dirname(__DIR__) . '/layout/header.php';
     <p class="form-hint mt-1"><?php echo e(t('update_manual_hint', '「立即更新」会在下载后校验文件哈希、先自动备份现有代码，再覆盖升级。请在操作前确认已开启自动备份。')); ?></p>
 </div>
 
+<!-- 更新确认对话框（替代原生 confirm） -->
+<div class="modal-overlay" id="updateConfirmModal" style="display:none;">
+    <div class="modal-box" style="max-width:460px;">
+        <div class="modal-header">
+            <h3 class="modal-title" id="updateConfirmTitle"><?php echo e(t('update_confirm_title', '确认立即更新')); ?></h3>
+            <button type="button" class="modal-close" id="updateConfirmClose">&times;</button>
+        </div>
+        <div class="modal-body" style="padding:1.25rem 1.5rem;">
+            <p id="updateConfirmText" style="margin:0;font-size:.95rem;line-height:1.7;color:var(--text);"><?php echo e(t('update_confirm', '确定要立即更新吗？系统将先备份当前代码再覆盖升级。')); ?></p>
+            <div class="update-confirm-safe">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+                <span><?php echo e(t('update_confirm_data_safe', '您的配置不会丢失：data/ 目录（数据库、站点设置、SMTP 邮件服务等）在升级中不会被覆盖。升级前还会自动备份全部代码，可随时恢复。')); ?></span>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" id="updateConfirmCancel"><?php echo e(t('update_confirm_cancel', '取消')); ?></button>
+            <button type="button" class="btn btn-primary" id="updateConfirmOk"><?php echo e(t('update_confirm_ok', '确认更新')); ?></button>
+        </div>
+    </div>
+</div>
+
 <div class="card">
     <h2 class="card-title mb-1"><?php echo e(t('update_settings', '更新设置')); ?></h2>
     <form method="POST" action="<?php echo site_url('admin/update_center'); ?>">
@@ -178,6 +199,8 @@ require_once dirname(__DIR__) . '/layout/header.php';
     var statusBox = document.getElementById('updateStatus');
     var currentEl = document.getElementById('currentVersion');
     var lastEl = document.getElementById('lastCheck');
+    // 强制更新模式：当前已是最新（版本号相同）时仍允许重新下载安装
+    var forceMode = false;
 
     function showStatus(html, type) {
         statusBox.style.display = '';
@@ -216,6 +239,8 @@ require_once dirname(__DIR__) . '/layout/header.php';
                 currentEl.textContent = res.current;
                 lastEl.textContent = new Date((res.checked_at || Date.now() / 1000) * 1000).toLocaleString();
                 if (res.update_available) {
+                    forceMode = false;
+                    updateBtn.innerHTML = '<?php echo e(t('update_update_now', '立即更新')); ?>';
                     var html = '<div class="update-avail">'
                         + '<strong><?php echo e(t('update_new_available', '发现新版本')); ?> ' + escapeHtml(res.latest) + '</strong>'
                         + (res.release_date ? ' <span class="update-date">(' + escapeHtml(res.release_date) + ')</span>' : '')
@@ -230,7 +255,11 @@ require_once dirname(__DIR__) . '/layout/header.php';
                     showStatus(html, 'warn');
                     updateBtn.disabled = false;
                 } else {
-                    showStatus('<?php echo e(t('update_up_to_date', '已是最新版本（')); ?>' + escapeHtml(res.current) + '）', 'ok');
+                    // 已是最新：允许「强制更新」重新应用更新包（同版本覆盖安装）
+                    forceMode = true;
+                    updateBtn.innerHTML = '<?php echo e(t('update_force_install', '强制更新')); ?>';
+                    updateBtn.disabled = false;
+                    showStatus('<?php echo e(t('update_up_to_date', '已是最新版本（')); ?>' + escapeHtml(res.current) + '）' + '<?php echo e(t('update_up_to_date_force_hint', ' 如需重新应用更新包，可点击「强制更新」')); ?>', 'ok');
                 }
             })
             .catch(function () {
@@ -270,6 +299,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
             downloading: '<?php echo e(t('update_progress_downloading', '下载更新包…')); ?>',
             verifying:   '<?php echo e(t('update_progress_verifying', '校验文件完整性…')); ?>',
             backing_up:  '<?php echo e(t('update_progress_backing_up', '备份当前代码…')); ?>',
+            verifying_pkg:'<?php echo e(t('update_progress_verifying_pkg', '校验包内版本…')); ?>',
             extracting:  '<?php echo e(t('update_progress_extracting', '解压并覆盖文件…')); ?>',
             done:        '<?php echo e(t('update_progress_done', '更新完成')); ?>',
             error:       '<?php echo e(t('update_progress_error', '出错')); ?>'
@@ -307,10 +337,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
         }, 800);
     }
 
-    updateBtn.addEventListener('click', function () {
-        if (!confirm('<?php echo e(t('update_confirm', '确定要立即更新吗？系统将先备份当前代码再覆盖升级。')); ?>')) {
-            return;
-        }
+    function doUpdate() {
         updateBtn.disabled = true;
         updateBtn.innerHTML = '<?php echo e(t('update_updating', '更新中…')); ?>';
         statusBox.style.display = 'none';
@@ -318,6 +345,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
         startProgressPolling();
         var form = new FormData();
         form.append('action', 'update');
+        form.append('force', forceMode ? '1' : '0');
         form.append('csrf_token', '<?php echo csrf_token(); ?>');
         fetch('/index.php?route=admin/api/update_ajax', {
             method: 'POST',
@@ -332,6 +360,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
                         + '<br><?php echo e(t('update_backup_at', '备份文件')); ?>：' + escapeHtml(res.backup ? res.backup.split(/[\\/]/).pop() : '') + ''
                         + '（' + (res.files || 0) + ' <?php echo e(t('update_files', '个文件')); ?>）', 'ok');
                     currentEl.textContent = res.to;
+                    forceMode = false;
                     updateBtn.disabled = true;
                 } else {
                     var msg = '<?php echo e(t('update_failed', '更新失败')); ?>';
@@ -339,6 +368,11 @@ require_once dirname(__DIR__) . '/layout/header.php';
                     else if (res.error === 'no_package_url') msg = '<?php echo e(t('update_no_package_url', '更新源未提供更新包地址（package_url）。请将更新包命名为 update.zip 放到「{通道}/」目录下，或在 version.json 中加入 package_url 字段。')); ?>';
                     else if (res.error === 'no_package_hash') msg = '<?php echo e(t('update_no_package_hash', '更新包缺少哈希校验值（package_hash）。为安全起见默认禁止无校验更新。请在 version.json 中加入 package_hash（sha256 值）后重试，或在「更新设置」中开启「跳过哈希校验」。')); ?>';
                     else if (res.error === 'hash_mismatch') msg = '<?php echo e(t('update_hash_fail', '更新包校验失败（哈希不匹配），已自动取消以保障安全。')); ?>';
+                    else if (res.error === 'package_version_mismatch') msg = '<?php echo e(t('update_pkg_version_mismatch', '更新包版本名不副实：包内版本 {pkg} ≠ 声明版本 {declared}，已取消更新。请重新制作更新包（config.php 的 APP_VERSION 与 version.json 保持一致）。')); ?>'.replace('{pkg}', escapeHtml(res.package_version || '')).replace('{declared}', escapeHtml(res.declared || ''));
+                    else if (res.error && res.error.indexOf('extract_failed') === 0) {
+                        msg = '<?php echo e(t('update_extract_failed', '更新文件解压失败')); ?>' + (res.failed && res.failed.length ? '（' + res.failed.length + ' 个）' : '') + '，更新不完整，请检查文件权限或从备份恢复。';
+                        if (res.failed && res.failed.length) msg += '<br><small style="color:var(--text-muted);word-break:break-word">' + escapeHtml(res.failed.slice(0, 8).join('<br>')) + '</small>';
+                    }
                     else if (res.error === 'backup_failed') msg = '<?php echo e(t('update_backup_err', '更新前备份失败，已取消更新以防数据丢失。')); ?>';
                     else if (res.error && res.error.indexOf('check_failed') === 0) msg = '<?php echo e(t('update_check_failed', '检查更新失败（网络错误或更新源不可用）：')); ?>' + escapeHtml((res.error || '').replace('check_failed: ', ''));
                     else msg += '：' + escapeHtml(res.error || '');
@@ -354,8 +388,34 @@ require_once dirname(__DIR__) . '/layout/header.php';
                 updateBtn.disabled = false;
             })
             .finally(function () {
-                updateBtn.innerHTML = '<?php echo e(t('update_update_now', '立即更新')); ?>';
+                updateBtn.innerHTML = (forceMode ? '<?php echo e(t('update_force_install', '强制更新')); ?>' : '<?php echo e(t('update_update_now', '立即更新')); ?>');
             });
+    }
+
+    // 自定义确认对话框（替代原生 confirm）
+    var confirmModal = document.getElementById('updateConfirmModal');
+    var confirmTitleEl = document.getElementById('updateConfirmTitle');
+    var confirmTextEl = document.getElementById('updateConfirmText');
+    function openUpdateConfirm() {
+        // 强制模式下切换确认框文案
+        confirmTitleEl.textContent = (forceMode ? '<?php echo e(t('update_confirm_force_title', '确认强制更新')); ?>' : '<?php echo e(t('update_confirm_title', '确认立即更新')); ?>');
+        confirmTextEl.textContent = (forceMode ? '<?php echo e(t('update_confirm_force', '当前已是最新版本，确定要强制重新安装吗？将重新下载更新包并覆盖代码（data/ 配置与数据不会被覆盖，升级前自动备份）。')); ?>' : '<?php echo e(t('update_confirm', '确定要立即更新吗？系统将先备份当前代码再覆盖升级。')); ?>');
+        confirmModal.style.display = 'flex';
+    }
+    function closeUpdateConfirm() { confirmModal.style.display = 'none'; }
+
+    updateBtn.addEventListener('click', openUpdateConfirm);
+    document.getElementById('updateConfirmOk').addEventListener('click', function () {
+        closeUpdateConfirm();
+        doUpdate();
+    });
+    document.getElementById('updateConfirmCancel').addEventListener('click', closeUpdateConfirm);
+    document.getElementById('updateConfirmClose').addEventListener('click', closeUpdateConfirm);
+    confirmModal.addEventListener('click', function (e) {
+        if (e.target === confirmModal) { closeUpdateConfirm(); }
+    });
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && confirmModal.style.display !== 'none') { closeUpdateConfirm(); }
     });
 })();
 </script>
@@ -390,6 +450,10 @@ require_once dirname(__DIR__) . '/layout/header.php';
 .update-progress-bar-inner.is-error { background: linear-gradient(90deg, #dc2626, #ef4444); }
 .update-progress-detail { margin-top: .25rem; font-size: .78rem; color: var(--muted, #888); text-align: right; }
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+/* 更新确认对话框 */
+.update-confirm-safe { display: flex; align-items: flex-start; gap: .5rem; margin-top: .9rem; padding: .75rem .9rem; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; color: #1e40af; font-size: .85rem; line-height: 1.65; }
+.update-confirm-safe svg { flex-shrink: 0; margin-top: 2px; }
 </style>
 
 <?php require_once dirname(__DIR__) . '/layout/footer.php'; ?>

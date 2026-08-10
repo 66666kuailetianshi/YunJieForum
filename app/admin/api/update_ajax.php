@@ -46,7 +46,7 @@ if ($action === 'update') {
         echo json_encode(['success' => false, 'error' => 'csrf'], JSON_UNESCAPED_UNICODE);
         exit;
     }
-    $result = uc_perform_update();
+    $result = uc_perform_update(!empty($_POST['force']));
     ob_end_clean();
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode($result, JSON_UNESCAPED_UNICODE);

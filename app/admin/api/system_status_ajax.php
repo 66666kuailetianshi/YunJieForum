@@ -3886,6 +3886,11 @@ if ($memory['total'] <= 0 && ss_os_type() === 'windows') {
 if ($uptime <= 0 && ss_os_type() === 'windows') {
     $warnings[] = t('admin_ajax_ss_uptime_failed', '运行时间获取失败。');
 }
+// Linux 下 /proc 不可读（多为 open_basedir 限制）：提示用户修复以获取完整信息
+if (ss_os_type() === 'linux' && @file_get_contents('/proc/stat') === false) {
+    $ob = (string)ini_get('open_basedir');
+    $warnings[] = t('admin_ajax_ss_linux_proc_warning', '系统信息受限：open_basedir 限制了 PHP 读取 /proc、/sys（当前值：{ob}），CPU 核数/内存/温度等数据不可用。请在面板（如宝塔）的站点配置中将 open_basedir 追加 :/proc:/sys 后刷新，或直接关闭 open_basedir。', ['ob' => $ob]);
+}
 
 $response = [
     'success' => true,

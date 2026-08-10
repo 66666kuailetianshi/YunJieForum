@@ -142,9 +142,13 @@ class BackupManager {
     }
 
     /**
-     * MySQL 备份（调用 mysqldump）
+     * MySQL 备份（优先 mysqldump；exec 被禁用时自动回退纯 PHP 导出）
      */
     private function createMysqlBackup(string $timestamp, string $description, array $tables = null): array {
+        // exec 被禁用（如宝塔面板默认安全配置禁用 exec/shell_exec）：回退到纯 PHP 导出
+        if (!$this->canExec()) {
+            return $this->createMysqlBackupPurePhp($timestamp, $description, $tables);
+        }
         $filename = 'backup_' . $timestamp . '.sql.gz';
         $filepath = $this->backupDir . $filename;
         $tempSql = $this->backupDir . 'temp_' . $timestamp . '.sql';
@@ -181,6 +185,130 @@ class BackupManager {
 
         $dbSize = $this->getMysqlDatabaseSize();
         $meta = $this->buildMeta($filename, $description, filesize($filepath), $dbSize);
+        @file_put_contents($filepath . '.meta.json', json_encode($meta, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
+
+        $this->autoCleanup(30);
+
+        return ['success' => true, 'filename' => $filename, 'meta' => $meta];
+    }
+
+    /**
+     * 检测 exec 是否可用（部分面板默认将其加入 disable_functions）
+     */
+    private function canExec(): bool {
+        if (!function_exists('exec')) {
+            return false;
+        }
+        $disabled = array_map('trim', explode(',', (string)ini_get('disable_functions')));
+        return !in_array('exec', $disabled, true);
+    }
+
+    /**
+     * 纯 PHP 导出 MySQL 为 SQL 字符串（PDO 遍历表，不依赖 mysqldump/exec）
+     *
+     * 输出 DROP TABLE + SHOW CREATE TABLE + 逐行 INSERT，与 mysqldump 产物兼容恢复逻辑
+     * （恢复时校验 CREATE TABLE / INSERT INTO，且支持 PDO 多语句执行恢复）。
+     *
+     * @return array ['ok'=>bool, 'sql'=>string, 'error'=>string]
+     */
+    private function mysqlDumpToSqlViaPdo(array $tables = null): array {
+        try {
+            $config = $this->dbConfig;
+            $host = $config['host'] ?? 'localhost';
+            $port = $config['port'] ?? 3306;
+            $dbname = $config['dbname'] ?? '';
+            $dsn = 'mysql:host=' . $host . ';port=' . $port . ';charset=utf8mb4';
+            if ($dbname !== '') {
+                $dsn .= ';dbname=' . $dbname;
+            }
+            $pdo = new PDO($dsn, $config['user'] ?? '', $config['pass'] ?? '', [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_EMULATE_PREPARES => false,
+            ]);
+
+            // 需要导出的表
+            if (!empty($tables) && is_array($tables)) {
+                $tableList = array_values(array_filter(array_map('strval', $tables)));
+            } else {
+                $tableList = $pdo->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN);
+            }
+            if (empty($tableList)) {
+                return ['ok' => false, 'sql' => '', 'error' => t('backup_no_tables', '未找到可备份的数据表')];
+            }
+
+            $sql = '-- 云界论坛 MySQL 备份（纯 PHP 导出，未使用 mysqldump）' . "\n"
+                 . '-- 时间: ' . date('Y-m-d H:i:s') . "\n"
+                 . '-- 数据库: ' . $dbname . "\n"
+                 . "SET NAMES utf8mb4;\nSET FOREIGN_KEY_CHECKS = 0;\n\n";
+
+            foreach ($tableList as $table) {
+                $table = (string)$table;
+                if ($table === '') {
+                    continue;
+                }
+                $quotedTable = '`' . str_replace('`', '``', $table) . '`';
+
+                // 建表语句（SHOW CREATE TABLE 返回 [表名, 建表语句]，取最后一个）
+                $create = $pdo->query('SHOW CREATE TABLE ' . $quotedTable)->fetch(PDO::FETCH_ASSOC);
+                if (is_array($create)) {
+                    $createSql = end($create);
+                    $sql .= 'DROP TABLE IF EXISTS ' . $quotedTable . ";\n" . $createSql . ";\n\n";
+                }
+
+                // 逐行导出数据（避免大表一次性 fetchAll 占用过多内存）
+                $stmt = $pdo->query('SELECT * FROM ' . $quotedTable);
+                $first = true;
+                while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                    $cols = array_map(function ($c) {
+                        return '`' . str_replace('`', '``', (string)$c) . '`';
+                    }, array_keys($row));
+                    $vals = [];
+                    foreach ($row as $v) {
+                        if ($v === null) {
+                            $vals[] = 'NULL';
+                        } elseif (is_int($v) || is_float($v)) {
+                            $vals[] = (string)$v;
+                        } else {
+                            $vals[] = $pdo->quote((string)$v);
+                        }
+                    }
+                    $sql .= 'INSERT INTO ' . $quotedTable . ' (' . implode(', ', $cols) . ') VALUES (' . implode(', ', $vals) . ");\n";
+                    $first = false;
+                }
+                if (!$first) {
+                    $sql .= "\n";
+                }
+            }
+            $sql .= "SET FOREIGN_KEY_CHECKS = 1;\n";
+            return ['ok' => true, 'sql' => $sql, 'error' => ''];
+        } catch (Exception $e) {
+            return ['ok' => false, 'sql' => '', 'error' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * MySQL 备份（纯 PHP 导出，exec/mysqldump 不可用时的兜底方案）
+     */
+    private function createMysqlBackupPurePhp(string $timestamp, string $description, array $tables = null): array {
+        $filename = 'backup_' . $timestamp . '.sql.gz';
+        $filepath = $this->backupDir . $filename;
+
+        $res = $this->mysqlDumpToSqlViaPdo($tables);
+        if (!$res['ok']) {
+            return ['success' => false, 'error' => t('backup_purephp_failed', '纯 PHP 导出失败') . ($res['error'] !== '' ? t('backup_error_suffix', '：') . $res['error'] : '')];
+        }
+
+        $gzData = gzencode($res['sql'], 9);
+        if ($gzData === false) {
+            return ['success' => false, 'error' => t('backup_compress_failed', '压缩备份文件失败')];
+        }
+        if (@file_put_contents($filepath, $gzData) === false) {
+            return ['success' => false, 'error' => t('backup_write_file_failed', '无法写入备份文件，请检查目录权限')];
+        }
+
+        $dbSize = $this->getMysqlDatabaseSize();
+        $meta = $this->buildMeta($filename, $description, filesize($filepath), $dbSize);
+        $meta['created_by'] = 'pure_php';
         @file_put_contents($filepath . '.meta.json', json_encode($meta, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
 
         $this->autoCleanup(30);
@@ -642,6 +770,11 @@ class BackupManager {
      * 将当前 MySQL 数据库导出为 SQL 字符串（用于恢复前快照）
      */
     private function createMysqlDumpToString(): string {
+        // exec 被禁用：回退纯 PHP 导出为字符串（恢复前快照）
+        if (!$this->canExec()) {
+            $res = $this->mysqlDumpToSqlViaPdo();
+            return $res['ok'] ? $res['sql'] : '';
+        }
         $tempFile = $this->backupDir . 'snapshot_temp_' . date('Ymd_His') . '.sql';
         $errFile = $tempFile . '.err';
         // stderr 重定向到独立文件，避免污染 SQL 字符串（原理同 createMysqlBackup）

@@ -41,6 +41,8 @@
     'backup_compress_failed' => 'Failed to compress the backup file',
     'backup_write_file_failed' => 'Failed to write the backup file, please check directory permissions',
     'backup_mysqldump_failed' => 'mysqldump execution failed. Please ensure mysqldump is installed on the server and added to PATH',
+    'backup_no_tables' => 'No tables found to back up',
+    'backup_purephp_failed' => 'Pure PHP export failed',
     'backup_error_suffix' => ': ',
     'backup_error_in_paren' => ' ({err})',
     'backup_pause_hint' => '. It is recommended to take the site offline and try again.',
