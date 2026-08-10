@@ -362,10 +362,11 @@ require_once dirname(__DIR__) . '/layout/header.php';
     </div>
     <?php elseif ($action === 'force_challenge' && $testType === 'letter' && !empty($result) && empty($result['ok'])): ?>
     <!-- 图片字母预览 -->
+    <?php $letterAnswer = implode('', (array)($sessionCaptcha['answer'] ?? [])); ?>
     <div class="card" style="margin-bottom:1rem;">
         <h3 style="margin-top:0;"><?php echo e(t('debug_letter_preview', '图片字母预览')); ?></h3>
         <p class="text-muted" style="font-size:13px;margin-bottom:0.5rem;">
-            <?php echo e(t('debug_answer', '正确答案')); ?>: <code><?php echo e(implode('', $sessionCaptcha['answer'] ?? [])); ?></code>
+            <?php echo e(t('debug_answer', '正确答案')); ?>: <code><?php echo e($letterAnswer); ?></code>
             &nbsp;|&nbsp;
             <?php echo e(t('debug_letter_len', '字符数')); ?>: <strong><?php echo (int)($result['length'] ?? 0); ?></strong>
         </p>
@@ -381,7 +382,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
             <input type="hidden" name="action" value="verify_letter">
             <div class="form-group" style="margin-bottom:0;flex:1;">
                 <label class="form-label" style="font-size:13px;"><?php echo e(t('debug_enter_letter', '输入图中的字符')); ?></label>
-                <input type="text" name="input" class="form-control form-control-sm" placeholder="<?php echo e(implode('', $sessionCaptcha['answer'] ?? [])); ?>" value="<?php echo e(implode('', $sessionCaptcha['answer'] ?? [])); ?>" style="max-width:200px;">
+                <input type="text" name="input" class="form-control form-control-sm" placeholder="<?php echo e($letterAnswer); ?>" value="<?php echo e($letterAnswer); ?>" style="max-width:200px;">
             </div>
             <?php if (($sessionCaptcha['mode'] ?? '') === 'letter'): ?>
             <button type="submit" class="btn btn-primary btn-sm"><?php echo e(t('debug_verify', '校验')); ?></button>
@@ -396,7 +397,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
             <form method="POST" style="display:inline;">
                 <input type="hidden" name="csrf_token" value="<?php echo csrf_token(); ?>">
                 <input type="hidden" name="action" value="verify_letter">
-                <input type="hidden" name="input" value="<?php echo e(implode('', $sessionCaptcha['answer'] ?? [])); ?>">
+                <input type="hidden" name="input" value="<?php echo e($letterAnswer); ?>">
                 <button type="submit" class="btn btn-success btn-sm">&#10003; <?php echo e(t('debug_test_correct', '测试正确输入')); ?></button>
             </form>
             <form method="POST" style="display:inline;">
@@ -434,6 +435,29 @@ require_once dirname(__DIR__) . '/layout/header.php';
 </div>
 
 <script src="<?php echo e(site_url('captcha/assets', ['file' => 'captcha.js'])); ?>" defer></script>
+<?php if ($action === 'force_challenge' && !empty($result) && empty($result['ok'])): ?>
+<script>
+// 控制面板强制下发挑战后：同步新 token 并让顶部真实组件直接渲染对应挑战
+(function () {
+    var forceData = <?php echo json_encode($result, JSON_UNESCAPED_UNICODE); ?>;
+    var forceToken = <?php echo json_encode($sessionCaptcha['token'] ?? ''); ?>;
+    if (!forceData || !forceData.challenge) return;
+    // captcha.js 为 defer 加载，内联脚本先执行，需轮询等待组件就绪
+    var tries = 0;
+    var timer = setInterval(function () {
+        var el = document.getElementById('captcha');
+        var tokenInput = document.getElementById('captcha_token');
+        if (el && el.__captchaDebug && tokenInput) {
+            clearInterval(timer);
+            tokenInput.value = forceToken;
+            el.__captchaDebug.show(forceData, forceToken);
+        } else if (++tries > 50) {
+            clearInterval(timer);
+        }
+    }, 100);
+})();
+</script>
+<?php endif; ?>
 <script>
 // 真实组件验证通过时，captcha.js 会把 token 写入 #captcha_token，据此提示结果
 (function () {

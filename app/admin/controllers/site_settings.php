@@ -22,6 +22,12 @@ $captchaStyle   = get_site_setting('captcha_style', 'slider');
 $captchaDebug   = get_site_setting('captcha_debug', '0') === '1';
 $captchaDisplay = get_site_setting('captcha_display', 'inline');
 $captchaDifficulty = get_site_setting('captcha_difficulty', 'normal');
+// 图片字母验证难度（独立设置；未设置时按整体难度映射显示，与 core.php 保持一致）
+$captchaLetterDifficulty = get_site_setting('captcha_letter_difficulty', '');
+if ($captchaLetterDifficulty === '') {
+    $letterMap = ['easy' => 'simple', 'normal' => 'hard', 'hard' => 'very_hard'];
+    $captchaLetterDifficulty = $letterMap[$captchaDifficulty] ?? 'easy';
+}
 $captchaTriggerMode = get_site_setting('captcha_trigger_mode', 'suspicious');
 $captchaSkipCooldown = get_site_setting('captcha_skip_cooldown', '600');
 // 强化防机器人：工作量证明（PoW）
@@ -130,6 +136,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && validate_csrf()) {
                 $captchaDifficulty = 'normal';
             }
             set_site_setting('captcha_difficulty', $captchaDifficulty);
+            // 图片字母验证难度：简单 / 容易 / 困难 / 超难 / 地狱（独立于整体难度）
+            $captchaLetterDifficulty = $_POST['captcha_letter_difficulty'] ?? 'easy';
+            if (!in_array($captchaLetterDifficulty, ['simple', 'easy', 'hard', 'very_hard', 'hell'], true)) {
+                $captchaLetterDifficulty = 'easy';
+            }
+            set_site_setting('captcha_letter_difficulty', $captchaLetterDifficulty);
             // 调试模式：开启后前台跳过验证
             $captchaDebug = !empty($_POST['captcha_debug']) ? '1' : '0';
             set_site_setting('captcha_debug', $captchaDebug);
@@ -246,6 +258,15 @@ if ($flash): ?>
                 <option value="hard" <?php echo $captchaDifficulty === 'hard' ? 'selected' : ''; ?>><?php echo e(t('settings_captcha_difficulty_hard', '困难（严格校验，挑战更多）')); ?></option>
             </select>
             <p class="form-hint"><?php echo e(t('settings_captcha_difficulty_hint', '难度越高，行为验证通过门槛越高、滑块容差越小、点选目标字越多，防止机器人也更严格。')); ?></p>
+            <label class="form-label" for="captcha_letter_difficulty" style="margin-top: 0.75rem;"><?php echo e(t('settings_captcha_letter_difficulty', '图片字母验证难度')); ?></label>
+            <select class="form-control" id="captcha_letter_difficulty" name="captcha_letter_difficulty">
+                <option value="simple" <?php echo $captchaLetterDifficulty === 'simple' ? 'selected' : ''; ?>><?php echo e(t('settings_captcha_letter_difficulty_simple', '简单（4 位字符，干扰最少）')); ?></option>
+                <option value="easy" <?php echo $captchaLetterDifficulty === 'easy' ? 'selected' : ''; ?>><?php echo e(t('settings_captcha_letter_difficulty_easy', '容易（4 位字符，轻量干扰）')); ?></option>
+                <option value="hard" <?php echo $captchaLetterDifficulty === 'hard' ? 'selected' : ''; ?>><?php echo e(t('settings_captcha_letter_difficulty_hard', '困难（5 位字符，中等干扰）')); ?></option>
+                <option value="very_hard" <?php echo $captchaLetterDifficulty === 'very_hard' ? 'selected' : ''; ?>><?php echo e(t('settings_captcha_letter_difficulty_very_hard', '超难（6 位字符，强干扰）')); ?></option>
+                <option value="hell" <?php echo $captchaLetterDifficulty === 'hell' ? 'selected' : ''; ?>><?php echo e(t('settings_captcha_letter_difficulty_hell', '地狱（7 位字符，极强干扰）')); ?></option>
+            </select>
+            <p class="form-hint"><?php echo e(t('settings_captcha_letter_difficulty_hint', '仅对「图片字母验证」方式生效，可独立于上方整体难度单独设置。难度越高字符越多、旋转与干扰越强，机器人越难识别。')); ?></p>
             <label class="form-label" for="captcha_trigger_mode" style="margin-top: 0.75rem;"><?php echo e(t('settings_captcha_trigger_mode', '触发模式')); ?></label>
             <select class="form-control" id="captcha_trigger_mode" name="captcha_trigger_mode">
                 <option value="always" <?php echo $captchaTriggerMode === 'always' ? 'selected' : ''; ?>><?php echo e(t('settings_captcha_trigger_always', '始终显示（安全级别最高）')); ?></option>

@@ -827,6 +827,27 @@ function captcha_difficulty(): string {
 }
 
 /**
+ * 图片字母验证难度：简单(simple) / 容易(easy) / 困难(hard) / 超难(very_hard) / 地狱(hell)
+ *
+ * 独立于整体验证难度。未单独设置时按整体难度映射，兼容旧版本：
+ * 整体简单 → 简单，整体普通 → 困难，整体困难 → 超难
+ */
+function captcha_letter_difficulty(): string {
+    if (!function_exists('get_site_setting')) {
+        return 'easy';
+    }
+    $v = get_site_setting('captcha_letter_difficulty', '');
+    if ($v === '') {
+        $map = ['easy' => 'simple', 'normal' => 'hard', 'hard' => 'very_hard'];
+        $v = $map[captcha_difficulty()] ?? 'easy';
+        if (function_exists('set_site_setting')) {
+            set_site_setting('captcha_letter_difficulty', $v);
+        }
+    }
+    return in_array($v, ['simple', 'easy', 'hard', 'very_hard', 'hell'], true) ? $v : 'easy';
+}
+
+/**
  * 验证显示方式：内嵌 (inline) / 弹窗 (popup)，默认内嵌
  */
 function captcha_display(): string {
@@ -867,47 +888,115 @@ function captcha_click_word_count(): array {
 }
 
 /**
- * 图片字母验证参数（按难度区分）
+ * 图片字母验证参数（按独立难度区分）
  *
  * 简单：4 位大写字母+数字（去除易混淆字符）、小角度旋转、少量干扰线/噪点
- * 普通：5 位大小写字母+数字、中等旋转与干扰
- * 困难：6 位大小写字母+数字、大角度旋转、多干扰线与噪点
+ * 容易：4 位大小写字母+数字、轻量旋转与干扰
+ * 困难：5 位大小写字母+数字、中等旋转与干扰
+ * 超难：6 位大小写字母+数字、大角度旋转、多干扰线与噪点
+ * 地狱：7 位大小写字母+数字、极大角度旋转、密集干扰线/噪点与字符抖动
  *
  * 字符集刻意剔除 I/l/1/O/0 等易混淆字符，保证人机都容易辨认。
  */
 function captcha_letter_params(): array {
-    $d = captcha_difficulty();
-    if ($d === 'easy') {
-        return [
-            'len'      => 4,
-            'charset'  => 'ABCDEFGHJKMNPQRSTUVWXYZ23456789', // 仅大写+数字，最易辨认
-            'angle'    => 12,   // 最大旋转角度（度）
-            'lines'    => 3,    // 干扰线数量
-            'dots'     => 50,   // 噪点数量
-            'size_min' => 30,
-            'size_max' => 36,
-        ];
+    $d = captcha_letter_difficulty();
+    switch ($d) {
+        case 'simple':   // 简单
+            return [
+                'len'      => 4,
+                'charset'  => 'ABCDEFGHJKMNPQRSTUVWXYZ23456789', // 仅大写+数字，最易辨认
+                'angle'    => 12,   // 最大旋转角度（度）
+                'lines'    => 3,    // 干扰线数量
+                'dots'     => 50,   // 噪点数量
+                'size_min' => 30,
+                'size_max' => 36,
+                'jitter'   => 3,    // 横向抖动幅度（像素）
+                'y_jitter' => 10,   // 纵向抖动幅度（像素）
+                'noise'    => 10,   // 抗 AI 噪声强度
+                'overlap'  => 1.0,  // 字符间距系数（<1 时相邻字符重叠）
+                'overlay_lines' => 0, // 字母上层干扰线数量
+                'line_width'    => 1, // 上层干扰线宽度
+                'fake_chars'    => 0, // 伪字符数量（更小更淡的干扰字符）
+                'light_chars'   => 0, // 浅色字符数量（降低对比度）
+                'bg_dark'       => 0, // 背景加深档位
+            ];
+        case 'easy':     // 容易
+            return [
+                'len'      => 4,
+                'charset'  => 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789',
+                'angle'    => 18,
+                'lines'    => 5,
+                'dots'     => 80,
+                'size_min' => 28,
+                'size_max' => 36,
+                'jitter'   => 6,
+                'y_jitter' => 12,
+                'noise'    => 14,
+                'overlap'  => 1.0,
+                'overlay_lines' => 1,
+                'line_width'    => 1,
+                'fake_chars'    => 0,
+                'light_chars'   => 0,
+                'bg_dark'       => 0,
+            ];
+        case 'hard':     // 困难
+            return [
+                'len'      => 5,
+                'charset'  => 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789',
+                'angle'    => 22,
+                'lines'    => 6,
+                'dots'     => 110,
+                'size_min' => 26,
+                'size_max' => 36,
+                'jitter'   => 8,
+                'y_jitter' => 14,
+                'noise'    => 20,
+                'overlap'  => 0.88,
+                'overlay_lines' => 3,
+                'line_width'    => 1,
+                'fake_chars'    => 2,
+                'light_chars'   => 0,
+                'bg_dark'       => 0,
+            ];
+        case 'very_hard': // 超难
+            return [
+                'len'      => 6,
+                'charset'  => 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789',
+                'angle'    => 30,
+                'lines'    => 9,
+                'dots'     => 200,
+                'size_min' => 24,
+                'size_max' => 38,
+                'jitter'   => 10,
+                'y_jitter' => 16,
+                'noise'    => 30,
+                'overlap'  => 0.80,
+                'overlay_lines' => 6,
+                'line_width'    => 2,
+                'fake_chars'    => 4,
+                'light_chars'   => 1,
+                'bg_dark'       => 1,
+            ];
+        default:         // 地狱
+            return [
+                'len'      => 7,
+                'charset'  => 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789',
+                'angle'    => 38,
+                'lines'    => 14,
+                'dots'     => 320,
+                'size_min' => 22,
+                'size_max' => 36,
+                'jitter'   => 14,
+                'y_jitter' => 18,
+                'noise'    => 42,
+                'overlap'  => 0.72,
+                'overlay_lines' => 8,
+                'line_width'    => 2,
+                'fake_chars'    => 6,
+                'light_chars'   => 2,
+                'bg_dark'       => 1,
+            ];
     }
-    if ($d === 'hard') {
-        return [
-            'len'      => 6,
-            'charset'  => 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789',
-            'angle'    => 30,
-            'lines'    => 9,
-            'dots'     => 200,
-            'size_min' => 24,
-            'size_max' => 38,
-        ];
-    }
-    return [
-        'len'      => 5,
-        'charset'  => 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789',
-        'angle'    => 22,
-        'lines'    => 6,
-        'dots'     => 110,
-        'size_min' => 26,
-        'size_max' => 36,
-    ];
 }
 
 /**
@@ -1166,10 +1255,11 @@ function letter_captcha_image(string $code, array $params): string {
     $h = LETTER_CAPTCHA_HEIGHT;
     $img = imagecreatetruecolor($w, $h);
 
-    // 背景：浅色随机渐变（保证深色字母可读）
-    $bgR = random_int(232, 250);
-    $bgG = random_int(232, 250);
-    $bgB = random_int(232, 250);
+    // 背景：浅色随机渐变（高难度背景略加深，降低与字符的对比度）
+    $bgDark = (int)($params['bg_dark'] ?? 0) * 22;
+    $bgR = random_int(232 - $bgDark, 250 - $bgDark);
+    $bgG = random_int(232 - $bgDark, 250 - $bgDark);
+    $bgB = random_int(232 - $bgDark, 250 - $bgDark);
     for ($y = 0; $y < $h; $y++) {
         $ratio = $y / max(1, $h - 1);
         $color = imagecolorallocate($img, (int)($bgR - $ratio * 28), (int)($bgG - $ratio * 18), (int)($bgB - $ratio * 24));
@@ -1219,21 +1309,33 @@ function letter_captcha_image(string $code, array $params): string {
         }
     }
 
-    // 逐字符绘制：随机字号、旋转角、深色系颜色（保证可读性）
+    // 逐字符绘制：随机字号、旋转角、深色系颜色（高难度随机部分字符用浅色，降低对比度）
     $palette = [
         [40, 42, 90], [110, 35, 60], [25, 80, 120], [90, 70, 25], [55, 30, 95], [20, 90, 75],
     ];
+    $lightPalette = [
+        [135, 112, 88], [102, 132, 142], [152, 98, 108], [112, 128, 78], [142, 108, 152],
+    ];
     $total = strlen($code);
-    $charW = (int)(($w - 48) / $total);
+    $lightIdx = [];
+    $lightCount = (int)($params['light_chars'] ?? 0);
+    if ($lightCount > 0 && $total > 1) {
+        $lightIdx = array_map('intval', (array)array_rand(range(0, $total - 1), min($lightCount, $total)));
+    }
+    $overlap = (float)($params['overlap'] ?? 1.0);
+    $charW = (int)(($w - 48) / $total * $overlap);
+    $jitter = (int)($params['jitter'] ?? 6);
+    $yJitter = (int)($params['y_jitter'] ?? 14);
     for ($i = 0; $i < $total; $i++) {
         $ch = $code[$i];
         $size = random_int($params['size_min'], $params['size_max']);
         $angle = random_int(-$params['angle'], $params['angle']);
-        $pc = $palette[random_int(0, count($palette) - 1)];
+        $pc = in_array($i, $lightIdx, true) ? $lightPalette[random_int(0, count($lightPalette) - 1)] : $palette[random_int(0, count($palette) - 1)];
         $color = imagecolorallocate($img, $pc[0], $pc[1], $pc[2]);
-        // 横向均匀分布 + 随机抖动；纵向居中 + 上下抖动
-        $x = 24 + $i * $charW + random_int(0, max(0, $charW - (int)($size * 0.75)));
-        $y = (int)($h / 2) + random_int(-14, 14);
+        // 横向均匀分布 + 随机抖动（难度越高抖动越大）；纵向居中 + 上下抖动
+        $x = 24 + $i * $charW + random_int(0, max(0, $charW - (int)($size * 0.75))) + random_int(-$jitter, $jitter);
+        $x = max(2, min($w - $size - 2, $x));
+        $y = (int)($h / 2) + random_int(-$yJitter, $yJitter);
         if ($font !== '' && function_exists('imagettftext')) {
             imagettftext($img, $size, $angle, $x, $y, $color, $font, $ch);
         } else {
@@ -1241,8 +1343,50 @@ function letter_captcha_image(string $code, array $params): string {
         }
     }
 
-    // 字母上层轻量抗 AI 噪声（不遮挡可读性）
-    captcha_anti_ai_noise($img, $w, $h, 12);
+    // 伪字符干扰：与真字符同风格但更小更淡，且避开答案字符（高难度用于迷惑视觉）
+    $fakeChars = (int)($params['fake_chars'] ?? 0);
+    if ($fakeChars > 0 && $font !== '' && function_exists('imagettftext')) {
+        $fakePool = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+        $codeLower = strtolower($code);
+        for ($i = 0; $i < $fakeChars; $i++) {
+            do {
+                $fc = $fakePool[random_int(0, strlen($fakePool) - 1)];
+            } while (strpos($codeLower, strtolower($fc)) !== false);
+            $fcolor = imagecolorallocatealpha($img, random_int(95, 175), random_int(95, 175), random_int(95, 175), random_int(55, 95));
+            imagettftext($img, random_int(13, 20), random_int(-32, 32), random_int(12, $w - 34), random_int(22, $h - 14), $fcolor, $font, $fc);
+        }
+    }
+
+    // 字母上层干扰线（穿过字符，难度越高越多越粗；低难度不画保持可读性）
+    $lineWidth = (int)($params['line_width'] ?? 1);
+    if ($lineWidth > 1) {
+        imagesetthickness($img, $lineWidth);
+    }
+    for ($i = 0; $i < (int)($params['overlay_lines'] ?? 0); $i++) {
+        $c = imagecolorallocatealpha($img, random_int(55, 175), random_int(55, 175), random_int(55, 175), random_int(5, 40));
+        if (random_int(0, 1)) {
+            imageline($img, random_int(0, $w), random_int(0, $h), random_int(0, $w), random_int(0, $h), $c);
+        } else {
+            $yBase = random_int(15, $h - 15);
+            $amp = random_int(6, 16);
+            $freq = random_int(2, 5);
+            $phase = random_int(0, 628) / 100;
+            $prevX = 0;
+            $prevY = $yBase + $amp * sin($phase);
+            for ($x = 4; $x <= $w; $x += 4) {
+                $curY = $yBase + $amp * sin($x / $w * $freq * 2 * M_PI + $phase);
+                imageline($img, $prevX, (int)$prevY, $x, (int)$curY, $c);
+                $prevX = $x;
+                $prevY = $curY;
+            }
+        }
+    }
+    if ($lineWidth > 1) {
+        imagesetthickness($img, 1);
+    }
+
+    // 字母上层轻量抗 AI 噪声（不遮挡可读性），强度随难度提升
+    captcha_anti_ai_noise($img, $w, $h, (int)($params['noise'] ?? 12));
 
     ob_start();
     imagepng($img);

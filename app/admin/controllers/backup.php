@@ -45,6 +45,14 @@ $stats = $manager->getStats();
 $backups = $manager->listBackups();
 $autoConfig = $manager->getAutoBackupConfig();
 
+// 备份列表分页（每页 10 条）
+$backupPage = max(1, (int)($_GET['page'] ?? 1));
+$backupPerPage = 10;
+$backupTotal = count($backups);
+$backupTotalPages = max(1, (int)ceil($backupTotal / $backupPerPage));
+$backupPage = min($backupPage, $backupTotalPages);
+$pagedBackups = array_slice($backups, ($backupPage - 1) * $backupPerPage, $backupPerPage);
+
 // 检查是否有自动备份结果需要提示
 $autoResult = $_SESSION['_auto_backup_result'] ?? null;
 unset($_SESSION['_auto_backup_result']);
@@ -293,7 +301,7 @@ if ($flash): ?>
                         </tr>
                     </thead>
                     <tbody id="backup-table-body">
-                        <?php foreach ($backups as $b): ?>
+                        <?php foreach ($pagedBackups as $b): ?>
                             <tr data-filename="<?php echo e($b['filename']); ?>">
                                 <td class="backup-cell-filename" title="<?php echo e($b['filename']); ?>">
                                     <?php echo e($b['filename']); ?>
@@ -333,6 +341,12 @@ if ($flash): ?>
             </div>
         <?php endif; ?>
     </div>
+
+    <?php if ($backupTotalPages > 1): ?>
+        <div style="padding:0 1.25rem 1.25rem;">
+            <?php echo pagination($backupPage, $backupTotal, $backupPerPage, site_url('admin/backup')); ?>
+        </div>
+    <?php endif; ?>
 </div>
 
 <!-- 确认对话框 -->
@@ -670,6 +684,8 @@ if ($flash): ?>
 (function () {
     var csrfToken = '<?php echo csrf_token(); ?>';
     var sessionId = '<?php echo e(session_id()); ?>';
+    var backupTotal = <?php echo $backupTotal; ?>;
+    var backupPage = <?php echo $backupPage; ?>;
 
     function showToast(text, type) {
         var toast = document.getElementById('backup-toast');
@@ -797,6 +813,7 @@ if ($flash): ?>
                                 row.style.opacity = '0';
                                 setTimeout(function () {
                                     row.remove();
+                                    backupTotal--;
                                     updateListCount();
                                 }, 300);
                             } else {
@@ -853,8 +870,10 @@ if ($flash): ?>
     function updateListCount() {
         var rows = document.querySelectorAll('#backup-table-body tr');
         var countEl = document.getElementById('backup-list-count');
-        if (countEl) countEl.textContent = rows.length;
+        if (countEl) countEl.textContent = backupTotal;
         if (rows.length === 0) {
+            // 当前页被删空且不在第一页：回到上一页
+            if (backupPage > 1) { location.reload(); return; }
             var list = document.getElementById('backup-list');
             if (list) {
                 list.innerHTML = '<div class="backup-empty"><svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.4;margin-bottom:0.5rem;"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg><p>' + <?php echo json_encode(t('admin_backup_empty_text', '暂无备份记录，点击上方"创建备份"按钮开始第一次备份。')); ?> + '</p></div>';

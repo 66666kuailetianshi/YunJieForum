@@ -136,6 +136,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
             <tbody id="recent-visitors-body"></tbody>
         </table>
     </div>
+    <div id="recent-visitors-pagination" style="padding:0 1.25rem 1.25rem;"></div>
 </div>
 
 <style>
@@ -162,6 +163,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
     var prevData = {};
     var fetching = false;      // 请求去重：正在请求中时不发新请求
     var lastDataHash = '';     // 快速比对数据是否变化，避免无意义的重绘
+    var recentPage = 1;        // 最近访客当前页码
     // ========== 图表渲染 ==========
 
     function drawHourlyChart(data) {
@@ -420,6 +422,57 @@ require_once dirname(__DIR__) . '/layout/header.php';
         tbody.innerHTML = html;
     }
 
+    // ========== 最近访客分页 ==========
+
+    function renderRecentPagination(data) {
+        var el = document.getElementById('recent-visitors-pagination');
+        if (!el) return;
+        var page = data.recent_page || 1;
+        var totalPages = data.recent_total_pages || 1;
+        var total = data.recent_total || 0;
+        var info = <?php echo json_encode(t('admin_traffic_page_info', '第 {p} / {tp} 页，共 {n} 条')); ?>;
+        info = info.replace('{p}', page).replace('{tp}', totalPages).replace('{n}', total);
+
+        var html = '<div class="pagination">';
+        // 上一页
+        if (page > 1) {
+            html += '<a class="btn btn-secondary rv-page-btn" data-page="' + (page - 1) + '"><?php echo e(t('admin_traffic_page_prev', '上一页')); ?></a>';
+        } else {
+            html += '<span class="btn btn-disabled"><?php echo e(t('admin_traffic_page_prev', '上一页')); ?></span>';
+        }
+        // 页码
+        if (totalPages > 1) {
+            html += '<div class="page-numbers">';
+            var start = Math.max(1, page - 2);
+            var end = Math.min(totalPages, page + 2);
+            if (start > 1) {
+                html += '<a class="page-number rv-page-btn" data-page="1">1</a>';
+                if (start > 2) html += '<span class="page-ellipsis">...</span>';
+            }
+            for (var i = start; i <= end; i++) {
+                if (i === page) {
+                    html += '<span class="page-number active">' + i + '</span>';
+                } else {
+                    html += '<a class="page-number rv-page-btn" data-page="' + i + '">' + i + '</a>';
+                }
+            }
+            if (end < totalPages) {
+                if (end < totalPages - 1) html += '<span class="page-ellipsis">...</span>';
+                html += '<a class="page-number rv-page-btn" data-page="' + totalPages + '">' + totalPages + '</a>';
+            }
+            html += '</div>';
+        }
+        html += '<span class="page-info">' + info + '</span>';
+        // 下一页
+        if (page < totalPages) {
+            html += '<a class="btn btn-secondary rv-page-btn" data-page="' + (page + 1) + '"><?php echo e(t('admin_traffic_page_next', '下一页')); ?></a>';
+        } else {
+            html += '<span class="btn btn-disabled"><?php echo e(t('admin_traffic_page_next', '下一页')); ?></span>';
+        }
+        html += '</div>';
+        el.innerHTML = html;
+    }
+
     function updateStats(data) {
         // 数字动画
         animateNum('stat-online', data.online_count || 0);
@@ -472,7 +525,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
         if (fetching) return;
         fetching = true;
 
-        fetch('<?php echo site_url('admin/api/traffic_ajax'); ?>&_=' + Date.now())
+        fetch('<?php echo site_url('admin/api/traffic_ajax'); ?>&page=' + recentPage + '&_=' + Date.now())
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 fetching = false;
@@ -486,7 +539,9 @@ require_once dirname(__DIR__) . '/layout/header.php';
                     data.total_pv, data.total_uv,
                     data.hourly_pv ? data.hourly_pv.join(',') : '',
                     data.hot_pages ? data.hot_pages.length : 0,
-                    data.recent_visitors ? data.recent_visitors.length : 0
+                    data.recent_visitors ? data.recent_visitors.length : 0,
+                    data.recent_total ? data.recent_total : 0,
+                    data.recent_page ? data.recent_page : 0
                 ].join('|');
                 var changed = (hash !== lastDataHash);
                 lastDataHash = hash;
@@ -500,6 +555,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
                     drawDailyChart(data);
                     renderHotPages(data.hot_pages || []);
                     renderRecentVisitors(data.recent_visitors || []);
+                    renderRecentPagination(data);
                     renderBars('referrer-list', data.referrers || [], 'count', function(item) { return item.source; });
                     renderBars('device-bars', data.devices || [], 'visitors', function(item) { return item.label + ' (' + item.visitors + <?php echo json_encode(t('admin_traffic_people_suffix', '人)')); ?>; });
                     renderBars('browser-bars', data.browsers || [], 'count', function(item) { return item.name; });
@@ -528,6 +584,19 @@ require_once dirname(__DIR__) . '/layout/header.php';
         clearTimeout(resizeTimer);
         resizeTimer = setTimeout(refresh, 300);
     });
+
+    // 最近访客分页点击（事件委托，渲染后自动生效）
+    var rvPager = document.getElementById('recent-visitors-pagination');
+    if (rvPager) {
+        rvPager.addEventListener('click', function (e) {
+            var btn = e.target.closest('.rv-page-btn');
+            if (!btn) return;
+            var p = parseInt(btn.getAttribute('data-page'), 10);
+            if (!p || isNaN(p) || p === recentPage) return;
+            recentPage = p;
+            refresh();
+        });
+    }
 
     // 启动
     refresh();

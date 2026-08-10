@@ -198,12 +198,20 @@ foreach ($dailyRows as $row) {
     $daily[] = ['date' => $row['stat_date'], 'pv' => (int)$row['pv'], 'uv' => (int)$row['uv']];
 }
 
-// ===================== 查询 5：最近访客（利用 last_visit 索引，仅扫描近期数据）=====================
+// ===================== 查询 5：最近访客（分页，利用 last_visit 索引，仅扫描近期数据）=====================
+$recentPage = max(1, (int)($_GET['page'] ?? 1));
+$recentPerPage = 10;
+$recentTotal = (int)$db->query(
+    "SELECT COUNT(*) FROM traffic_visitors WHERE last_visit >= {$driver->daysAgo(1)}"
+)->fetchColumn();
+$recentTotalPages = max(1, (int)ceil($recentTotal / $recentPerPage));
+$recentPage = min($recentPage, $recentTotalPages);
+$recentOffset = ($recentPage - 1) * $recentPerPage;
 $recentVisitors = $db->query(
     "SELECT ip_hash, user_agent, page, device_type, first_visit, last_visit, views 
      FROM traffic_visitors 
      WHERE last_visit >= {$driver->daysAgo(1)}
-     ORDER BY last_visit DESC LIMIT 20"
+     ORDER BY last_visit DESC LIMIT $recentPerPage OFFSET $recentOffset"
 )->fetchAll();
 $recentList = [];
 foreach ($recentVisitors as $row) {
@@ -270,6 +278,10 @@ echo json_encode([
     'browsers'          => $browsers,
     'os_list'           => $osList,
     'recent_visitors'   => $recentList,
+    'recent_total'      => $recentTotal,
+    'recent_page'       => $recentPage,
+    'recent_per_page'   => $recentPerPage,
+    'recent_total_pages'=> $recentTotalPages,
 ], JSON_UNESCAPED_UNICODE);
 
 } catch (Throwable $e) {

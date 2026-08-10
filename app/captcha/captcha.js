@@ -746,7 +746,7 @@
             if (refreshBtn) refreshBtn.addEventListener('click', function () {
                 state.passed = false;
                 state.checking = false;
-                onCheck();
+                onCheck(true);
             });
         }
 
@@ -1007,6 +1007,24 @@
                     container.style.display = 'none';
                 });
         }
+
+        /* ---------- 调试钩子：后台调试面板可直接注入挑战数据并同步 token 渲染 ---------- */
+        container.__captchaDebug = {
+            show: function (data, token) {
+                if (!data || !data.challenge) return;
+                if (token) {
+                    state.token = token;
+                    tokenInput.value = token;
+                }
+                state.passed = false;
+                state.checking = false;
+                ensureHost();
+                if (data.challenge === 'slider') showSlider(data);
+                else if (data.challenge === 'click') showClick(data);
+                else if (data.challenge === 'swap') showSwap(data);
+                else if (data.challenge === 'letter') showLetter(data);
+            }
+        };
     }
 
     if (document.readyState === 'loading') {
