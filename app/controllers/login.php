@@ -53,6 +53,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $user = $stmt->fetch();
 
         if (!$user || !password_verify($password, $user['password'])) {
+            // 诊断用：写入错误日志，便于区分“账号不存在”还是“密码哈希不匹配”
+            if (!$user) {
+                error_log('[login] 账号不存在: ' . $account);
+            } else {
+                error_log('[login] 密码校验失败(非bcrypt或哈希损坏): user=' . $user['username']
+                    . ' hash_prefix=' . substr($user['password'], 0, 8) . ' len=' . strlen($user['password']));
+            }
             captcha_record_signal('login_fail');
             $errors[] = t('login_account_password_error', '账号或密码错误。');
         } else {
@@ -163,18 +170,12 @@ include APP_ROOT . 'app/includes/header.php';
                 </label>
                 <div id="agree-terms-error" class="form-error" style="display: none; margin-top: 0.25rem; color: var(--error); font-size: 0.875rem;"><?php echo e(t('login_agree_error', '请阅读并同意用户协议与隐私政策。')); ?></div>
             </div>
-            <?php $capRender = captcha_enabled() && (should_trigger_captcha('login') || in_array(captcha_display(), ['popup', 'trigger'], true)); ?>
-        <?php if ($capRender): ?>
+            <?php if (captcha_enabled()): ?>
             <div class="form-group" data-captcha-wrap>
-                <?php if (captcha_enabled() && !should_trigger_captcha('login') && captcha_display() !== 'popup' && captcha_display() !== 'trigger'): ?>
-                    <!-- 无需触发且非弹窗/触发模式：占位空行 -->
-                    <span class="text-muted" style="font-size:12px;"><?php echo e(t('captcha_not_required', '本次操作无需验证')); ?></span>
-                <?php elseif (captcha_enabled()): ?>
-                    <div id="captcha" data-api="<?php echo site_url('api/captcha'); ?>" data-display="<?php echo e(captcha_display()); ?>"></div>
-                    <input type="hidden" name="captcha_token" id="captcha_token" value="">
-                <?php endif; ?>
+                <div id="captcha" data-api="<?php echo site_url('api/captcha'); ?>" data-display="<?php echo e(captcha_display()); ?>"></div>
+                <input type="hidden" name="captcha_token" id="captcha_token" value="">
             </div>
-        <?php endif; ?>
+            <?php endif; ?>
             <button type="submit" class="btn btn-primary btn-block"><?php echo e(t('login_submit', '登录')); ?></button>
         </form>
 

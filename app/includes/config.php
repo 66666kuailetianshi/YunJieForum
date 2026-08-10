@@ -8,7 +8,7 @@ if (!defined('ROOT_PATH')) {
 }
 
 define('APP_NAME', t('common_bb1a21','云界论坛'));
-define('APP_VERSION', '1.3.6-beta');
+define('APP_VERSION', '1.3.7-beta');
 define('SITE_URL', ''); // 留空则自动检测
 
 define('DATA_PATH', ROOT_PATH . 'data' . DIRECTORY_SEPARATOR);
@@ -40,9 +40,24 @@ define('POSTS_PER_PAGE', 10);
 define('REPLIES_PER_PAGE', 20);
 define('COOKIE_REMEMBER_DAYS', 400);
 
+// 判断当前请求是否通过 HTTPS（兼容反向代理后的 X-Forwarded-Proto）
+$__is_https = false;
+if (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') {
+    $__is_https = true;
+} elseif (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower($_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https') {
+    $__is_https = true;
+} elseif (!empty($_SERVER['HTTP_X_FORWARDED_SCHEME']) && strtolower($_SERVER['HTTP_X_FORWARDED_SCHEME']) === 'https') {
+    $__is_https = true;
+} elseif (!empty($_SERVER['HTTP_FRONT_END_HTTPS']) && strcasecmp($_SERVER['HTTP_FRONT_END_HTTPS'], 'off') !== 0) {
+    $__is_https = true;
+}
+
 // 是否仅通过 HTTPS 传输 remember cookie
-// 默认为 false 以保证 HTTP 环境下也能正常保存；HTTPS 站点可改为 true 提升安全性
-define('COOKIE_SECURE', false);
+// 默认按实际协议自动判断；HTTP 环境下为 false，HTTPS（含反向代理后）为 true。
+// 如需强制指定，可在 data/site_config.php 中先定义 COOKIE_SECURE。
+if (!defined('COOKIE_SECURE')) {
+    define('COOKIE_SECURE', $__is_https);
+}
 
 // 记住账号密码功能：加密密钥 cookie 有效期（天）
 define('CRED_KEY_COOKIE_DAYS', 400);
@@ -96,24 +111,55 @@ if (session_status() === PHP_SESSION_NONE) {
         $sessRoot . DIRECTORY_SEPARATOR . 'data' . DIRECTORY_SEPARATOR . 'sessions',
         sys_get_temp_dir(),
     ];
+    $sessDirUsed = '';
     foreach ($sessCandidates as $sessDir) {
         if (!is_dir($sessDir)) {
             @mkdir($sessDir, 0755, true);
         }
         if (is_dir($sessDir) && is_writable($sessDir)) {
             session_save_path($sessDir);
+            $sessDirUsed = $sessDir;
             break;
         }
     }
+    if ($sessDirUsed === '') {
+        error_log('[yunjie] 无可写的 session 保存目录，登录/验证码状态可能无法保持。候选目录：' . implode(', ', $sessCandidates));
+    }
 
-    session_set_cookie_params([
+    // 允许 site_config.php 强制指定 session cookie 安全标志；
+    // 若未指定则按实际协议自动判断（$__is_https 在文件顶部已计算）。
+    // 反向代理场景如检测异常，可在 data/site_config.php 中定义：
+    // define('SESSION_COOKIE_SECURE', false);
+    if (!defined('SESSION_COOKIE_SECURE')) {
+        define('SESSION_COOKIE_SECURE', $__is_https);
+    }
+
+    $sessCookieParams = [
         'lifetime' => 0,
-        'path' => '/',
-        'secure' => !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off',
+        'path'     => '/',
+        'secure'   => SESSION_COOKIE_SECURE,
         'httponly' => true,
         'samesite' => 'Lax',
-    ]);
+    ];
+
+    // 若站点在 HTTP 下但 cookie 仍无法写入（如浏览器 SameSite 策略），
+    // 保留 SESSION_COOKIE_SAMESITE 覆盖入口，便于调试。
+    if (defined('SESSION_COOKIE_SAMESITE')) {
+        $sessCookieParams['samesite'] = SESSION_COOKIE_SAMESITE;
+    }
+
+    session_set_cookie_params($sessCookieParams);
     session_start();
+
+    // 会话初始化后记录诊断信息，便于排查「登录状态记不住」问题
+    if (empty($_SESSION['_session_diag'])) {
+        $_SESSION['_session_diag'] = [
+            'save_path' => $sessDirUsed,
+            'secure'    => SESSION_COOKIE_SECURE,
+            'samesite'  => $sessCookieParams['samesite'],
+            'started_at'=> time(),
+        ];
+    }
 }
 
 // 加载扩展兼容层（无 mbstring 时提供 fallback）

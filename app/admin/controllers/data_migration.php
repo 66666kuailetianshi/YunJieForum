@@ -264,7 +264,7 @@ if (function_exists('get_db_driver')) {
         selectedInfo.textContent = '<?php echo e(t('admin_mig_selected_count', '已选 {n} 张表')); ?>'.replace('{n}', checked);
     }
 
-    fetch(apiUrl + '&action=list_tables&csrf_token=' + encodeURIComponent(csrfToken) + '&_=' + Date.now(), { cache: 'no-store' })
+    fetch(apiUrl + '&action=list_tables&csrf_token=' + encodeURIComponent(csrfToken) + '&_=' + Date.now(), { cache: 'no-store', credentials: 'same-origin' })
         .then(function (r) { return r.json(); })
         .then(function (res) {
             if (!res.success) { grid.innerHTML = '<div class="mig-table-loading">' + escapeHtml(res.error || '') + '</div>'; return; }
@@ -311,7 +311,7 @@ if (function_exists('get_db_driver')) {
         fd.append('tables', checked.join(','));
         fd.append('format', document.getElementById('mig-export-format').value);
 
-        fetch(apiUrl, { method: 'POST', body: fd, cache: 'no-store' })
+        fetch(apiUrl, { method: 'POST', body: fd, cache: 'no-store', credentials: 'same-origin' })
             .then(function (r) {
                 if (!r.ok) return r.json().then(function (j) { throw new Error(j.error || '<?php echo e(t('admin_mig_export_failed', '导出失败')); ?>'); });
                 var cd = r.headers.get('Content-Disposition') || '';
@@ -410,7 +410,7 @@ if (function_exists('get_db_driver')) {
         fd.append('mode', mode);
         fd.append('file', fileInput.files[0]);
 
-        fetch(apiUrl, { method: 'POST', body: fd, cache: 'no-store' })
+        fetch(apiUrl, { method: 'POST', body: fd, cache: 'no-store', credentials: 'same-origin' })
             .then(function (r) { return r.json(); })
             .then(function (res) {
                 clearInterval(progTimer);
@@ -428,10 +428,27 @@ if (function_exists('get_db_driver')) {
                 resultBox.className = 'mig-import-result is-success';
                 var html = '<div>' + escapeHtml(res.message || '') + '</div>';
                 html += '<div class="mig-result-table"><?php echo e(t('admin_mig_total_inserted', '总写入行数')); ?>：' + (res.total_inserted || res.total_executed || 0) + '</div>';
+                if (res.total_skipped > 0) {
+                    html += '<div class="mig-result-table"><?php echo e(t('admin_mig_total_skipped', '总跳过行数')); ?>：' + res.total_skipped + '</div>';
+                }
                 if (res.results) {
                     html += '<div class="mig-result-table">';
                     Object.keys(res.results).forEach(function (t) {
-                        html += escapeHtml(t) + ': ' + res.results[t] + ' <?php echo e(t('admin_mig_rows', '行')); ?><br>';
+                        var rinfo = res.results[t];
+                        if (typeof rinfo === 'number') {
+                            html += escapeHtml(t) + ': ' + rinfo + ' <?php echo e(t('admin_mig_rows', '行')); ?><br>';
+                        } else {
+                            html += escapeHtml(t) + ': ' + (rinfo.inserted || 0) + ' <?php echo e(t('admin_mig_rows_inserted', '行写入')); ?>';
+                            if (rinfo.skipped > 0) html += ' / ' + rinfo.skipped + ' <?php echo e(t('admin_mig_rows_skipped', '行跳过')); ?>';
+                            html += '<br>';
+                        }
+                    });
+                    html += '</div>';
+                }
+                if (res.row_errors && res.row_errors.length) {
+                    html += '<div class="mig-result-table" style="color:#991b1b;margin-top:0.5rem;"><?php echo e(t('admin_mig_row_errors', '部分行跳过原因（前 20 条）')); ?>：<br>';
+                    res.row_errors.forEach(function (err) {
+                        html += escapeHtml(err) + '<br>';
                     });
                     html += '</div>';
                 }

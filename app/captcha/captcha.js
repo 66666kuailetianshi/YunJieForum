@@ -373,11 +373,37 @@
                         showClick(data);
                     } else if (data && data.challenge === 'swap') {
                         showSwap(data);
+                    } else if (data && (data.error === 'invalid' || data.error === 'expired') && !refresh) {
+                        // token 失效或过期：自动重新初始化并最多重试一次
+                        log('check token stale, reinitializing', data.error);
+                        fetch(apiAction('get'), { cache: 'no-store', credentials: 'same-origin' })
+                            .then(function (r) { return r.json(); })
+                            .then(function (newData) {
+                                if (!newData || !newData.enabled) {
+                                    fail('验证未启用', '请刷新页面后重试');
+                                    return;
+                                }
+                                state.blocked = !!newData.blocked;
+                                if (state.blocked) {
+                                    fail('操作过于频繁', newData.blocked_msg || '请稍后再试');
+                                    return;
+                                }
+                                state.pow = newData.pow || null;
+                                state.hpName = newData.hp_name || '';
+                                if (state.hpName) injectHoneypot();
+                                state.token = newData.token;
+                                tokenInput.value = newData.token;
+                                // 使用新 token 重试一次（refresh=true 防止再次进入此分支）
+                                onCheck(true);
+                            })
+                            .catch(function (err) { log('reinit ✗', err); fail('验证初始化失败', '请刷新页面后重试'); });
                     } else {
-                        fail();
+                        var failMsg = data && data.error ? ('验证失败 (' + data.error + ')') : '';
+                        var failSub = data && data.message ? data.message : '请点击重新验证';
+                        fail(failMsg, failSub);
                     }
                 })
-                .catch(function (err) { state.checking = false; log('check ✗ 网络错误', err); fail(); });
+                .catch(function (err) { state.checking = false; log('check ✗ 网络错误', err); fail('网络异常，请重试'); });
         }
 
         /* ---------- 弹窗模式 ---------- */
@@ -449,8 +475,8 @@
             }
         }
 
-        function fail() {
-            setStatus('error', '验证失败，请重试', '请点击重新验证');
+        function fail(msg, sub) {
+            setStatus('error', msg || '验证失败，请重试', sub || '请点击重新验证');
             setTimeout(function () {
                 setStatus('', '我是人类', '保护本站免受垃圾信息干扰');
             }, 1500);
@@ -730,110 +756,87 @@
             var rows = data.rows || 2;
             var pw = data.piece_w || 70;
             var ph = data.piece_h || 70;
-            var sw = data.stage_w || 296;
-            var sh = data.stage_h || 146;
             var gap = data.gap || 3;
+            var sw = data.stage_w || (pw * cols + gap * (cols - 1));
+            var sh = data.stage_h || (ph * rows + gap * (rows - 1));
             var pieces = data.pieces || [];
             var total = cols * rows;
+
+            // ========== 核心数据结构 ==========
+            // currentOrder[pos] = 该位置上图块的 correct 值（0,1,2,3...）
+            // 初始顺序由后端返回的 pieces[].correct 决定
+            var initialOrder = pieces.map(function(p) { return p.correct; });
+            var currentOrder = initialOrder.slice();
+            var selected = null;
+
+            function renderTile(tile, pos) {
+                var pieceCorrect = currentOrder[pos];
+                var piece = pieces.find(function(p) { return p.correct === pieceCorrect; });
+                if (!piece) return;
+                var row = Math.floor(pos / cols);
+                var col = pos % cols;
+                var left = col * (pw + gap);
+                var top = row * (ph + gap);
+                tile.setAttribute('data-pos', pos);
+                tile.style.width = pw + 'px';
+                tile.style.height = ph + 'px';
+                tile.style.left = left + 'px';
+                tile.style.top = top + 'px';
+                var img = tile.querySelector('img');
+                if (img) img.src = piece.b64 || '';
+                var idx = tile.querySelector('.sw-tile-idx');
+                if (idx) idx.textContent = pos + 1;
+            }
 
             function buildScene() {
                 var html = '<div class="sw-box">';
                 html += '<div class="sw-prompt"><span class="sw-prompt-label">请完成推理验证</span></div>';
                 html += '<div class="sw-prompt-hint" style="font-size:12px;color:#6b7280;margin-bottom:6px;">图块已被打乱，点击两个图块交换位置，使图片恢复完整</div>';
-                html += '<div class="sw-scene" style="width:' + (sw + gap) + 'px;height:' + (sh + gap) + 'px;">';
-                for (var i = 0; i < pieces.length; i++) {
-                    var row = Math.floor(i / cols);
-                    var col = i % cols;
-                    var left = col * (pw + gap);
-                    var top = row * (ph + gap);
-                    // ========== 使用 data-pos 表示当前位置，data-content 存储正确内容索引 ==========
-                    html += '<div class="sw-tile" data-pos="' + i + '" data-content="' + pieces[i].correct + '" style="width:' + pw + 'px;height:' + ph + 'px;left:' + left + 'px;top:' + top + 'px;">';
-                    html += '<img src="' + (pieces[i].b64 || '') + '" draggable="false" style="width:100%;height:100%;">';
-                    html += '<span class="sw-tile-idx">' + (i + 1) + '</span>';
-                    html += '</div>';
-                }
-                html += '</div>';
-                html += '<div class="sw-tools"><button type="button" class="sw-reset"><span class="sw-reset-ic">&#8634;</span> 重置</button><button type="button" class="sw-refresh">换一张</button></div>';
-                html += '</div>';
-                host.innerHTML = html;
-            }
-
-            // ========== 核心数据结构 ==========
-            // currentOrder[pos] = 该位置上图块的 correct 值（0,1,2,3...）
-            var currentOrder = [];
-            var selected = null;
-
-            function reset() {
-                selected = null;
-                buildScene();
-            }
-
-            function buildScene() {
-                // ========== 根据当前 currentOrder 重建 DOM ==========
-                var sw = pw * cols + gap * (cols - 1);
-                var sh = ph * rows + gap * (rows - 1);
-                var html = '<div class="sw-scene" style="width:' + sw + 'px;height:' + sh + 'px;">';
-                
+                html += '<div class="sw-scene" style="width:' + sw + 'px;height:' + sh + 'px;">';
                 for (var pos = 0; pos < pieces.length; pos++) {
-                    var pieceCorrect = currentOrder[pos]; // 这个位置上图块的 correct 值
-                    // 找到对应的图块（通过 correct 值查找）
-                    var piece = pieces.find(function(p) { return p.correct === pieceCorrect; });
-                    
-                    var row = Math.floor(pos / cols);
-                    var col = pos % cols;
-                    var left = col * (pw + gap);
-                    var top = row * (ph + gap);
-                    
-                    html += '<div class="sw-tile" data-pos="' + pos + '" style="width:' + pw + 'px;height:' + ph + 'px;left:' + left + 'px;top:' + top + 'px;">';
-                    html += '<img src="' + (piece.b64 || '') + '" draggable="false" style="width:100%;height:100%;">';
-                    html += '<span class="sw-tile-idx">' + (pos + 1) + '</span>';
-                    html += '</div>';
+                    html += '<div class="sw-tile" style="width:' + pw + 'px;height:' + ph + 'px;"></div>';
                 }
                 html += '</div>';
                 html += '<div class="sw-tools"><button type="button" class="sw-reset"><span class="sw-reset-ic">&#8634;</span> 重置</button><button type="button" class="sw-refresh">换一张</button></div>';
                 html += '</div>';
                 host.innerHTML = html;
+
+                // 填充每个图块的内容（位置 + 图片 + 索引）
+                var tiles = host.querySelectorAll('.sw-tile');
+                for (var i = 0; i < tiles.length; i++) {
+                    tiles[i].innerHTML = '<img src="" draggable="false" style="width:100%;height:100%;"><span class="sw-tile-idx"></span>';
+                    renderTile(tiles[i], i);
+                }
             }
 
             function doSwap(posI, posJ) {
-                // 交换两个位置上的图块
+                // 交换两个位置上的图块数据
                 var tmp = currentOrder[posI];
                 currentOrder[posI] = currentOrder[posJ];
                 currentOrder[posJ] = tmp;
-                
-                // 重建场景带动画
-                var scene = host.querySelector('.sw-scene');
-                if (scene) {
-                    scene.style.transition = 'all 0.25s ease';
+
+                // 局部更新两个图块，避免 innerHTML 重建导致事件监听器丢失
+                var tileI = host.querySelector('.sw-tile[data-pos="' + posI + '"]');
+                var tileJ = host.querySelector('.sw-tile[data-pos="' + posJ + '"]');
+                if (tileI) renderTile(tileI, posI);
+                if (tileJ) renderTile(tileJ, posJ);
+            }
+
+            function reset() {
+                selected = null;
+                currentOrder = initialOrder.slice();
+                var tiles = host.querySelectorAll('.sw-tile');
+                for (var i = 0; i < tiles.length; i++) {
+                    tiles[i].classList.remove('sw-selected');
+                    renderTile(tiles[i], i);
                 }
-                
-                var sw = pw * cols + gap * (cols - 1);
-                var sh = ph * rows + gap * (rows - 1);
-                var html = '<div class="sw-scene" style="width:' + sw + 'px;height:' + sh + 'px;">';
-                
-                for (var pos = 0; pos < pieces.length; pos++) {
-                    var pieceCorrect = currentOrder[pos];
-                    var piece = pieces.find(function(p) { return p.correct === pieceCorrect; });
-                    
-                    var row = Math.floor(pos / cols);
-                    var col = pos % cols;
-                    var left = col * (pw + gap);
-                    var top = row * (ph + gap);
-                    
-                    html += '<div class="sw-tile" data-pos="' + pos + '" style="width:' + pw + 'px;height:' + ph + 'px;left:' + left + 'px;top:' + top + 'px;">';
-                    html += '<img src="' + (piece.b64 || '') + '" draggable="false" style="width:100%;height:100%;">';
-                    html += '<span class="sw-tile-idx">' + (pos + 1) + '</span>';
-                    html += '</div>';
+            }
+
+            function isSolved() {
+                for (var i = 0; i < currentOrder.length; i++) {
+                    if (currentOrder[i] !== i) return false;
                 }
-                html += '</div>';
-                html += '<div class="sw-tools"><button type="button" class="sw-reset"><span class="sw-reset-ic">&#8634;</span> 重置</button><button type="button" class="sw-refresh">换一张</button></div>';
-                html += '</div>';
-                host.innerHTML = html;
-                
-                setTimeout(function() {
-                    var scene = host.querySelector('.sw-scene');
-                    if (scene) scene.style.transition = '';
-                }, 280);
+                return true;
             }
 
             function submitOrder() {
@@ -869,53 +872,48 @@
                     });
             }
 
-            // ========== 初始化：当前顺序 = 后端返回的被打乱顺序 ==========
-            // pieces 数组中每个元素的 .correct 表示该图块原本的正确位置索引
-            // currentOrder[pos] = 位置 pos 上当前显示的图块的 correct 值
-            // 目标：通过交换让 currentOrder 变成 [0,1,2,3,...]
-            currentOrder = pieces.map(function(p) { return p.correct; });
-            
+            function onSceneClick(e) {
+                var tile = e.target.closest('.sw-tile');
+                if (!tile) return;
+                var pos = parseInt(tile.getAttribute('data-pos'), 10);
+                if (isNaN(pos)) return;
+
+                if (selected === null) {
+                    // 第一次点击：选中
+                    selected = pos;
+                    tile.classList.add('sw-selected');
+                } else if (pos === selected) {
+                    // 取消选中
+                    tile.classList.remove('sw-selected');
+                    selected = null;
+                } else {
+                    // 交换
+                    var prev = host.querySelector('.sw-tile[data-pos="' + selected + '"]');
+                    if (prev) prev.classList.remove('sw-selected');
+                    doSwap(selected, pos);
+                    selected = null;
+                    // 自动检测是否复原
+                    if (isSolved()) {
+                        submitOrder();
+                    }
+                }
+            }
+
+            function onRefresh() {
+                state.passed = false;
+                state.checking = false;
+                onCheck(true);
+            }
+
             log('swap init →', currentOrder);
             buildScene();
             var scene = host.querySelector('.sw-scene');
-            if (scene) {
-                scene.addEventListener('click', function (e) {
-                    var tile = e.target.closest('.sw-tile');
-                    if (!tile) return;
-                    var pos = parseInt(tile.getAttribute('data-pos'), 10);
-                    if (isNaN(pos)) return;
-
-                    if (selected === null) {
-                        // 第一次点击：选中
-                        selected = pos;
-                        tile.classList.add('sw-selected');
-                    } else if (pos === selected) {
-                        // 取消选中
-                        tile.classList.remove('sw-selected');
-                        selected = null;
-                    } else {
-                        // 交换
-                        var prev = host.querySelector('.sw-tile[data-pos="' + selected + '"]');
-                        if (prev) prev.classList.remove('sw-selected');
-                        doSwap(selected, pos);
-                        selected = null;
-                        // 自动检测是否复原（所有位置都是正确的图块）
-                        // currentOrder[0]=0, currentOrder[1]=1, currentOrder[2]=2, currentOrder[3]=3
-                        if (currentOrder[0] === 0 && currentOrder[1] === 1 && currentOrder[2] === 2 && currentOrder[3] === 3) {
-                            submitOrder();
-                        }
-                    }
-                });
-            }
+            if (scene) scene.addEventListener('click', onSceneClick);
 
             var resetBtn = host.querySelector('.sw-reset');
             if (resetBtn) resetBtn.addEventListener('click', reset);
             var refreshBtn = host.querySelector('.sw-refresh');
-            if (refreshBtn) refreshBtn.addEventListener('click', function () {
-                state.passed = false;
-                state.checking = false;
-                onCheck(true);
-            });
+            if (refreshBtn) refreshBtn.addEventListener('click', onRefresh);
         }
 
         /* ---------- 初始化：申请挑战（仅在非 popup 模式时立即执行）---------- */

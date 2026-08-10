@@ -20,8 +20,24 @@ header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-cache, no-store, must-revalidate');
 
 if (!is_admin()) {
-    echo json_encode(['success' => false, 'error' => t('admin_ajax_forbidden', '无权访问')], JSON_UNESCAPED_UNICODE);
+    echo safeJsonEncode(['success' => false, 'error' => t('admin_ajax_forbidden', '无权访问')]);
     exit;
+}
+
+/**
+ * 安全 JSON 编码：失败时返回兜底 JSON，避免前端收到空响应导致「网络错误」。
+ */
+function safeJsonEncode($data): string {
+    $json = json_encode($data, JSON_UNESCAPED_UNICODE);
+    if ($json === false) {
+        // 尝试清理无效 UTF-8 后再次编码
+        $cleaned = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+        if ($cleaned === false) {
+            return json_encode(['success' => false, 'error' => t('admin_mig_json_encode_failed', '服务器返回数据编码失败')]);
+        }
+        return $cleaned;
+    }
+    return $json;
 }
 
 // 可迁移的业务表白名单（与 db.php 中 ensure_*_table 保持一致）
@@ -46,7 +62,7 @@ try {
         case 'list_tables':
             // GET 请求也需校验 CSRF token，防止跨站攻击
             if (!validate_csrf()) {
-                echo json_encode(['success' => false, 'error' => t('admin_ajax_csrf_failed', 'CSRF 校验失败')], JSON_UNESCAPED_UNICODE);
+                echo safeJsonEncode(['success' => false, 'error' => t('admin_ajax_csrf_failed', 'CSRF 校验失败')]);
                 exit;
             }
             listTables($MIGRATABLE_TABLES);
@@ -54,7 +70,7 @@ try {
 
         case 'export':
             if (!validate_csrf()) {
-                echo json_encode(['success' => false, 'error' => t('admin_ajax_csrf_failed', 'CSRF 校验失败')], JSON_UNESCAPED_UNICODE);
+                echo safeJsonEncode(['success' => false, 'error' => t('admin_ajax_csrf_failed', 'CSRF 校验失败')]);
                 exit;
             }
             $format = $_POST['format'] ?? 'json';
@@ -63,12 +79,12 @@ try {
                 $driver = get_db_driver();
                 $currentType = $driver->isFileBased() ? 'sqlite' : 'mysql';
                 if ($format !== $currentType) {
-                    echo json_encode([
+                    echo safeJsonEncode([
                         'success' => false,
                         'error'   => t('admin_mig_format_db_mismatch_export',
                             '当前数据库类型为 {cur}，无法导出 {req} 格式。请选择与当前数据库一致的格式。',
                             ['cur' => $currentType, 'req' => $format]),
-                    ], JSON_UNESCAPED_UNICODE);
+                    ]);
                     exit;
                 }
                 exportDataSQL($MIGRATABLE_TABLES, $format);
@@ -79,20 +95,20 @@ try {
 
         case 'import':
             if (!validate_csrf()) {
-                echo json_encode(['success' => false, 'error' => t('admin_ajax_csrf_failed', 'CSRF 校验失败')], JSON_UNESCAPED_UNICODE);
+                echo safeJsonEncode(['success' => false, 'error' => t('admin_ajax_csrf_failed', 'CSRF 校验失败')]);
                 exit;
             }
             importData($MIGRATABLE_TABLES, $MIGRATION_FORMAT);
             break;
 
         default:
-            echo json_encode(['success' => false, 'error' => t('admin_mig_unknown_action', '未知操作')], JSON_UNESCAPED_UNICODE);
+            echo safeJsonEncode(['success' => false, 'error' => t('admin_mig_unknown_action', '未知操作')]);
     }
 } catch (\Throwable $e) {
-    echo json_encode([
+    echo safeJsonEncode([
         'success' => false,
         'error'   => t('admin_mig_unexpected_error', '执行出错：') . $e->getMessage(),
-    ], JSON_UNESCAPED_UNICODE);
+    ]);
 }
 
 /* ====================== 函数实现 ====================== */
@@ -151,11 +167,11 @@ function listTables(array $whitelist): void {
             'count' => $count,
         ];
     }
-    echo json_encode([
+    echo safeJsonEncode([
         'success' => true,
         'tables'  => $tables,
         'total'   => array_sum(array_column($tables, 'count')),
-    ], JSON_UNESCAPED_UNICODE);
+    ]);
 }
 
 /**
@@ -170,7 +186,7 @@ function exportData(array $whitelist, string $format): void {
 
     if (empty($requested)) {
         http_response_code(400);
-        echo json_encode(['success' => false, 'error' => t('admin_mig_no_table_selected', '请至少选择一张表进行导出')], JSON_UNESCAPED_UNICODE);
+        echo safeJsonEncode(['success' => false, 'error' => t('admin_mig_no_table_selected', '请至少选择一张表进行导出')]);
         return;
     }
 
@@ -178,7 +194,7 @@ function exportData(array $whitelist, string $format): void {
     $selected = array_values(array_intersect($requested, $whitelist));
     if (empty($selected)) {
         http_response_code(400);
-        echo json_encode(['success' => false, 'error' => t('admin_mig_invalid_tables', '所选表不在可迁移范围内')], JSON_UNESCAPED_UNICODE);
+        echo safeJsonEncode(['success' => false, 'error' => t('admin_mig_invalid_tables', '所选表不在可迁移范围内')]);
         return;
     }
 
@@ -212,7 +228,7 @@ function exportData(array $whitelist, string $format): void {
     $json = json_encode($data, JSON_UNESCAPED_UNICODE);
     if ($json === false) {
         http_response_code(400);
-        echo json_encode(['success' => false, 'error' => t('admin_mig_json_encode_failed', '导出数据过大或包含非法字符，导出失败')], JSON_UNESCAPED_UNICODE);
+        echo safeJsonEncode(['success' => false, 'error' => t('admin_mig_json_encode_failed', '导出数据过大或包含非法字符，导出失败')]);
         return;
     }
 
@@ -245,14 +261,14 @@ function exportDataSQL(array $whitelist, string $format = 'sql'): void {
 
     if (empty($requested)) {
         http_response_code(400);
-        echo json_encode(['success' => false, 'error' => t('admin_mig_no_table_selected', '请至少选择一张表进行导出')], JSON_UNESCAPED_UNICODE);
+        echo safeJsonEncode(['success' => false, 'error' => t('admin_mig_no_table_selected', '请至少选择一张表进行导出')]);
         return;
     }
 
     $selected = array_values(array_intersect($requested, $whitelist));
     if (empty($selected)) {
         http_response_code(400);
-        echo json_encode(['success' => false, 'error' => t('admin_mig_invalid_tables', '所选表不在可迁移范围内')], JSON_UNESCAPED_UNICODE);
+        echo safeJsonEncode(['success' => false, 'error' => t('admin_mig_invalid_tables', '所选表不在可迁移范围内')]);
         return;
     }
 
@@ -363,7 +379,7 @@ function exportDataSQL(array $whitelist, string $format = 'sql'): void {
     $tmpZip = tempnam(sys_get_temp_dir(), 'mig_');
     if ($tmpZip === false) {
         http_response_code(500);
-        echo json_encode(['success' => false, 'error' => t('admin_mig_zip_failed', '无法创建临时文件')], JSON_UNESCAPED_UNICODE);
+        echo safeJsonEncode(['success' => false, 'error' => t('admin_mig_zip_failed', '无法创建临时文件')]);
         return;
     }
     // tempnam 创建了空文件，ZipArchive::OVERWRITE 需要删除它
@@ -373,7 +389,7 @@ function exportDataSQL(array $whitelist, string $format = 'sql'): void {
     $res = $zip->open($tmpZip, ZipArchive::CREATE | ZipArchive::OVERWRITE);
     if ($res !== true) {
         http_response_code(500);
-        echo json_encode(['success' => false, 'error' => t('admin_mig_zip_failed', '无法创建压缩包') . ' (code: ' . $res . ')'], JSON_UNESCAPED_UNICODE);
+        echo safeJsonEncode(['success' => false, 'error' => t('admin_mig_zip_failed', '无法创建压缩包') . ' (code: ' . $res . ')']);
         return;
     }
 
@@ -458,7 +474,7 @@ function detectFileDbType(string $raw, bool $isSql): ?string {
  */
 function importData(array $whitelist, string $format): void {
     if (empty($_FILES['file']) || ($_FILES['file']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
-        echo json_encode(['success' => false, 'error' => t('admin_mig_no_file', '未收到上传文件')], JSON_UNESCAPED_UNICODE);
+        echo safeJsonEncode(['success' => false, 'error' => t('admin_mig_no_file', '未收到上传文件')]);
         return;
     }
 
@@ -469,13 +485,13 @@ function importData(array $whitelist, string $format): void {
     $isJson = (substr($name, -5) === '.json');
 
     if (!$isZip && !$isSql && !$isJson) {
-        echo json_encode(['success' => false, 'error' => t('admin_mig_invalid_file', '仅支持 .json、.sql 或 .zip 迁移文件')], JSON_UNESCAPED_UNICODE);
+        echo safeJsonEncode(['success' => false, 'error' => t('admin_mig_invalid_file', '仅支持 .json、.sql 或 .zip 迁移文件')]);
         return;
     }
     // ZIP 包可能较大（含上传文件），放宽到 256MB
     $maxSize = $isZip ? (256 * 1024 * 1024) : (128 * 1024 * 1024);
     if ($file['size'] > $maxSize) {
-        echo json_encode(['success' => false, 'error' => t('admin_mig_file_too_large', '文件过大（超过 ' . ($isZip ? '256' : '128') . 'MB）')], JSON_UNESCAPED_UNICODE);
+        echo safeJsonEncode(['success' => false, 'error' => t('admin_mig_file_too_large', '文件过大（超过 ' . ($isZip ? '256' : '128') . 'MB）')]);
         return;
     }
 
@@ -487,7 +503,7 @@ function importData(array $whitelist, string $format): void {
 
     $raw = file_get_contents($file['tmp_name']);
     if ($raw === false || $raw === '') {
-        echo json_encode(['success' => false, 'error' => t('admin_mig_file_read_failed', '无法读取上传文件')], JSON_UNESCAPED_UNICODE);
+        echo safeJsonEncode(['success' => false, 'error' => t('admin_mig_file_read_failed', '无法读取上传文件')]);
         return;
     }
 
@@ -498,12 +514,12 @@ function importData(array $whitelist, string $format): void {
     $currentType = $driver->isFileBased() ? 'sqlite' : 'mysql';
     $fileDbType = detectFileDbType($raw, $isSql);
     if ($fileDbType !== null && $fileDbType !== 'unknown' && $fileDbType !== $currentType) {
-        echo json_encode([
+        echo safeJsonEncode([
             'success' => false,
             'error'   => t('admin_mig_cross_db_blocked',
                 '不支持跨数据库类型迁移：文件来源为 {src}，当前数据库为 {cur}。请使用与源数据库相同类型的文件。',
                 ['src' => $fileDbType, 'cur' => $currentType]),
-        ], JSON_UNESCAPED_UNICODE);
+        ]);
         return;
     }
 
@@ -516,11 +532,11 @@ function importData(array $whitelist, string $format): void {
     // JSON 文件 → 原有逻辑
     $data = json_decode($raw, true);
     if (!is_array($data)) {
-        echo json_encode(['success' => false, 'error' => t('admin_mig_json_invalid', '文件不是有效的 JSON 数据')], JSON_UNESCAPED_UNICODE);
+        echo safeJsonEncode(['success' => false, 'error' => t('admin_mig_json_invalid', '文件不是有效的 JSON 数据')]);
         return;
     }
     if (($data['format'] ?? '') !== $format) {
-        echo json_encode(['success' => false, 'error' => t('admin_mig_format_mismatch', '文件格式不匹配，不是本系统导出的数据迁移文件')], JSON_UNESCAPED_UNICODE);
+        echo safeJsonEncode(['success' => false, 'error' => t('admin_mig_format_mismatch', '文件格式不匹配，不是本系统导出的数据迁移文件')]);
         return;
     }
 
@@ -560,6 +576,8 @@ function importData(array $whitelist, string $format): void {
 
     $results = [];
     $totalInserted = 0;
+    $totalSkipped = 0;
+    $rowErrors = [];
     $inTransaction = false;
     try {
         $db->beginTransaction();
@@ -570,7 +588,7 @@ function importData(array $whitelist, string $format): void {
                 continue; // 跳过白名单外的表，避免误写系统表
             }
             if (!is_array($rows) || empty($rows)) {
-                $results[$table] = 0;
+                $results[$table] = ['inserted' => 0, 'skipped' => 0];
                 continue;
             }
 
@@ -581,7 +599,8 @@ function importData(array $whitelist, string $format): void {
 
             $insertVerb = $mode === 'merge' ? $driver->insertIgnoreClause() : 'INSERT INTO';
             $inserted = 0;
-            foreach ($rows as $row) {
+            $skipped = 0;
+            foreach ($rows as $idx => $row) {
                 if (!is_array($row)) {
                     continue;
                 }
@@ -593,12 +612,26 @@ function importData(array $whitelist, string $format): void {
                 $colList = implode(', ', array_map([$driver, 'quoteIdentifier'], $cols));
                 $placeholders = rtrim(str_repeat('?, ', count($cols)), ', ');
                 $sql = $insertVerb . ' ' . $driver->quoteIdentifier($table) . ' (' . $colList . ') VALUES (' . $placeholders . ')';
-                $stmt = $db->prepare($sql);
-                $stmt->execute(array_values($row));
-                $inserted++;
+                try {
+                    $stmt = $db->prepare($sql);
+                    $stmt->execute(array_values($row));
+                    $inserted++;
+                } catch (\Throwable $e) {
+                    // 合并模式下单条冲突/外键错误应跳过，避免整批失败
+                    if ($mode === 'merge') {
+                        $skipped++;
+                        if (count($rowErrors) < 20) {
+                            $rowErrors[] = $table . '#' . ($idx + 1) . ': ' . $e->getMessage();
+                        }
+                        continue;
+                    }
+                    // 覆盖模式下直接抛出，回滚事务
+                    throw $e;
+                }
             }
             $totalInserted += $inserted;
-            $results[$table] = $inserted;
+            $totalSkipped += $skipped;
+            $results[$table] = ['inserted' => $inserted, 'skipped' => $skipped];
 
             // 覆盖模式后重置自增计数器
             if ($mode === 'overwrite' && $inserted > 0) {
@@ -622,28 +655,35 @@ function importData(array $whitelist, string $format): void {
         }
         // 恢复外键
         restoreForeignKeys($db, $isSqlite);
-        echo json_encode([
+        echo safeJsonEncode([
             'success' => false,
             'error'   => t('admin_mig_import_failed', '导入失败：') . $e->getMessage(),
             'snapshot' => $snapshotName,
-        ], JSON_UNESCAPED_UNICODE);
+        ]);
         return;
     }
 
     // 恢复外键约束
     restoreForeignKeys($db, $isSqlite);
 
-    echo json_encode([
+    $message = ($mode === 'overwrite'
+        ? t('admin_mig_import_done_overwrite', '覆盖导入完成，共写入 {n} 行数据。', ['n' => $totalInserted])
+        : t('admin_mig_import_done_merge', '合并导入完成，共写入 {n} 行数据（已跳过主键冲突）。', ['n' => $totalInserted])
+    );
+    if ($mode === 'merge' && $totalSkipped > 0) {
+        $message = t('admin_mig_import_done_merge_with_skip', '合并导入完成，共写入 {n} 行，跳过 {s} 行（主键冲突或外键约束）。', ['n' => $totalInserted, 's' => $totalSkipped]);
+    }
+
+    echo safeJsonEncode([
         'success'        => true,
         'mode'           => $mode,
         'total_inserted' => $totalInserted,
+        'total_skipped'  => $totalSkipped,
         'results'        => $results,
         'snapshot'       => $snapshotName,
-        'message'        => ($mode === 'overwrite'
-            ? t('admin_mig_import_done_overwrite', '覆盖导入完成，共写入 {n} 行数据。')
-            : t('admin_mig_import_done_merge', '合并导入完成，共写入 {n} 行数据（已跳过主键冲突）。')
-        ),
-    ], JSON_UNESCAPED_UNICODE);
+        'message'        => $message,
+        'row_errors'     => $rowErrors,
+    ]);
 }
 
 /**
@@ -730,7 +770,7 @@ function importSQL(string $sqlContent): void {
         // 恢复外键
         restoreForeignKeys($db, $isSqlite);
 
-        echo json_encode([
+        echo safeJsonEncode([
             'success'         => !empty($errorMessages) ? false : true,
             'total_executed'  => $executedCount,
             'errors'          => $errorMessages,
@@ -738,14 +778,14 @@ function importSQL(string $sqlContent): void {
             'message'         => empty($errorMessages)
                 ? t('admin_mig_sql_import_done', 'SQL 导入完成，共执行 {n} 条语句。', ['n' => $executedCount])
                 : t('admin_mig_sql_import_partial', 'SQL 导入部分成功（{n} 条执行），{c} 条出错。', ['n' => $executedCount, 'c' => count($errorMessages)]),
-        ], JSON_UNESCAPED_UNICODE);
+        ]);
     } catch (\Throwable $e) {
         restoreForeignKeys($db, $isSqlite);
-        echo json_encode([
+        echo safeJsonEncode([
             'success' => false,
             'error'   => t('admin_mig_import_failed', '导入失败：') . $e->getMessage(),
             'snapshot' => $snapshotName,
-        ], JSON_UNESCAPED_UNICODE);
+        ]);
     }
 }
 
@@ -760,7 +800,7 @@ function importZipBackup(string $tmpPath, array $whitelist): void {
 
     $tmpExtract = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'mig_extract_' . uniqid() . DIRECTORY_SEPARATOR;
     if (!mkdir($tmpExtract, 0755, true) && !is_dir($tmpExtract)) {
-        echo json_encode(['success' => false, 'error' => t('admin_mig_zip_extract_failed', '无法创建解压目录')], JSON_UNESCAPED_UNICODE);
+        echo safeJsonEncode(['success' => false, 'error' => t('admin_mig_zip_extract_failed', '无法创建解压目录')]);
         return;
     }
 
@@ -768,7 +808,7 @@ function importZipBackup(string $tmpPath, array $whitelist): void {
     $res = $zip->open($tmpPath);
     if ($res !== true) {
         @rmdir($tmpExtract);
-        echo json_encode(['success' => false, 'error' => t('admin_mig_zip_open_failed', '无法打开压缩包') . ' (code: ' . $res . ')'], JSON_UNESCAPED_UNICODE);
+        echo safeJsonEncode(['success' => false, 'error' => t('admin_mig_zip_open_failed', '无法打开压缩包') . ' (code: ' . $res . ')']);
         return;
     }
 
@@ -799,7 +839,7 @@ function importZipBackup(string $tmpPath, array $whitelist): void {
 
     if ($extractedCount === 0) {
         removeDirRecursive($tmpExtract);
-        echo json_encode(['success' => false, 'error' => t('admin_mig_zip_empty', '压缩包为空或解压失败')], JSON_UNESCAPED_UNICODE);
+        echo safeJsonEncode(['success' => false, 'error' => t('admin_mig_zip_empty', '压缩包为空或解压失败')]);
         return;
     }
 
@@ -834,18 +874,18 @@ function importZipBackup(string $tmpPath, array $whitelist): void {
     }
     if ($sqlFile === null || !is_file($sqlFile)) {
         removeDirRecursive($tmpExtract);
-        echo json_encode([
+        echo safeJsonEncode([
             'success'        => false,
             'error'          => t('admin_mig_zip_no_sql', '压缩包中未找到 SQL 文件'),
             'files_restored' => $restoredFiles,
-        ], JSON_UNESCAPED_UNICODE);
+        ]);
         return;
     }
 
     $sqlContent = file_get_contents($sqlFile);
     if ($sqlContent === false || $sqlContent === '') {
         removeDirRecursive($tmpExtract);
-        echo json_encode(['success' => false, 'error' => t('admin_mig_file_read_failed', '无法读取 SQL 文件')], JSON_UNESCAPED_UNICODE);
+        echo safeJsonEncode(['success' => false, 'error' => t('admin_mig_file_read_failed', '无法读取 SQL 文件')]);
         return;
     }
 
@@ -855,12 +895,12 @@ function importZipBackup(string $tmpPath, array $whitelist): void {
     $fileDbType = detectFileDbType($sqlContent, true);
     if ($fileDbType !== null && $fileDbType !== 'unknown' && $fileDbType !== $currentType) {
         removeDirRecursive($tmpExtract);
-        echo json_encode([
+        echo safeJsonEncode([
             'success' => false,
             'error'   => t('admin_mig_cross_db_blocked',
                 '不支持跨数据库类型迁移：文件来源为 {src}，当前数据库为 {cur}。',
                 ['src' => $fileDbType, 'cur' => $currentType]),
-        ], JSON_UNESCAPED_UNICODE);
+        ]);
         return;
     }
 

@@ -49,14 +49,25 @@ try {
         } else {
             $resp = array_merge($resp, captcha_new());
         }
+        // ===== 临时诊断：在 get 响应附带 session_id，便于与 check 响应比对是否同一会话 =====
+        $resp['_diag'] = ['session_id' => session_id()];
     } elseif ($action === 'check') {
         $raw = file_get_contents('php://input');
         $in  = json_decode($raw ?: '', true);
         if (!is_array($in)) {
             $in = [];
         }
+        // ===== 临时诊断：在 check 之前记录 session 中是否已有验证码，便于排查 invalid =====
+        $capPresentBefore = isset($_SESSION['captcha']);
+        $capTokenBefore   = ($_SESSION['captcha']['token'] ?? null);
         $signals = is_array($in['signals'] ?? null) ? $in['signals'] : [];
         $resp = array_merge($resp, captcha_check($in['token'] ?? '', $signals, !empty($in['refresh'])));
+        $resp['_diag'] = [
+            'session_id'            => session_id(),
+            'captcha_present_before' => $capPresentBefore,
+            'captcha_token_before'   => $capTokenBefore,
+            'token_received'         => ($in['token'] ?? null),
+        ];
     } elseif ($action === 'slider') {
         $raw = file_get_contents('php://input');
         $in  = json_decode($raw ?: '', true);
