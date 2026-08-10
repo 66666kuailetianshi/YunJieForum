@@ -111,6 +111,14 @@ try {
             importData($MIGRATABLE_TABLES, $MIGRATION_FORMAT);
             break;
 
+        case 'cleanup_duplicate_forums':
+            if (!validate_csrf()) {
+                echo safeJsonEncode(['success' => false, 'error' => t('admin_ajax_csrf_failed', 'CSRF 校验失败')]);
+                exit;
+            }
+            cleanupDuplicateForums();
+            break;
+
         default:
             echo safeJsonEncode(['success' => false, 'error' => t('admin_mig_unknown_action', '未知操作')]);
     }
@@ -791,12 +799,14 @@ function importJsonData(array $data, string $mode, array $whitelist, string $sna
         ],
         'forum_categories' => [
             'pk' => 'id',
+            'unique' => ['name'],
             'refs' => [
                 ['table' => 'forums', 'column' => 'category_id'],
             ],
         ],
         'forums' => [
             'pk' => 'id',
+            'unique' => ['category_id', 'name'],
             'refs' => [
                 ['table' => 'posts', 'column' => 'forum_id'],
             ],
@@ -913,22 +923,9 @@ function importJsonData(array $data, string $mode, array $whitelist, string $sna
                     $oldId = $row[$pk];
                     $oldIdKey = is_numeric($oldId) ? (int)$oldId : (string)$oldId;
                     if (!in_array($oldIdKey, $existingIds, true)) {
-                        // 主键不冲突，直接插入并保留原 ID
-                        if (insertRow($db, $driver, $table, $row)) {
-                            $inserted++;
-                            $idMaps[$table][$oldId] = $oldId;
-                            $existingIds[] = $oldIdKey;
-                        } else {
-                            $skipped++;
-                            if (count($rowErrors) < 20) {
-                                $rowErrors[] = $table . '#' . ($idx + 1) . ': ' . t('admin_mig_insert_failed', '插入失败');
-                            }
-                        }
-                    } else {
-                        // 主键冲突：尝试重映射
-                        $needRemap = true;
-                        if ($table === 'pm_conversations' && isset($remapConfig[$table]['unique'])) {
-                            // 会话表优先复用已有会话 ID，避免同一对用户产生多个会话
+                        // 主键不冲突；优先按业务唯一键复用已有记录，避免同名分类/版块等重复插入
+                        $needInsert = true;
+                        if (isset($remapConfig[$table]['unique'])) {
                             $uCols = $remapConfig[$table]['unique'];
                             $uVals = [];
                             $hasAll = true;
@@ -940,9 +937,46 @@ function importJsonData(array $data, string $mode, array $whitelist, string $sna
                                 $uVals[] = $row[$c];
                             }
                             if ($hasAll) {
-                                $existingConvId = findExistingByUnique($db, $driver, $table, $pk, $uCols, $uVals);
-                                if ($existingConvId !== null) {
-                                    $idMaps[$table][$oldId] = $existingConvId;
+                                $existingUniqueId = findExistingByUnique($db, $driver, $table, $pk, $uCols, $uVals);
+                                if ($existingUniqueId !== null) {
+                                    $idMaps[$table][$oldId] = $existingUniqueId;
+                                    $remapped++;
+                                    $needInsert = false;
+                                }
+                            }
+                        }
+                        if ($needInsert) {
+                            // 直接插入并保留原 ID
+                            if (insertRow($db, $driver, $table, $row)) {
+                                $inserted++;
+                                $idMaps[$table][$oldId] = $oldId;
+                                $existingIds[] = $oldIdKey;
+                            } else {
+                                $skipped++;
+                                if (count($rowErrors) < 20) {
+                                    $rowErrors[] = $table . '#' . ($idx + 1) . ': ' . t('admin_mig_insert_failed', '插入失败');
+                                }
+                            }
+                        }
+                    } else {
+                        // 主键冲突：尝试按业务唯一键复用已有记录
+                        $needRemap = true;
+                        if (isset($remapConfig[$table]['unique'])) {
+                            // 按业务唯一键优先复用已有记录 ID（避免同一分类/版块/会话重复创建）
+                            $uCols = $remapConfig[$table]['unique'];
+                            $uVals = [];
+                            $hasAll = true;
+                            foreach ($uCols as $c) {
+                                if (!array_key_exists($c, $row)) {
+                                    $hasAll = false;
+                                    break;
+                                }
+                                $uVals[] = $row[$c];
+                            }
+                            if ($hasAll) {
+                                $existingUniqueId = findExistingByUnique($db, $driver, $table, $pk, $uCols, $uVals);
+                                if ($existingUniqueId !== null) {
+                                    $idMaps[$table][$oldId] = $existingUniqueId;
                                     $remapped++;
                                     $needRemap = false;
                                 }
@@ -1075,6 +1109,111 @@ function importJsonData(array $data, string $mode, array $whitelist, string $sna
         'message'         => $message,
         'row_errors'      => $rowErrors,
     ]);
+}
+
+/**
+ * 清理已导入的重复分类/版块（合并导入因业务唯一键缺失导致的重复）。
+ * 保留每组重复项中 id 最小的记录，将其余记录下的子数据迁移到保留记录后删除。
+ */
+function cleanupDuplicateForums(): void {
+    $db = get_db();
+    $driver = get_db_driver();
+    $isSqlite = $driver->isFileBased();
+
+    // 临时关闭外键，避免更新/删除顺序触发约束异常
+    if ($isSqlite) {
+        $db->exec('PRAGMA foreign_keys = OFF;');
+    } else {
+        $db->exec('SET FOREIGN_KEY_CHECKS = 0;');
+    }
+
+    $catMerged = 0;
+    $forumMerged = 0;
+    $inTransaction = false;
+
+    try {
+        $db->beginTransaction();
+        $inTransaction = true;
+
+        // 1) 按 name 合并重复分类：保留最小 id
+        $stmt = $db->query('SELECT id, name FROM forum_categories ORDER BY id ASC');
+        $cats = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $nameToKeepId = [];
+        foreach ($cats as $cat) {
+            $name = (string)$cat['name'];
+            $dupId = (int)$cat['id'];
+            if (!isset($nameToKeepId[$name])) {
+                $nameToKeepId[$name] = $dupId;
+                continue;
+            }
+            $keepId = $nameToKeepId[$name];
+            $upd = $db->prepare('UPDATE forums SET category_id = ? WHERE category_id = ?');
+            $upd->execute([$keepId, $dupId]);
+            $catMerged += $upd->rowCount();
+            $del = $db->prepare('DELETE FROM forum_categories WHERE id = ?');
+            $del->execute([$dupId]);
+        }
+
+        // 2) 按 (category_id, name) 合并重复版块：保留最小 id
+        $stmt = $db->query('SELECT id, category_id, name FROM forums ORDER BY id ASC');
+        $forums = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $keyToKeepId = [];
+        foreach ($forums as $forum) {
+            $key = (int)$forum['category_id'] . '|' . (string)$forum['name'];
+            $dupId = (int)$forum['id'];
+            if (!isset($keyToKeepId[$key])) {
+                $keyToKeepId[$key] = $dupId;
+                continue;
+            }
+            $keepId = $keyToKeepId[$key];
+            $upd = $db->prepare('UPDATE posts SET forum_id = ? WHERE forum_id = ?');
+            $upd->execute([$keepId, $dupId]);
+            $forumMerged += $upd->rowCount();
+            $del = $db->prepare('DELETE FROM forums WHERE id = ?');
+            $del->execute([$dupId]);
+        }
+
+        $db->commit();
+        $inTransaction = false;
+
+        // 重置自增计数器
+        try {
+            if ($isSqlite) {
+                $db->exec("DELETE FROM sqlite_sequence WHERE name IN ('forum_categories', 'forums')");
+            } else {
+                $db->exec('ALTER TABLE ' . $driver->quoteIdentifier('forum_categories') . ' AUTO_INCREMENT = 1');
+                $db->exec('ALTER TABLE ' . $driver->quoteIdentifier('forums') . ' AUTO_INCREMENT = 1');
+            }
+        } catch (\Throwable $e) {
+            // 忽略
+        }
+
+        if ($isSqlite) {
+            $db->exec('PRAGMA foreign_keys = ON;');
+        } else {
+            $db->exec('SET FOREIGN_KEY_CHECKS = 1;');
+        }
+
+        echo safeJsonEncode([
+            'success' => true,
+            'message' => t('admin_mig_cleanup_done', '已清理重复数据：合并 {c} 个重复分类、{f} 个重复版块下的关联内容。', ['c' => $catMerged, 'f' => $forumMerged]),
+            'cat_merged' => $catMerged,
+            'forum_merged' => $forumMerged,
+        ]);
+    } catch (\Throwable $e) {
+        if ($inTransaction) {
+            try { $db->rollBack(); } catch (\Throwable $e2) {}
+        }
+        if ($isSqlite) {
+            $db->exec('PRAGMA foreign_keys = ON;');
+        } else {
+            $db->exec('SET FOREIGN_KEY_CHECKS = 1;');
+        }
+        echo safeJsonEncode([
+            'success' => false,
+            'error'   => t('admin_mig_cleanup_failed', '清理失败：') . $e->getMessage(),
+        ]);
+    }
 }
 
 /**

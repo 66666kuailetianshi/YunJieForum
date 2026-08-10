@@ -933,6 +933,13 @@ Users assigned this role will lose corresponding permissions.',
     'admin_mig_sqlzip_merge_disabled' => 'SQL/ZIP format contains DROP TABLE + CREATE TABLE and only supports overwrite import; the merge option has been disabled automatically.',
     'admin_mig_sql_merge_disabled' => 'SQL format contains DROP TABLE + CREATE TABLE and only supports overwrite import; the merge option has been disabled automatically.',
     'admin_mig_zip_merge_hint' => 'ZIP files containing JSON can be merged; ZIP files containing SQL can only be overwritten — the system decides automatically.',
+    'admin_mig_cleanup_hint' => 'If merge import created duplicate categories or forums on the homepage, click the button to merge duplicates: keep the earliest-created row, move forums/posts from the rest to the kept row, then delete the duplicates.',
+    'admin_mig_cleanup_btn' => 'Clean up duplicate categories/forums',
+    'admin_mig_cleanup_confirm' => 'Are you sure you want to merge duplicate categories/forums? This keeps the earliest-created row in each duplicate group and moves forums/posts from the rest to the kept row. It is recommended to create a backup first.',
+    'admin_mig_cleaning' => 'Cleaning up…',
+    'admin_mig_cleanup_done' => 'Cleanup complete: merged {c} duplicate categories and {f} duplicate forums along with their related content.',
+    'admin_mig_cleanup_done_short' => 'Cleanup complete',
+    'admin_mig_cleanup_failed' => 'Cleanup failed',
 
     // Batch translations for missing English keys
     'admin_ann_action_delete' => 'Delete',

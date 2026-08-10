@@ -1812,6 +1812,13 @@ return [
     'admin_mig_sqlzip_merge_disabled' => 'SQL/ZIP 格式包含 DROP TABLE + CREATE TABLE，僅支援覆蓋匯入，合併選項已自動禁用。',
     'admin_mig_sql_merge_disabled' => 'SQL 格式包含 DROP TABLE + CREATE TABLE，僅支援覆蓋匯入，合併選項已自動禁用。',
     'admin_mig_zip_merge_hint' => 'ZIP 檔案若內含 JSON 遷移檔案可合併匯入；若內含 SQL 檔案則只能覆蓋匯入，系統會自動判斷。',
+    'admin_mig_cleanup_hint' => '如果合併匯入後發現首頁出現重複的分類或版塊，可點擊右側按鈕一鍵合併重複項：保留最早建立的一條，將其餘重複項下的版塊/帖子歸併到保留項後刪除。',
+    'admin_mig_cleanup_btn' => '清理重複分類/版塊',
+    'admin_mig_cleanup_confirm' => '確定要合併重複的分類/版塊嗎？此操作會保留每組重複項中最早建立的一條，並將其餘重複項下的帖子/版塊遷移到保留項。建議先建立備份。',
+    'admin_mig_cleaning' => '清理中…',
+    'admin_mig_cleanup_done' => '已清理重複數據：合併 {c} 個重複分類、{f} 個重複版塊下的關聯內容。',
+    'admin_mig_cleanup_done_short' => '清理完成',
+    'admin_mig_cleanup_failed' => '清理失敗',
 
     // 补齐 zh-CN/zh-TW 基础键（安装向导、通用操作、帖子/回复管理、风控）
     'actions' => '操作',

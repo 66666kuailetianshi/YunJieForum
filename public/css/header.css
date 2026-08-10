@@ -23,6 +23,7 @@
 .header-top {
     background: transparent;
     border-bottom: none;
+    position: relative;
 }
 
 .header-top-inner {
@@ -80,6 +81,9 @@
 
 /* ---------- 主导航（居中） ---------- */
 .main-nav {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
     display: flex;
     justify-content: center;
 }

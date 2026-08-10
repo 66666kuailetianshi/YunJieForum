@@ -116,6 +116,15 @@ if (function_exists('get_db_driver')) {
                 </div>
             </div>
         </div>
+        <div class="mig-cleanup-bar">
+            <p class="form-hint mig-cleanup-hint">
+                <?php echo e(t('admin_mig_cleanup_hint', '如果合并导入后发现首页出现重复的分类或版块，可点击右侧按钮一键合并重复项：保留最早创建的一条，将其余重复项下的版块/帖子归并到保留项后删除。')); ?>
+            </p>
+            <button type="button" class="btn btn-secondary" id="mig-cleanup-btn">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;vertical-align:-3px;"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                <?php echo e(t('admin_mig_cleanup_btn', '清理重复分类/版块')); ?>
+            </button>
+        </div>
         <div class="mig-import-footer">
             <button type="button" class="btn btn-primary" id="mig-import-btn">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 5 17 10"/><line x1="12" y1="5" x2="12" y2="15"/></svg>
@@ -198,6 +207,15 @@ if (function_exists('get_db_driver')) {
 [data-theme="dark"] .mig-format-scene { background: rgba(59,130,246,0.12); border-color: rgba(59,130,246,0.3); color: #93c5fd; }
 .mig-format-scene:empty { display: none; }
 .mig-import-footer { flex-direction: row; justify-content: flex-end; align-items: center; }
+
+.mig-cleanup-bar {
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;
+    margin: 1rem 0; padding: 0.875rem 1rem;
+    background: #fffbeb; border: 1px solid #fde68a; border-radius: var(--radius-sm);
+}
+[data-theme="dark"] .mig-cleanup-bar { background: rgba(245,158,11,0.12); border-color: rgba(245,158,11,0.3); }
+.mig-cleanup-hint { margin: 0; flex: 1; min-width: 240px; color: #92400e; }
+[data-theme="dark"] .mig-cleanup-hint { color: #fcd34d; }
 
 .mig-import-form { display: flex; flex-direction: column; gap: 1.25rem; margin-bottom: 1rem; }
 .mig-mode-options { display: flex; gap: 1rem; flex-wrap: wrap; }
@@ -560,6 +578,45 @@ if (function_exists('get_db_driver')) {
                 showToast((e && e.message ? e.message : '<?php echo e(t('admin_mig_import_network_fail', '网络错误，导入失败')); ?>'), 'error');
             })
             .finally(function () { importBtn.disabled = false; importBtn.innerHTML = orig; });
+    });
+
+    // ===== 清理重复分类/版块 =====
+    var cleanupBtn = document.getElementById('mig-cleanup-btn');
+    cleanupBtn.addEventListener('click', function () {
+        if (!confirm('<?php echo e(t('admin_mig_cleanup_confirm', '确定要合并重复的分类/版块吗？此操作会保留每组重复项中最早创建的一条，并将其余重复项下的帖子/版块迁移到保留项。建议先创建备份。')); ?>')) return;
+        var orig = cleanupBtn.innerHTML;
+        cleanupBtn.disabled = true;
+        cleanupBtn.innerHTML = '<?php echo e(t('admin_mig_cleaning', '清理中…')); ?>';
+
+        var fd = new FormData();
+        fd.append('action', 'cleanup_duplicate_forums');
+        fd.append('csrf_token', csrfToken);
+
+        fetch(apiUrl, { method: 'POST', body: fd, cache: 'no-store', credentials: 'same-origin' })
+            .then(function (r) { return r.text(); })
+            .then(function (text) {
+                if (!text || text.trim() === '') throw new Error('服务器未返回数据');
+                try { return JSON.parse(text); } catch (e) { throw new Error('返回内容解析失败：' + text.slice(0, 200)); }
+            })
+            .then(function (res) {
+                resultBox.style.display = '';
+                if (res.success) {
+                    resultBox.className = 'mig-import-result is-success';
+                    resultBox.innerHTML = '<div>' + escapeHtml(res.message || '') + '</div>';
+                    showToast('<?php echo e(t('admin_mig_cleanup_done_short', '清理完成')); ?>', 'success');
+                } else {
+                    resultBox.className = 'mig-import-result is-error';
+                    resultBox.innerHTML = '<div>' + escapeHtml(res.error || '<?php echo e(t('admin_mig_cleanup_failed', '清理失败')); ?>') + '</div>';
+                    showToast('<?php echo e(t('admin_mig_cleanup_failed', '清理失败')); ?>', 'error');
+                }
+            })
+            .catch(function (e) {
+                resultBox.className = 'mig-import-result is-error';
+                resultBox.innerHTML = '<div>' + escapeHtml(e.message || '<?php echo e(t('admin_mig_cleanup_failed', '清理失败')); ?>') + '</div>';
+                resultBox.style.display = '';
+                showToast(e.message || '<?php echo e(t('admin_mig_cleanup_failed', '清理失败')); ?>', 'error');
+            })
+            .finally(function () { cleanupBtn.disabled = false; cleanupBtn.innerHTML = orig; });
     });
 })();
 </script>
