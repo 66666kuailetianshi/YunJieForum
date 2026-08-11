@@ -2392,6 +2392,13 @@
         grid-template-columns: 1fr;
     }
 }
+.dashboard-todo {
+    border-left: 4px solid #f59e0b;
+}
+.dashboard-todo-heading {
+    color: var(--text);
+    font-weight: 600;
+}
 .dashboard-todo-item {
     display: inline-flex;
     align-items: center;
@@ -2408,6 +2415,9 @@
     transform: translateY(-1px);
     box-shadow: var(--shadow-md);
     color: white !important;
+}
+.dashboard-todo-item.todo-pulse {
+    animation: badge-pulse-anim 0.6s ease;
 }
 .dashboard-todo-count {
     background: rgba(255,255,255,0.25);

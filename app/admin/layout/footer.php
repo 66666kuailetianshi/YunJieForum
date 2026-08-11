@@ -22,7 +22,9 @@
         var BADGE_MAP = {
             'reports':        'reports',
             'ban_appeals':    'ban_appeals',
-            'password_reset_requests': 'password_reset'
+            'password_reset_requests': 'password_reset',
+            'email_disclosure': 'email_disclosure',
+            'tickets':        'tickets'
         };
         var INTERVAL = 5000; // 5 秒（pending_counts_ajax 服务端 1 秒缓存合并并发，不阻塞）
         var BASE_INTERVAL = INTERVAL;

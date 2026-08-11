@@ -70,12 +70,15 @@ foreach ($menuItems as $menuKey => $menuItem) {
 }
 
 // 菜单分组定义：key => [组名, [菜单项 key 列表]]
+// 分组逻辑：概览 → 用户管理 → 内容管理（版块/帖子/回复/公告）→ 审核与反馈（举报/申诉/重置/披露/工单/敏感词）→ 邮件中心 → 系统设置 → 运维与更新
 $menuGroups = [
-    'overview'  => [t('menu_group_overview', '图标与状态'),   ['dashboard', 'system_status', 'traffic_monitor']],
-    'users'     => [t('menu_group_users', '用户管理'),     ['users', 'user_groups', 'roles', 'medals']],
-    'content'   => [t('menu_group_content', '内容管理'),     ['posts', 'replies', 'reports', 'ban_appeals', 'email_disclosure', 'tickets', 'password_reset_requests', 'forums', 'announcements', 'sensitive_words']],
-    'mail'      => [t('menu_group_mail', '邮件中心'),     ['mail_center']],
-    'settings'  => [t('menu_group_settings', '系统设置'),     ['backup', 'data_migration', 'settings', 'captcha_debug', 'site_pages', 'update_center']],
+    'overview'  => [t('menu_group_overview', '概览'),       ['dashboard', 'system_status', 'traffic_monitor']],
+    'users'     => [t('menu_group_users', '用户管理'),       ['users', 'user_groups', 'roles', 'medals']],
+    'content'   => [t('menu_group_content', '内容管理'),     ['forums', 'posts', 'replies', 'announcements']],
+    'review'    => [t('menu_group_review', '审核与反馈'),    ['reports', 'ban_appeals', 'password_reset_requests', 'email_disclosure', 'tickets', 'sensitive_words']],
+    'mail'      => [t('menu_group_mail', '邮件中心'),        ['mail_center']],
+    'settings'  => [t('menu_group_settings', '系统设置'),    ['settings', 'site_pages', 'captcha_debug']],
+    'ops'       => [t('menu_group_ops', '运维与更新'),       ['backup', 'data_migration', 'update_center']],
 ];
 
 /**

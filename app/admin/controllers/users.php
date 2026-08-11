@@ -662,18 +662,19 @@ require_once dirname(__DIR__) . '/layout/header.php';
         return div.innerHTML;
     }
 
+    // 与服务端 format_remaining_time() 保持完全一致的格式（分钟粒度、无秒数），
+    // 避免首屏 PHP 渲染与轮询重绘/每秒递减之间格式来回跳变
     function formatRemaining(sec) {
         if (sec <= 0) return <?php echo json_encode(t('admin_users_expired','已到期')); ?>;
+        if (sec < 60) return <?php echo json_encode(t('common_2e9952','即将解禁')); ?>;
         var days = Math.floor(sec / 86400);
         var hours = Math.floor((sec % 86400) / 3600);
         var minutes = Math.floor((sec % 3600) / 60);
-        var seconds = sec % 60;
         var parts = [];
-        if (days > 0) parts.push(days + <?php echo json_encode(t('admin_users_unit_day','天')); ?>);
-        if (hours > 0) parts.push(hours + <?php echo json_encode(t('admin_users_unit_hour','时')); ?>);
-        if (minutes > 0) parts.push(minutes + <?php echo json_encode(t('admin_users_unit_minute','分')); ?>);
-        parts.push(seconds + <?php echo json_encode(t('admin_users_unit_second','秒')); ?>);
-        return <?php echo json_encode(t('admin_users_remaining_prefix','剩 ')); ?> + parts.join(' ');
+        if (days > 0) parts.push(days + <?php echo json_encode(t('common_f8bb05',' 天')); ?>);
+        if (hours > 0) parts.push(hours + <?php echo json_encode(t('common_8d383e',' 小时')); ?>);
+        if (minutes > 0 && days < 1) parts.push(minutes + <?php echo json_encode(t('common_5b0acd',' 分钟')); ?>);
+        return <?php echo json_encode(t('common_8404ac','还剩 ')); ?> + parts.join(' ');
     }
 
     // 初始化：从 DOM 读取服务端渲染的剩余秒数

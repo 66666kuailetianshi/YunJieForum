@@ -113,11 +113,17 @@ try {
     // 忽略异常
 }
 
-// 待办事项（需管理员关注）
-$todoItems = [];
-if ($stats['reports_pending'] > 0)  $todoItems[] = ['label' => t('admin_dash_todo_reports', '待处理举报'), 'count' => $stats['reports_pending'], 'url' => site_url('admin/reports'), 'color' => '#ef4444'];
-if ($stats['appeals_pending'] > 0)  $todoItems[] = ['label' => t('admin_dash_todo_appeals', '待审核申诉'), 'count' => $stats['appeals_pending'], 'url' => site_url('admin/ban_appeals'), 'color' => '#f59e0b'];
-if ($stats['resets_pending'] > 0)   $todoItems[] = ['label' => t('admin_dash_todo_resets', '待审核密码重置'), 'count' => $stats['resets_pending'], 'url' => site_url('admin/password_reset_requests'), 'color' => '#3b82f6'];
+// 待办事项（需管理员关注）：容器始终渲染，计数为 0 或无权查看的项先隐藏，
+// 由页面底部轮询 pending_counts_ajax 实时显示/更新（新增举报/申诉无需刷新页面）
+$todoItems = [
+    ['key' => 'reports',          'label' => t('admin_dash_todo_reports', '待处理举报'),       'count' => $stats['reports_pending'],  'url' => site_url('admin/reports'),                  'color' => '#ef4444'],
+    ['key' => 'ban_appeals',      'label' => t('admin_dash_todo_appeals', '待审核申诉'),       'count' => $stats['appeals_pending'],  'url' => site_url('admin/ban_appeals'),              'color' => '#f59e0b'],
+    ['key' => 'password_reset',   'label' => t('admin_dash_todo_resets', '待审核密码重置'), 'count' => $stats['resets_pending'],   'url' => site_url('admin/password_reset_requests'),  'color' => '#3b82f6'],
+];
+$todoHasPending = false;
+foreach ($todoItems as $todoItem) {
+    if ($todoItem['count'] > 0) { $todoHasPending = true; break; }
+}
 
 $pageTitle = t('admin_dash_title', '管理概览');
 $activeMenu = 'dashboard';
@@ -130,19 +136,17 @@ require_once dirname(__DIR__) . '/layout/header.php';
     <p class="page-desc"><?php echo e(t('admin_dash_subtitle', '站点关键数据一览')); ?></p>
 </div>
 
-<?php if (!empty($todoItems)): ?>
-<div class="card" style="background:linear-gradient(135deg,#fef3c7 0%,#fde68a 100%);border-color:#fbbf24;margin-bottom:1rem;">
+<div class="card dashboard-todo" id="dashboard-todo" style="margin-bottom:1rem;<?php echo $todoHasPending ? '' : 'display:none;'; ?>">
     <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
-        <strong style="color:#92400e;"><?php echo e(t('admin_dash_todo_heading', '待办事项：')); ?></strong>
+        <strong class="dashboard-todo-heading"><?php echo e(t('admin_dash_todo_heading', '待办事项：')); ?></strong>
         <?php foreach ($todoItems as $item): ?>
-        <a href="<?php echo $item['url']; ?>" class="dashboard-todo-item" style="background:<?php echo $item['color']; ?>;">
-            <span class="dashboard-todo-count"><?php echo $item['count']; ?></span>
+        <a href="<?php echo $item['url']; ?>" class="dashboard-todo-item" data-todo-key="<?php echo e($item['key']); ?>" style="background:<?php echo $item['color']; ?>;<?php echo $item['count'] > 0 ? '' : 'display:none;'; ?>">
+            <span class="dashboard-todo-count"><?php echo (int)$item['count']; ?></span>
             <span class="dashboard-todo-label"><?php echo e($item['label']); ?></span>
         </a>
         <?php endforeach; ?>
     </div>
 </div>
-<?php endif; ?>
 
 <!-- 用户统计 -->
 <h3 class="stats-section-title"><?php echo e(t('admin_dash_sec_users', '用户')); ?></h3>
@@ -186,8 +190,8 @@ require_once dirname(__DIR__) . '/layout/header.php';
     </div>
 </div>
 
-<!-- 邮件与流量统计 -->
-<h3 class="stats-section-title"><?php echo e(t('admin_dash_sec_mail_traffic', '邮件与流量')); ?></h3>
+<!-- 邮件统计 -->
+<h3 class="stats-section-title"><?php echo e(t('admin_dash_sec_mail', '邮件')); ?></h3>
 <div class="stats-grid">
     <div class="stat-card">
         <div class="stat-card-value"><?php echo $stats['mail_total']; ?></div>
@@ -209,6 +213,11 @@ require_once dirname(__DIR__) . '/layout/header.php';
         <div class="stat-card-value" style="color:#3b82f6;"><?php echo $stats['mail_today']; ?></div>
         <div class="stat-card-label"><?php echo e(t('admin_dash_stat_mail_today', '今日邮件')); ?></div>
     </div>
+</div>
+
+<!-- 流量统计 -->
+<h3 class="stats-section-title"><?php echo e(t('admin_dash_sec_traffic', '流量')); ?></h3>
+<div class="stats-grid">
     <div class="stat-card">
         <div class="stat-card-value" style="color:#8b5cf6;"><?php echo $stats['traffic_today_pv']; ?></div>
         <div class="stat-card-label"><?php echo e(t('admin_dash_stat_traffic_pv', '今日访问 PV')); ?></div>
@@ -275,5 +284,46 @@ require_once dirname(__DIR__) . '/layout/header.php';
         <?php endif; ?>
     </div>
 </div>
+
+<script>
+// 待办事项实时刷新：复用全局 pending_counts_ajax（1 秒服务端缓存，5 秒轮询），
+// 新举报/申诉/密码重置申请到达后无需手动刷新页面即可出现；无权查看的项接口不下发，恒为隐藏
+(function () {
+    var TODO_MAP = { 'reports': 'reports', 'ban_appeals': 'ban_appeals', 'password_reset': 'password_reset' };
+    var card = document.getElementById('dashboard-todo');
+    if (!card) return;
+
+    function updateTodo() {
+        fetch('<?php echo site_url('admin/api/pending_counts_ajax'); ?>&_=' + Date.now(), { credentials: 'same-origin' })
+            .then(function (r) {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.json();
+            })
+            .then(function (data) {
+                if (!data || data.error) return;
+                var anyVisible = false;
+                Object.keys(TODO_MAP).forEach(function (key) {
+                    var el = card.querySelector('[data-todo-key="' + key + '"]');
+                    if (!el) return;
+                    var count = parseInt(data[TODO_MAP[key]], 10) || 0;
+                    var countEl = el.querySelector('.dashboard-todo-count');
+                    var current = parseInt(countEl.textContent, 10) || 0;
+                    if (count !== current) {
+                        countEl.textContent = count;
+                        // 数字变化时闪烁提示
+                        el.classList.add('todo-pulse');
+                        setTimeout(function () { el.classList.remove('todo-pulse'); }, 600);
+                    }
+                    el.style.display = count > 0 ? '' : 'none';
+                    if (count > 0) anyVisible = true;
+                });
+                card.style.display = anyVisible ? '' : 'none';
+            })
+            .catch(function () {});
+    }
+
+    setInterval(updateTodo, 5000);
+})();
+</script>
 
 <?php require_once dirname(__DIR__) . '/layout/footer.php'; ?>
