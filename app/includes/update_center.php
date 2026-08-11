@@ -760,11 +760,15 @@ if (!function_exists('uc_get_current_version')) {
                 return ['success' => false, 'error' => 'share_write_failed'];
             }
         }
-        // 生成完整绝对链接：优先用 SITE_URL 配置，未配置时自动推导协议 + 域名/IP
+        // 生成完整绝对链接：优先用「当前访问域名」推导（多域名/镜像部署也能点开即用），
+        // CLI 等无请求上下文时才回退 SITE_URL 配置/自动推导
         $relUrl = function_exists('site_url')
             ? site_url('api/share_backup', ['file' => $filename, 'token' => $meta['token']])
             : ('/index.php?route=api/share_backup&file=' . urlencode($filename) . '&token=' . $meta['token']);
-        $base = function_exists('site_absolute_url') ? site_absolute_url() : '';
+        $base = function_exists('current_site_url') ? current_site_url() : '';
+        if ($base === '') {
+            $base = function_exists('site_absolute_url') ? site_absolute_url() : '';
+        }
         return ['success' => true, 'url' => $base . $relUrl, 'expires' => (int)$meta['expires']];
     }
 

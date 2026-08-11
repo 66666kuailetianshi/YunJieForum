@@ -612,6 +612,22 @@ require_once dirname(__DIR__) . '/layout/header.php';
         if (e.target === shareModal) { closeShareModal(); }
     });
 
+    // 将服务端生成的绝对链接的域名替换为浏览器地址栏的「当前访问域名」：
+    // 服务端拿到的 HTTP_HOST 是请求头域名，CDN/反代改写 Host 时可能与实际访问域名不一致；
+    // 以 window.location 为准，路径与参数保持不变。
+    function toCurrentAccessDomain(absUrl) {
+        try {
+            var u = new URL(absUrl);
+            if (u.origin !== window.location.origin) {
+                u.protocol = window.location.protocol;
+                u.host = window.location.host;
+            }
+            return u.href;
+        } catch (e) {
+            return absUrl;
+        }
+    }
+
     function bindHistoryShareBtn(btn) {
         btn.addEventListener('click', function () {
             var filename = btn.dataset.filename;
@@ -624,7 +640,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
                 .then(function (r) { return r.json(); })
                 .then(function (res) {
                     if (res.success) {
-                        shareUrlInput.value = res.url;
+                        shareUrlInput.value = toCurrentAccessDomain(res.url);
                         shareExpiresEl.textContent = '<?php echo e(t('update_history_share_expires_prefix', '链接有效期至：')); ?>' + new Date(res.expires * 1000).toLocaleString();
                         shareModal.style.display = 'flex';
                     } else {

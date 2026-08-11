@@ -929,23 +929,24 @@ function site_base_path(): string {
 }
 
 /**
- * 获取站点完整 URL（含协议和主机，用于邮件、RSS 等外部场景）。
+ * 根据「当前请求」推导站点根 URL（协议 + 访问域名/IP + 根路径）。
  *
- * 优先使用 SITE_URL 常量；若为空则根据当前请求自动推导：
- *   - 协议：从 HTTPS 判断 http/https
- *   - 主机：HTTP_HOST
- *   - 路径：从 SCRIPT_NAME 去除可能的 /admin 后缀，得到站点根目录
+ * 不读取 SITE_URL 配置——用于分享链接等需要跟随浏览器实际访问域名的场景：
+ * 多域名/镜像部署时，用户从哪个域名进来，生成的链接就用哪个域名，保证点开即用。
+ * 协议识别兼容反向代理（X-Forwarded-Proto / X-Forwarded-Scheme / Front-End-Https）。
  *
- * 返回值末尾不含斜杠，例如 http://example.com 或 https://example.com/forum
+ * 返回值末尾不含斜杠；CLI 等非 HTTP 环境（无 HTTP_HOST）返回空字符串。
  */
-function site_absolute_url(): string {
-    if (defined('SITE_URL') && SITE_URL !== '') {
-        return rtrim(SITE_URL, '/');
+function current_site_url(): string {
+    $host = $_SERVER['HTTP_HOST'] ?? '';
+    if ($host === '') {
+        return '';
     }
     $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-        || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https');
+        || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower($_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https')
+        || (isset($_SERVER['HTTP_X_FORWARDED_SCHEME']) && strtolower($_SERVER['HTTP_X_FORWARDED_SCHEME']) === 'https')
+        || (!empty($_SERVER['HTTP_FRONT_END_HTTPS']) && strcasecmp($_SERVER['HTTP_FRONT_END_HTTPS'], 'off') !== 0);
     $scheme = $isHttps ? 'https' : 'http';
-    $host   = $_SERVER['HTTP_HOST'] ?? 'localhost';
     // 从脚本路径中剥离管理后台子目录，得到站点根路径
     $scriptDir = dirname($_SERVER['SCRIPT_NAME'] ?? '');
     if ($scriptDir === '/' || $scriptDir === '\\') {
@@ -956,6 +957,23 @@ function site_absolute_url(): string {
         $scriptDir = preg_replace('#/(admin|api)$#i', '', $scriptDir);
     }
     return rtrim($scheme . '://' . $host . $scriptDir, '/');
+}
+
+/**
+ * 获取站点完整 URL（含协议和主机，用于邮件、RSS 等外部场景）。
+ *
+ * 优先使用 SITE_URL 常量（对外发布的规范域名）；若为空则根据当前请求自动推导。
+ * 注意：若站点配置了 SITE_URL 但希望通过「当前访问域名」生成链接（如分享），
+ * 应改用 current_site_url()。
+ *
+ * 返回值末尾不含斜杠，例如 http://example.com 或 https://example.com/forum
+ */
+function site_absolute_url(): string {
+    if (defined('SITE_URL') && SITE_URL !== '') {
+        return rtrim(SITE_URL, '/');
+    }
+    $url = current_site_url();
+    return $url !== '' ? $url : 'http://localhost';
 }
 
 /**

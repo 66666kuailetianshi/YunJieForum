@@ -40,7 +40,7 @@
 | Module | Description |
 | --- | --- |
 | User System | Registration, login, remember me, profile, change password, email verification code (requires SMTP), password recovery, forced password change, ban appeal |
-| Content System | Multi-level forums (category → forum), topics, replies (reply-within-reply / quote), sticky, featured, locked, favorites, search |
+| Content System | Multi-level forums (category → forum), topics, replies (reply-within-reply / quote), sticky, featured, locked, favorites, search, sharing (links automatically follow the current access domain) |
 | Points / Levels | Earn points and coins for posting/reply/receiving replies/being favorited, with daily reward caps to prevent farming; **user groups** and titles are automatically assigned by points; **medal** system |
 | Check-in | Daily check-in earns points + coins, consecutive check-ins increase rewards, 7/30-day milestones give extra rewards |
 | Social Interaction | In-site private messages (PM, real-time reminders via frontend polling), system notifications, @ mentions |
@@ -377,7 +377,7 @@ Core tables (SQLite dialect; PostgreSQL/MySQL are translated by the installer). 
 ## 9. Frontend Features
 
 - **Browsing**: home aggregation (stats, announcements, forums, hot/latest), forum topic lists, topic detail (with quoted replies, pagination), search.
-- **Posting**: new posts, replies (supports BBCode, emoji, quotes, image uploads), profile editing, favorites.
+- **Posting**: new posts, replies (supports BBCode, emoji, quotes, image uploads), profile editing, favorites, post sharing (one-click copy of the full link on the current access domain).
 - **Account**: registration (optional email verification), login (remember me), forgot/reset password, forced password change, ban appeal.
 - **Interaction**: private messages (real-time unread via polling), system notifications, daily check-in, points/coins and level display, medal wall.
 - **Feedback**: feedback tickets (submit issues, track progress, follow-up replies); new tickets notify admins automatically.
@@ -483,7 +483,7 @@ Both a manual "Update now" click and an automatic trigger go through the same at
 Below the update settings, a "Update Backup History" card centrally manages the `update_pre_*.zip` code backups created automatically before each update (server-side pagination, 10 per page):
 
 - **Download**: one-time download token derived via HMAC (based on the CSRF token, constant-time comparison); strict filename whitelist prevents path traversal.
-- **Share**: generates a public link that downloads without login (48-char random token, 7-day expiry by default; the share record is cleaned up automatically when the backup is deleted).
+- **Share**: generates a public link that downloads without login (48-char random token, 7-day expiry by default; the share record is cleaned up automatically when the backup is deleted); the link domain always follows the domain currently visited in the browser (auto-derived, unaffected by the `SITE_URL` setting — works out of the box on multi-domain / reverse-proxy deployments).
 - **Delete**: POST + CSRF validation; the corresponding share record is removed as well.
 
 ---

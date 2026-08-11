@@ -402,9 +402,11 @@ include APP_ROOT . 'app/includes/header.php';
         <?php echo e(strip_bbcode($post['title'])); ?>
     </h1>
     <div class="page-header-actions action-bar">
-        <!-- 分享帖子：复制完整链接（含域名/IP），未登录也可使用 -->
+        <!-- 分享帖子：复制完整链接（含域名/IP），未登录也可使用；
+             域名按当前访问域名推导，多域名/镜像部署也能点开即用 -->
+        <?php $postShareBase = current_site_url(); if ($postShareBase === '') { $postShareBase = site_absolute_url(); } ?>
         <button type="button" class="btn btn-sm btn-secondary" id="post-share-btn"
-                data-url="<?php echo e(site_absolute_url() . site_url('post', ['id' => $postId])); ?>"
+                data-url="<?php echo e($postShareBase . site_url('post', ['id' => $postId])); ?>"
                 title="<?php echo e(t('post_share_title', '复制帖子链接，分享给他人')); ?>">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:2px;"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
             <?php echo e(t('post_share', '分享')); ?>
@@ -820,8 +822,25 @@ function showPostShareToast(text, ok) {
     }, 2200);
 }
 
+// 将服务端生成的绝对链接的域名替换为浏览器地址栏的「当前访问域名」：
+// 服务端拿到的 HTTP_HOST 是请求头域名，CDN/反代改写 Host 时可能与用户实际访问的域名不一致；
+// 以 window.location 为准，路径与参数保持不变。
+function toCurrentAccessDomain(absUrl) {
+    try {
+        var u = new URL(absUrl);
+        if (u.origin !== window.location.origin) {
+            u.protocol = window.location.protocol;
+            u.host = window.location.host;
+        }
+        return u.href;
+    } catch (e) {
+        return absUrl;
+    }
+}
+
 function handlePostShare(btn) {
     var url = btn.getAttribute('data-url') || window.location.href;
+    url = toCurrentAccessDomain(url);
     var done = function (ok) {
         if (ok) {
             showPostShareToast(POST_I18N.shareCopied, true);
