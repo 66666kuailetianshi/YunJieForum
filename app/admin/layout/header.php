@@ -149,14 +149,14 @@ function admin_menu_icon(string $key): string {
             }
         })();
     </script>
-    <link rel="stylesheet" href="/public/css/style.css?v=<?php echo e(APP_VERSION); ?>-ui3">
-    <link rel="stylesheet" href="/public/css/tokens.css?v=<?php echo e(APP_VERSION); ?>-ui3">
-    <link rel="stylesheet" href="/public/css/base.css?v=<?php echo e(APP_VERSION); ?>-ui3">
-    <link rel="stylesheet" href="/public/css/utilities.css?v=<?php echo e(APP_VERSION); ?>-ui3">
-    <link rel="stylesheet" href="/public/css/components.css?v=<?php echo e(APP_VERSION); ?>-ui3">
-    <link rel="stylesheet" href="/public/css/admin.css?v=<?php echo e(APP_VERSION); ?>-ui3">
-    <link rel="stylesheet" href="/public/css/dark.css?v=<?php echo e(APP_VERSION); ?>-ui3">
-    <link rel="stylesheet" href="/public/css/header.css?v=<?php echo e(APP_VERSION); ?>-ui3">
+    <link rel="stylesheet" href="/public/css/style.css?v=<?php echo e(APP_VERSION); ?>-ui4">
+    <link rel="stylesheet" href="/public/css/tokens.css?v=<?php echo e(APP_VERSION); ?>-ui4">
+    <link rel="stylesheet" href="/public/css/base.css?v=<?php echo e(APP_VERSION); ?>-ui4">
+    <link rel="stylesheet" href="/public/css/utilities.css?v=<?php echo e(APP_VERSION); ?>-ui4">
+    <link rel="stylesheet" href="/public/css/components.css?v=<?php echo e(APP_VERSION); ?>-ui4">
+    <link rel="stylesheet" href="/public/css/admin.css?v=<?php echo e(APP_VERSION); ?>-ui4">
+    <link rel="stylesheet" href="/public/css/dark.css?v=<?php echo e(APP_VERSION); ?>-ui4">
+    <link rel="stylesheet" href="/public/css/header.css?v=<?php echo e(APP_VERSION); ?>-ui4">
     <link rel="icon" type="image/x-icon" href="/favicon.ico">
 </head>
 <body>

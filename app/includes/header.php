@@ -98,17 +98,17 @@ if (is_logged_in() && $currentUser) {
             }
         })();
     </script>
-    <link rel="stylesheet" href="/public/css/style.css?v=<?php echo e(APP_VERSION); ?>-ui4">
-    <link rel="stylesheet" href="/index.php?route=captcha/assets&file=captcha.css&v=<?php echo e(APP_VERSION); ?>-ui4">
-    <link rel="stylesheet" href="/public/css/tokens.css?v=<?php echo e(APP_VERSION); ?>-ui4">
-    <link rel="stylesheet" href="/public/css/base.css?v=<?php echo e(APP_VERSION); ?>-ui4">
-    <link rel="stylesheet" href="/public/css/utilities.css?v=<?php echo e(APP_VERSION); ?>-ui4">
-    <link rel="stylesheet" href="/public/css/components.css?v=<?php echo e(APP_VERSION); ?>-ui4">
-    <link rel="stylesheet" href="/public/css/dark.css?v=<?php echo e(APP_VERSION); ?>-ui4">
-    <link rel="stylesheet" href="/public/css/header.css?v=<?php echo e(APP_VERSION); ?>-ui4">
+    <link rel="stylesheet" href="/public/css/style.css?v=<?php echo e(APP_VERSION); ?>-ui5">
+    <link rel="stylesheet" href="/index.php?route=captcha/assets&file=captcha.css&v=<?php echo e(APP_VERSION); ?>-ui5">
+    <link rel="stylesheet" href="/public/css/tokens.css?v=<?php echo e(APP_VERSION); ?>-ui5">
+    <link rel="stylesheet" href="/public/css/base.css?v=<?php echo e(APP_VERSION); ?>-ui5">
+    <link rel="stylesheet" href="/public/css/utilities.css?v=<?php echo e(APP_VERSION); ?>-ui5">
+    <link rel="stylesheet" href="/public/css/components.css?v=<?php echo e(APP_VERSION); ?>-ui5">
+    <link rel="stylesheet" href="/public/css/dark.css?v=<?php echo e(APP_VERSION); ?>-ui5">
+    <link rel="stylesheet" href="/public/css/header.css?v=<?php echo e(APP_VERSION); ?>-ui5">
     <?php if (!empty($extraStyles) && is_array($extraStyles)): ?>
         <?php foreach ($extraStyles as $style): ?>
-            <link rel="stylesheet" href="<?php echo e($style); ?>?v=<?php echo e(APP_VERSION); ?>-ui4">
+            <link rel="stylesheet" href="<?php echo e($style); ?>?v=<?php echo e(APP_VERSION); ?>-ui5">
         <?php endforeach; ?>
     <?php endif; ?>
     <link rel="icon" type="image/x-icon" href="/favicon.ico">

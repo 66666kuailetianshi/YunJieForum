@@ -65,6 +65,7 @@ $MIGRATABLE_TABLES = [
     'mail_logs', 'mail_bounce_config', 'mail_bounce_logs',
     'sensitive_words', 'sensitive_word_whitelist', 'sensitive_word_logs', 'sensitive_word_status_logs',
     'traffic_stats', 'traffic_visitors',
+    'tickets', 'ticket_replies', 'email_disclosure_requests',
 ];
 
 $MIGRATION_FORMAT = 'yunjie-data-migration';
@@ -792,7 +793,8 @@ function importJsonData(array $data, string $mode, array $whitelist, string $sna
     }
 
     // 迁移拓扑顺序：被依赖的表优先导入，避免外键指向尚未导入的记录。
-    // 注意：users.group_id 依赖 user_groups，因此 user_groups 必须在 users 之前。
+    // 注意：users.group_id 依赖 user_groups，因此 user_groups 必须在 users 之前；
+    // pm_conversations.user1_id/user2_id 依赖 users 的重映射结果，必须在 users 之后。
     $migrationOrder = [
         'user_groups', 'roles', 'medals', 'forum_categories',
         'users',
@@ -808,13 +810,17 @@ function importJsonData(array $data, string $mode, array $whitelist, string $sna
         'mail_logs', 'mail_bounce_config', 'mail_bounce_logs',
         'sensitive_words', 'sensitive_word_whitelist', 'sensitive_word_logs', 'sensitive_word_status_logs',
         'traffic_stats', 'traffic_visitors',
+        'tickets', 'ticket_replies', 'email_disclosure_requests',
     ];
 
     // 合并模式下可重映射的核心表：主键冲突时自动分配新 ID，并同步更新下游外键引用。
     // 这能避免「主键冲突被跳过、但关联表仍指向旧 ID」导致的数据混乱。
     $remapConfig = [
+        // users 按 username 业务唯一键复用：目标库已有同名用户时直接映射到已有记录，
+        // 避免 INSERT 撞上 username/email/uid 的 UNIQUE 约束导致整批用户被跳过（迁移丢用户）。
         'users' => [
             'pk' => 'id',
+            'unique' => ['username'],
             'refs' => [
                 ['table' => 'posts', 'column' => 'user_id'],
                 ['table' => 'replies', 'column' => 'user_id'],
@@ -834,6 +840,11 @@ function importJsonData(array $data, string $mode, array $whitelist, string $sna
                 ['table' => 'user_roles', 'column' => 'user_id'],
                 ['table' => 'user_medals', 'column' => 'user_id'],
                 ['table' => 'user_medals', 'column' => 'awarded_by'],
+                ['table' => 'tickets', 'column' => 'reporter_id'],
+                ['table' => 'ticket_replies', 'column' => 'user_id'],
+                ['table' => 'email_disclosure_requests', 'column' => 'applicant_id'],
+                ['table' => 'email_disclosure_requests', 'column' => 'target_user_id'],
+                ['table' => 'email_disclosure_requests', 'column' => 'handled_by'],
             ],
         ],
         // user_groups 通过 points 范围与用户关联，没有外键列直接引用，
@@ -891,6 +902,58 @@ function importJsonData(array $data, string $mode, array $whitelist, string $sna
                 ['table' => 'pm_messages', 'column' => 'conversation_id'],
             ],
         ],
+        // 以下表此前未配置重映射，合并导入时主键冲突会被 INSERT IGNORE 静默跳过
+        // （两站自增 id 范围重叠时表现为“站内信/通知/收藏没迁过来”），
+        // 补上后冲突行自动分配新 id；外键列的映射由上游表（users/posts/pm_conversations）
+        // 的 refs 配置驱动，此处无需重复声明（refs 仅用于自引用列）。
+        'pm_messages' => [
+            'pk' => 'id',
+            'refs' => [],
+        ],
+        'notifications' => [
+            'pk' => 'id',
+            'refs' => [],
+        ],
+        'favorites' => [
+            'pk' => 'id',
+            'unique' => ['user_id', 'post_id'],
+            'refs' => [],
+        ],
+        'checkins' => [
+            'pk' => 'id',
+            'unique' => ['user_id', 'checkin_date'],
+            'refs' => [],
+        ],
+        'user_points_log' => [
+            'pk' => 'id',
+            'refs' => [],
+        ],
+        'reports' => [
+            'pk' => 'id',
+            'refs' => [],
+        ],
+        'ban_appeals' => [
+            'pk' => 'id',
+            'refs' => [],
+        ],
+        'password_reset_requests' => [
+            'pk' => 'id',
+            'refs' => [],
+        ],
+        'tickets' => [
+            'pk' => 'id',
+            'refs' => [
+                ['table' => 'ticket_replies', 'column' => 'ticket_id'],
+            ],
+        ],
+        'ticket_replies' => [
+            'pk' => 'id',
+            'refs' => [],
+        ],
+        'email_disclosure_requests' => [
+            'pk' => 'id',
+            'refs' => [],
+        ],
     ];
 
     // 按拓扑顺序排列；未在顺序中的表放在最后
@@ -912,7 +975,30 @@ function importJsonData(array $data, string $mode, array $whitelist, string $sna
     $rowErrors = [];
     $idMaps = [];          // ['表名' => [旧ID => 新ID], ...]
     $existingIdCache = [];
+    $colFilterCache = [];  // 目标表实际列缓存（跨版本 schema 差异过滤用）
     $inTransaction = false;
+
+    // 覆盖模式保护：导入数据可能不包含当前登录管理员（整站搬迁场景），
+    // 覆盖导入清空 users 后若不补回，管理员会话立即失效且无法再登录后台。
+    $currentAdminBackup = null;
+    if ($mode === 'overwrite' && isset($_SESSION['user_id']) && (int)$_SESSION['user_id'] > 0) {
+        try {
+            $stmt = $db->prepare('SELECT * FROM users WHERE id = ? LIMIT 1');
+            $stmt->execute([(int)$_SESSION['user_id']]);
+            $adminRow = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (is_array($adminRow) && !empty($adminRow['id'])) {
+                $currentAdminBackup = $adminRow;
+            }
+        } catch (\Throwable $e) {
+            // 备份失败不阻断导入
+        }
+    }
+    $restoreAdminUser = function () use ($db, $driver, $currentAdminBackup): void {
+        if ($currentAdminBackup === null) {
+            return;
+        }
+        restoreAdminUser($db, $driver, $currentAdminBackup);
+    };
 
     try {
         $db->beginTransaction();
@@ -923,6 +1009,11 @@ function importJsonData(array $data, string $mode, array $whitelist, string $sna
                 continue;
             }
             if (!is_array($rows) || empty($rows)) {
+                // 覆盖模式下 users 表为空仍需补回当前管理员，否则清空后管理员被锁在站外
+                if ($mode === 'overwrite' && $table === 'users') {
+                    $db->exec('DELETE FROM ' . $driver->quoteIdentifier($table));
+                    $restoreAdminUser();
+                }
                 $results[$table] = ['inserted' => 0, 'skipped' => 0, 'remapped' => 0];
                 continue;
             }
@@ -973,6 +1064,9 @@ function importJsonData(array $data, string $mode, array $whitelist, string $sna
                     if ($table === 'users') {
                         $row = normalizeUserImportRow($row);
                     }
+                    // 跨版本 schema 差异保护：剔除目标表不存在的列，缺失列用建表默认值补齐，
+                    // 避免一行列不匹配就让整次导入回滚（表现为“什么都没迁过来”）
+                    $row = filterRowToTableColumns($db, $driver, $table, $row, $colFilterCache);
                     heartbeat(30);
                     if (!array_key_exists($pk, $row)) {
                         $skipped++;
@@ -1016,6 +1110,7 @@ function importJsonData(array $data, string $mode, array $whitelist, string $sna
                                 }
                             }
                         }
+
                     } else {
                         // 主键冲突：尝试按业务唯一键复用已有记录
                         $needRemap = true;
@@ -1068,6 +1163,8 @@ function importJsonData(array $data, string $mode, array $whitelist, string $sna
                     if ($table === 'users') {
                         $row = normalizeUserImportRow($row);
                     }
+                    // 跨版本 schema 差异保护（同合并分支）
+                    $row = filterRowToTableColumns($db, $driver, $table, $row, $colFilterCache);
                     heartbeat(30);
                     $cols = array_keys($row);
                     if (empty($cols)) {
@@ -1081,16 +1178,13 @@ function importJsonData(array $data, string $mode, array $whitelist, string $sna
                         $stmt->execute(array_values($row));
                         $inserted++;
                     } catch (\Throwable $e) {
-                        // 合并模式下单条冲突/外键错误应跳过，避免整批失败
-                        if ($mode === 'merge') {
-                            $skipped++;
-                            if (count($rowErrors) < 20) {
-                                $rowErrors[] = $table . '#' . ($idx + 1) . ': ' . $e->getMessage();
-                            }
-                            continue;
+                        // 单行失败（唯一键冲突/外键/列异常）跳过并记录，避免一行坏数据
+                        // 让整次导入回滚（表现为“什么都没迁过来”）；导入前已有快照可回滚
+                        $skipped++;
+                        if (count($rowErrors) < 20) {
+                            $rowErrors[] = $table . '#' . ($idx + 1) . ': ' . $e->getMessage();
                         }
-                        // 覆盖模式下直接抛出，回滚事务
-                        throw $e;
+                        continue;
                     }
                 }
             }
@@ -1098,6 +1192,12 @@ function importJsonData(array $data, string $mode, array $whitelist, string $sna
             $totalInserted += $inserted;
             $totalSkipped += $skipped;
             $results[$table] = ['inserted' => $inserted, 'skipped' => $skipped, 'remapped' => $remapped];
+
+            // 覆盖模式：users 导入完成后再补回当前登录管理员（必须在插入之后，
+            // 否则导入数据含相同 id 时会主键冲突）。导入数据已包含该账号时自动跳过。
+            if ($mode === 'overwrite' && $table === 'users') {
+                $restoreAdminUser();
+            }
 
             // 对本表自引用列应用本表 ID 映射（例如 replies.reply_to）
             if ($mode === 'merge' && isset($remapConfig[$table]) && isset($idMaps[$table])) {
@@ -1452,6 +1552,69 @@ function normalizeUserImportRow(array $row): array {
         $row['uid'] = (int)(is_numeric($row['id'] ?? null) ? $row['id'] : (int)substr(md5(serialize($row)), 0, 8));
     }
     return $row;
+}
+
+/**
+ * 覆盖导入 users 后，若当前登录管理员账号不在导入数据中，则按原样补回，
+ * 防止管理员被清空后锁在站外（会话中的 user_id 对应的记录必须存在）。
+ * 导入数据已包含该账号（按 id / username / email 任一匹配）时自动跳过。
+ */
+function restoreAdminUser(PDO $db, $driver, array $adminRow): void {
+    try {
+        $adminId = (int)($adminRow['id'] ?? 0);
+        if ($adminId <= 0) {
+            return;
+        }
+        $stmt = $db->prepare('SELECT id FROM users WHERE id = ? LIMIT 1');
+        $stmt->execute([$adminId]);
+        if ($stmt->fetchColumn() !== false) {
+            return;
+        }
+        $conds = [];
+        $params = [];
+        foreach (['username', 'email'] as $col) {
+            if (!empty($adminRow[$col])) {
+                $conds[] = $driver->quoteIdentifier($col) . ' = ?';
+                $params[] = $adminRow[$col];
+            }
+        }
+        if (!empty($conds)) {
+            $stmt = $db->prepare('SELECT id FROM users WHERE ' . implode(' OR ', $conds) . ' LIMIT 1');
+            $stmt->execute($params);
+            if ($stmt->fetchColumn() !== false) {
+                return;
+            }
+        }
+        // 目标表中确无此账号：按原 id 原样插回（保留密码哈希与 role）
+        insertRow($db, $driver, 'users', $adminRow);
+    } catch (\Throwable $e) {
+        // 补回失败不阻断导入（事务内由外层统一回滚）
+    }
+}
+
+/**
+ * 按目标表实际列过滤待导入行：
+ * - 剔除目标表不存在的列（源站版本更新、多出字段时不再报“no such column”）；
+ * - 目标表多出的列不写入，由建表默认值补齐（源站版本较旧时不再报“缺列”）。
+ * 无法获取列信息时原样返回，交由插入层报错。
+ */
+function filterRowToTableColumns(PDO $db, $driver, string $table, array $row, array &$cache): array {
+    if (!isset($cache[$table])) {
+        $cols = null;
+        try {
+            $cols = [];
+            foreach ($driver->getTableInfo($table) as $c) {
+                if (isset($c['name']) && $c['name'] !== '') {
+                    $cols[(string)$c['name']] = true;
+                }
+            }
+        } catch (\Throwable $e) {
+            $cols = null;
+        }
+        $cache[$table] = $cols;
+    }
+    $cols = $cache[$table];
+    return $cols === null ? $row : array_intersect_key($row, $cols);
 }
 
 /**

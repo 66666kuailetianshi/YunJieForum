@@ -6,6 +6,9 @@
  */
 
 require_once APP_ROOT . 'app/includes/functions.php';
+// 待处理计数函数（工单/邮箱披露等）定义在 admin-helpers.php；
+// 本接口不经 admin-init.php，必须自行引入，否则致命错误导致 500。
+require_once APP_ROOT . 'app/admin/layout/admin-helpers.php';
 
 if (!is_logged_in() || !is_admin()) {
     http_response_code(403);

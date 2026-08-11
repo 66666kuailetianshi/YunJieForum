@@ -1,12 +1,12 @@
 # 雲界論壇 (Cloud Forum)
 
-> **當前狀態：正式版**（`v1.5.1`）｜ 輕量級社區論壇系統 · PHP + SQLite · 開箱即用
+> **當前狀態：正式版**（`v1.5.2`）｜ 輕量級社區論壇系統 · PHP + SQLite · 開箱即用
 
 **[简体中文](README.md) · [English](README.en.md)**
 
 `雲界論壇` 是一套純 PHP 編寫的輕量級社區論壇（BBS）系統，默認使用 SQLite 文件資料庫，無需獨立部署資料庫伺服器即可運行，適合個人博客社區、興趣小組、內網知識庫等場景。系統內置用戶體系、版塊/帖子/回復、私信、通知、籤到積分、勳章角色、內容審核（敏感詞）、郵件與流量統計等完整功能，並提供可視化的安裝嚮導與後臺管理。
 
-- **當前版本：** `1.5.1`
+- **當前版本：** `1.5.2`
 - **開發語言：** PHP 7.4+
 - **默認資料庫：** SQLite（同時支持 MySQL / PostgreSQL）
 - **前端：** 原生 HTML + CSS + 少量原生 JS，無前端構建步驟
@@ -575,6 +575,7 @@ location ~* \.(db|sqlite|sqlite3|sql|zip|gz|log|cache|lock)$ {
   - **通用 JSON**：跨 SQLite / MySQL 環境遷移，支援「合併」與「覆蓋」兩種匯入模式，不帶頭像等上傳檔案。
   - **通用 JSON（ZIP 含頭像）**：跨環境遷移且需要保留頭像、上傳檔案；ZIP 內為 JSON + `uploads/`，支援合併/覆蓋匯入。
   - **SQLite / MySQL 資料庫（ZIP 含頭像）**：同類型資料庫整庫搬遷；ZIP 內為 SQL + `uploads/`，執行 `DROP TABLE + CREATE TABLE`，僅支援覆蓋匯入。
+- **合併匯入機制**：主鍵衝突自動分配新 ID 並同步重映射下游外鍵（用戶/帖子/站內信等關聯不斷鏈）；按業務唯一鍵（用戶名、分類名、版塊名、會話對等）復用已有記錄，避免產生重複數據；跨版本 schema 差異按列級保護（多餘列剔除、缺失列走預設值），單行壞數據不再導致整體回滾；覆蓋模式清空 `users` 後自動補回當前登入管理員，防止被鎖在後臺。
 - **全表快照開關**：遷移匯入前預設只備份本次涉及的業務表，以縮短 `mysqldump` 時間、避免代理超時。如需完整資料庫快照，可在 `data/site_config.php` 中定義 `define('MIGRATION_SNAPSHOT_FULL_DB', true);`。
 - **遷移與升級**：新版本解壓覆蓋代碼後，運行期 `auto_migrate()` 會自動補全表/索引，無需手工改庫。
 - **日誌**：錯誤記錄在 `data/error.log`；安裝期 DDL 執行明細可通過 `get_ddl_install_log()` 查看（安裝失敗時嚮導會展示）。
@@ -617,7 +618,7 @@ location ~* \.(db|sqlite|sqlite3|sql|zip|gz|log|cache|lock)$ {
 
 ---
 
-> 文檔基於項目源碼（`index.php`、`install.php`、`app/includes/*`、`public/*`）整理，版本 `1.5.1`。
+> 文檔基於項目源碼（`index.php`、`install.php`、`app/includes/*`、`public/*`）整理，版本 `1.5.2`。
 > 如與代碼實現不符，請以代碼與安裝嚮導提示為準。
 
 ---

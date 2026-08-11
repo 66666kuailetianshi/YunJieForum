@@ -736,7 +736,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
         // 操作按钮
         var actions = '<div class="action-btns">';
         if (IS_SUPER) {
-            actions += '<a href="<?php echo site_url('admin/user_edit'); ?>?user_id=' + u.id + <?php echo json_encode(t('admin_users_js_edit_link','" class="btn btn-sm btn-primary" title="编辑">编辑</a> ')); ?>;
+            actions += '<a href="<?php echo site_url('admin/user_edit'); ?>&user_id=' + u.id + <?php echo json_encode(t('admin_users_js_edit_link','" class="btn btn-sm btn-primary" title="编辑">编辑</a> ')); ?>;
         }
         actions += '<div class="dropdown action-dropdown">';
         actions += '<?php echo json_encode(t('admin_users_js_more_btn','<button type="button" class="btn btn-sm btn-secondary dropdown-toggle" data-toggle-dropdown>更多</button>')); ?>';

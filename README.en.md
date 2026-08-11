@@ -1,12 +1,12 @@
 # 云界论坛 (Cloud Forum)
 
-> **Current Status: Stable** (v1.5.1) | Lightweight community forum · PHP + SQLite · Out-of-the-box
+> **Current Status: Stable** (v1.5.2) | Lightweight community forum · PHP + SQLite · Out-of-the-box
 
 **[简体中文](README.md) · [繁體中文](README.zh-TW.md)**
 
 `Cloud Forum` is a lightweight community forum (BBS) system written entirely in PHP. It uses a SQLite file database by default, so it can run without a standalone database server — suitable for personal blog communities, interest groups, intranet knowledge bases, and similar scenarios. The system includes a built-in user system, forums/posts/replies, private messages, notifications, daily check-ins with points, medals and roles, content moderation (sensitive words), email and traffic statistics, and provides a visual installation wizard and admin panel.
 
-- **Current Version:** `1.5.1`
+- **Current Version:** `1.5.2`
 - **Language:** PHP 7.4+
 - **Default Database:** SQLite (also supports MySQL / PostgreSQL)
 - **Frontend:** Native HTML + CSS + a small amount of native JS, no frontend build step
@@ -574,6 +574,7 @@ Below the update settings, a "Update Backup History" card centrally manages the 
   - **Universal JSON**: cross-environment migration between SQLite and MySQL; supports both "merge" and "overwrite" import modes; does not include avatars/uploads.
   - **Universal JSON (ZIP with Avatars)**: cross-environment migration while keeping avatars and uploads; ZIP contains JSON + `uploads/`; supports merge/overwrite import.
   - **SQLite / MySQL Database (ZIP+Avatars)**: whole-database relocation on the same database type; ZIP contains SQL + `uploads/` and runs `DROP TABLE + CREATE TABLE`; overwrite import only.
+- **Merge import mechanism**: primary-key conflicts automatically get a new ID with downstream foreign keys remapped in sync (users/posts/PM relations stay intact); business unique keys (username, category name, forum name, conversation pair, etc.) reuse existing records instead of creating duplicates; cross-version schema differences are protected at column level (extra columns stripped, missing columns fall back to defaults), so a single bad row no longer rolls back the whole import; overwrite mode re-inserts the currently logged-in admin after truncating `users`, preventing lockout from the admin panel.
 - **Full-database snapshot switch**: by default, the pre-import snapshot only covers the business tables being migrated, reducing `mysqldump` time and avoiding proxy timeouts. To snapshot the entire database instead, define `define('MIGRATION_SNAPSHOT_FULL_DB', true);` in `data/site_config.php`.
 - **Migration & upgrade**: after overwriting the code with a new version, runtime `auto_migrate()` automatically creates missing tables/indexes — no manual database changes needed.
 - **Logs**: errors are recorded in `data/error.log`; installation-time DDL execution details can be inspected via `get_ddl_install_log()` (shown by the wizard on installation failure).
@@ -616,7 +617,7 @@ In "Site Settings → CAPTCHA Settings", find the "Display Mode" dropdown and se
 
 ---
 
-> Documentation compiled from the project source (`index.php`, `install.php`, `app/includes/*`, `public/*`), version `1.5.1`.
+> Documentation compiled from the project source (`index.php`, `install.php`, `app/includes/*`, `public/*`), version `1.5.2`.
 > If it differs from the actual implementation, please follow the code and the installation wizard prompts.
 
 

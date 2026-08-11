@@ -322,11 +322,12 @@
     position: relative;
 }
 
-/* ---------- 用户下拉面板（v2：通透卡片式） ---------- */
+/* ---------- 用户下拉面板（不透明实底卡片；先写纯色兜底，防止变量缺失/旧缓存时背景变透明） ---------- */
 .user-dropdown-panel {
     position: fixed;
     z-index: var(--z-dropdown);
-    background: var(--panel-bg);
+    background: #ffffff;
+    background: var(--surface, #ffffff);
     border: 1px solid var(--border);
     border-radius: var(--radius-xl);
     box-shadow: var(--shadow-xl);
@@ -338,18 +339,18 @@
     transition: opacity 0.2s var(--ease), transform 0.2s var(--ease), visibility 0.2s;
     width: 280px;
     max-width: calc(100vw - 2rem);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
 }
 
 [data-theme="dark"] .user-dropdown-panel {
-    background: var(--panel-bg);
+    background: #18181b;
+    background: var(--surface);
 }
 
 /* 系统跟随深色：仅在系统偏好暗色时生效 */
 @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) .user-dropdown-panel {
-        background: var(--panel-bg);
+        background: #18181b;
+        background: var(--surface);
     }
 }
 
