@@ -1749,6 +1749,8 @@ function importSQL(string $sqlContent, array $whitelist = [], string $mode = 'ov
     $currentStmt = '';
     $executedCount = 0;
     $skippedCount = 0; // 合并模式下跳过的 DROP TABLE 语句数
+    $insertedRows = 0; // INSERT 语句实际写入行数（exec 返回值累加）
+    $ignoredRows = 0;  // 合并模式：INSERT IGNORE 因主键/唯一键冲突被跳过的行数
     $errorMessages = [];
     $failedStatements = []; // 记录失败语句原文（用于诊断）
     $hasDDL = false; // 是否包含 DDL 语句（DROP/CREATE/ALTER），DDL 在 MySQL 中会隐式提交事务
@@ -1832,8 +1834,17 @@ function importSQL(string $sqlContent, array $whitelist = [], string $mode = 'ov
                 }
 
                 try {
-                    $db->exec($stmtSql);
+                    $affected = $db->exec($stmtSql);
                     $executedCount++;
+                    // 行级统计：让用户看到“实际写入多少行”，而非只看到“执行了多少条语句”
+                    // （合并模式的 INSERT IGNORE 冲突行不报错但也不写入，不统计会被误认为“合并成功”）
+                    if ($affected !== false && preg_match('/^\s*INSERT\s/i', $stmtSql)) {
+                        $n = max(0, (int)$affected);
+                        $insertedRows += $n;
+                        if ($isMerge && $n === 0) {
+                            $ignoredRows++;
+                        }
+                    }
                     heartbeat(20); // 每执行 20 条 SQL 发送一次心跳
                 } catch (\Throwable $e) {
                     // 记录失败语句原文（截断到 500 字节），便于诊断 "near ''" 的真实原因
@@ -1853,8 +1864,15 @@ function importSQL(string $sqlContent, array $whitelist = [], string $mode = 'ov
                 $currentStmt = '';
                 if ($stmtSql !== '') {
                     try {
-                        $db->exec($stmtSql);
+                        $affected = $db->exec($stmtSql);
                         $executedCount++;
+                        if ($affected !== false && preg_match('/^\s*INSERT\s/i', $stmtSql)) {
+                            $n = max(0, (int)$affected);
+                            $insertedRows += $n;
+                            if ($isMerge && $n === 0) {
+                                $ignoredRows++;
+                            }
+                        }
                     } catch (\Throwable $e) {
                         $failedSql = (strlen($stmtSql) > 500) ? (substr($stmtSql, 0, 500) . '...') : $stmtSql;
                         error_log('[MIGRATION] SQL tail statement failed: ' . $e->getMessage() . ' | SQL: ' . $failedSql);
@@ -1884,11 +1902,13 @@ function importSQL(string $sqlContent, array $whitelist = [], string $mode = 'ov
         $response = [
             'success'         => !$hasErrors,
             'total_executed'  => $executedCount,
+            'total_inserted'  => $insertedRows,
             'errors'          => $errorMessages,
             'snapshot'        => $snapshotName,
         ];
         if ($isMerge) {
             $response['skipped_drop'] = $skippedCount;
+            $response['merge_ignored'] = $ignoredRows;
         }
         if (!empty($failedStatements)) {
             $response['failed_statements'] = array_slice($failedStatements, 0, 10);
@@ -1897,6 +1917,16 @@ function importSQL(string $sqlContent, array $whitelist = [], string $mode = 'ov
             $msg = t('admin_mig_sql_import_done', 'SQL 导入完成，共执行 {n} 条语句。', ['n' => $executedCount]);
             if ($isMerge && $skippedCount > 0) {
                 $msg .= ' ' . t('admin_mig_sql_merge_skipped', '合并模式：已跳过 {n} 条 DROP TABLE 语句，保留目标库已有数据。', ['n' => $skippedCount]);
+            }
+            if ($isMerge) {
+                // 明确告知实际写入/冲突跳过的行数，避免“显示完成但数据没变”被误认为合并失效
+                if ($ignoredRows > 0 && $insertedRows === 0) {
+                    $msg .= ' ' . t('admin_mig_sql_merge_all_exists', '合并写入 0 行：全部 {ign} 行数据在目标库中已存在相同主键/唯一键，已按合并规则跳过（本次未产生任何新数据）。如需完整替换请改用覆盖模式，或改用通用 JSON 格式导出以获得冲突行自动重映射。', ['ign' => $ignoredRows]);
+                } elseif ($ignoredRows > 0) {
+                    $msg .= ' ' . t('admin_mig_sql_merge_partial', '合并写入 {ins} 行；另有 {ign} 行因目标库已存在相同主键/唯一键被跳过。', ['ins' => $insertedRows, 'ign' => $ignoredRows]);
+                } else {
+                    $msg .= ' ' . t('admin_mig_sql_merge_inserted', '合并写入 {ins} 行。', ['ins' => $insertedRows]);
+                }
             }
             $response['message'] = $msg;
         } else {
