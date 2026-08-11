@@ -3754,14 +3754,23 @@ function ss_get_server_time(): array {
 /* ======================== 输出 ======================== */
 
 // 权限检查：仅管理员可访问本端点
-// DEBUG/诊断端点允许未登录访问，方便现场排查 404/扩展/运行时间等问题
+// DEBUG/诊断端点同样要求管理员登录，避免向匿名访问者泄露 PHP 版本、OS、扩展清单等敏感信息
 $wantDebug  = isset($_GET['ss_debug']) && $_GET['ss_debug'] === '1';
 $wantDiag   = isset($_GET['diag'])   && $_GET['diag']   === '1';
-if (!$wantDebug && !$wantDiag && (!is_logged_in() || !is_admin())) {
+if (!is_logged_in() || !is_admin()) {
     ob_end_clean();
     http_response_code(403);
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode(['error' => t('admin_ajax_forbidden', '无权访问')], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+// 细粒度门禁：运行状态（含 DEBUG/诊断端点）仅超级管理员可用
+if (!is_super_admin()) {
+    ob_end_clean();
+    http_response_code(403);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode(['error' => t('common_super_admin_only', '该功能仅最高管理员可用。')], JSON_UNESCAPED_UNICODE);
     exit;
 }
 

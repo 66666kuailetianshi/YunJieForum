@@ -1,0 +1,33 @@
+    .admin-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .admin-sidebar {
+        position: static;
+        order: -1;
+    }
+
+    .admin-menu {
+        display: flex;
+        gap: 0.25rem;
+        overflow-x: auto;
+        scrollbar-width: none;
+    }
+
+    .admin-menu::-webkit-scrollbar {
+        display: none;
+    }
+
+    .admin-menu-item {
+        margin-bottom: 0;
+        white-space: nowrap;
+    }
+
+    .admin-menu-link {
+        padding: 0.5rem 0.875rem;
+    }
+
+    .admin-menu-label {
+        flex: 0 0 auto;
+    }
+

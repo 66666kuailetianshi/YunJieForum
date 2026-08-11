@@ -26,14 +26,22 @@
     /* ---------- 语义色 ---------- */
     --success: #10b981;
     --success-light: #d1fae5;
-    --warning: #2563eb;
-    --warning-light: #dbeafe;
+    --warning: #f59e0b;          /* 琥珀色（语义：警示）*/
+    --warning-light: #fef3c7;    /* 警示浅底 */
+    --warning-dark: #92400e;     /* 警示深字（浅底上的可读文字）*/
     --error: #ef4444;
     --error-light: #fee2e2;
     --danger: var(--error);
     --danger-light: var(--error-light);
     --info: #0ea5e9;
     --info-light: #e0f2fe;
+
+    /* ---------- 语义别名（兼容模板/内联样式的旧变量名）---------- */
+    --muted: var(--text-3);
+    --bg-card: var(--surface);
+    --border-light: var(--border);
+    --primary-soft: var(--brand-soft);
+    --cat-color: var(--brand);   /* 内联 --cat-color 会覆盖此兜底值 */
 
     /* ---------- 中性色（zinc 冷灰）---------- */
     --bg: #fafafa;
@@ -104,6 +112,7 @@
     --space-4: 16px;
     --space-5: 20px;
     --space-6: 24px;
+    --space-7: 28px;
     --space-8: 32px;
     --space-10: 40px;
     --space-12: 48px;
@@ -113,6 +122,10 @@
     --header-height: 60px;
     --container-width: 1200px;
     --container-narrow: 760px;
+
+    /* ---------- 通透背景（顶栏 / 下拉面板，暗色由 dark.css 覆写）---------- */
+    --header-bg: rgba(255, 255, 255, 0.86);
+    --panel-bg: rgba(255, 255, 255, 0.96);
 
     /* ---------- z-index 层级表（统一管理，杜绝层叠混乱）---------- */
     --z-base: 0;

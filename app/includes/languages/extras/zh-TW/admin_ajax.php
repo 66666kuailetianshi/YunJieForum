@@ -72,7 +72,7 @@
     'admin_ajax_reply_not_found'                 => '回覆不存在',
 
     // ---------- 使用者批次操作 ----------
-    'admin_ajax_bulk_role_limited'               => '僅支援批次設為「普通使用者」或「版主」，不能批次設為管理員。',
+    'admin_ajax_bulk_role_limited'               => '僅支援批次設為「一般用戶」或「社群管理員」，不能批次設為管理員。',
     'admin_ajax_bulk_success'                    => '操作成功，影響 {affected} 位使用者。',
     'admin_ajax_pm_content_empty'                => '站內信內容不能為空。',
     'admin_ajax_pm_select_recipients'            => '請選擇接收使用者或指定篩選範圍。',

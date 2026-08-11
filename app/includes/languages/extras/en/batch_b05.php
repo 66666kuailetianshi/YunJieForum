@@ -279,7 +279,7 @@ return [
     'admin_traffic_legend_pv_today' => 'Today PV',
     'admin_traffic_total_pv' => 'Total PV',
     'admin_userban_error_unit_invalid' => 'Please select a valid custom duration unit.',
-    'admin_useredit_role_admin' => 'Administrator',
+    'admin_useredit_role_admin' => 'Super Admin',
     'admin_appeals_tab_rejected' => 'Rejected',
     'admin_usermute_unit_year' => 'years',
     'admin_traffic_recent_title' => 'Recent visitors',

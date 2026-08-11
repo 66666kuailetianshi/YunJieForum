@@ -6,6 +6,9 @@
 
 require_once dirname(__DIR__) . '/layout/admin-init.php';
 
+// 权限门禁：流量监测仅超级管理员可用
+require_super_admin();
+
 $pageTitle = t('admin_traffic_title', '流量监测');
 $activeMenu = 'traffic_monitor';
 
@@ -18,102 +21,102 @@ require_once dirname(__DIR__) . '/layout/header.php';
         <p class="page-subtitle"><?php echo e(t('admin_traffic_subtitle', '实时追踪网站访问数据，每 5 秒自动刷新')); ?></p>
     </div>
     <div class="page-tools">
-        <span id="refresh-indicator" style="font-size:0.8rem;color:var(--muted);display:flex;align-items:center;gap:0.35rem;">
-            <span id="refresh-dot" style="width:7px;height:7px;border-radius:50%;background:#22c55e;display:inline-block;"></span>
+        <span id="refresh-indicator" class="tm-indicator">
+            <span id="refresh-dot" class="tm-dot"></span>
             <span id="last-refresh">--</span>
         </span>
     </div>
 </div>
 
 <!-- 概览卡片 -->
-<div class="stats-grid" style="margin-bottom:1.5rem;">
+<div class="stats-grid mb-6">
     <div class="stat-card">
         <div class="stat-card-value" id="stat-online">0</div>
         <div class="stat-card-label"><?php echo e(t('admin_traffic_online', '当前在线')); ?></div>
-        <div style="font-size:0.7rem;color:var(--muted);margin-top:0.15rem;"><?php echo e(t('admin_traffic_online_sub', '实时访客')); ?></div>
+        <div class="tm-sub"><?php echo e(t('admin_traffic_online_sub', '实时访客')); ?></div>
     </div>
     <div class="stat-card">
         <div class="stat-card-value" id="stat-today-pv">0</div>
         <div class="stat-card-label"><?php echo e(t('admin_traffic_today_pv', '今日 PV')); ?></div>
-        <div style="font-size:0.7rem;color:var(--muted);margin-top:0.15rem;" id="stat-today-pv-vs">--</div>
+        <div class="tm-sub" id="stat-today-pv-vs">--</div>
     </div>
     <div class="stat-card">
         <div class="stat-card-value" id="stat-today-uv">0</div>
         <div class="stat-card-label"><?php echo e(t('admin_traffic_today_uv', '今日 UV')); ?></div>
-        <div style="font-size:0.7rem;color:var(--muted);margin-top:0.15rem;" id="stat-today-uv-vs">--</div>
+        <div class="tm-sub" id="stat-today-uv-vs">--</div>
     </div>
     <div class="stat-card">
         <div class="stat-card-value" id="stat-hour-pv">0</div>
         <div class="stat-card-label"><?php echo e(t('admin_traffic_hour_pv', '当前小时 PV')); ?></div>
-        <div style="font-size:0.7rem;color:var(--muted);margin-top:0.15rem;" id="stat-hour-label">--</div>
+        <div class="tm-sub" id="stat-hour-label">--</div>
     </div>
     <div class="stat-card">
         <div class="stat-card-value" id="stat-total-pv">0</div>
         <div class="stat-card-label"><?php echo e(t('admin_traffic_total_pv', '累计 PV')); ?></div>
-        <div style="font-size:0.7rem;color:var(--muted);margin-top:0.15rem;">--</div>
+        <div class="tm-sub">--</div>
     </div>
     <div class="stat-card">
         <div class="stat-card-value" id="stat-total-uv">0</div>
         <div class="stat-card-label"><?php echo e(t('admin_traffic_total_uv', '累计 UV')); ?></div>
-        <div style="font-size:0.7rem;color:var(--muted);margin-top:0.15rem;">--</div>
+        <div class="tm-sub">--</div>
     </div>
 </div>
 
 <!-- 图表区 -->
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;margin-bottom:1.5rem;">
+<div class="tm-grid-2">
     <!-- 24 小时分布 -->
     <div class="card">
         <h2 class="card-title mb-1"><?php echo e(t('admin_traffic_hourly_title', '24 小时访问分布')); ?></h2>
-        <p class="text-muted mb-2" style="font-size:0.75rem;">
-            <span style="display:inline-block;width:10px;height:10px;background:var(--primary);border-radius:2px;margin-right:0.25rem;vertical-align:middle;"></span> <?php echo e(t('admin_traffic_legend_pv_today', '今日 PV')); ?>
-            <span style="display:inline-block;width:10px;height:10px;background:#86efac;border-radius:2px;margin-left:0.75rem;margin-right:0.25rem;vertical-align:middle;"></span> <?php echo e(t('admin_traffic_legend_uv_today', '今日 UV')); ?>
-            <span style="display:inline-block;width:100%;height:0;border-top:1px dashed #9ca3af;margin-left:0.75rem;margin-right:0.25rem;vertical-align:middle;position:relative;top:-0.5px;"></span> <?php echo e(t('admin_traffic_legend_pv_yesterday', '昨日 PV')); ?>
+        <p class="text-muted mb-2 text-xs">
+            <span class="tm-swatch-pv"></span> <?php echo e(t('admin_traffic_legend_pv_today', '今日 PV')); ?>
+            <span class="tm-swatch-uv"></span> <?php echo e(t('admin_traffic_legend_uv_today', '今日 UV')); ?>
+            <span class="tm-swatch-dash"></span> <?php echo e(t('admin_traffic_legend_pv_yesterday', '昨日 PV')); ?>
         </p>
-        <canvas id="chart-hourly" height="240" style="width:100%;height:240px;display:block;"></canvas>
+        <canvas id="chart-hourly" height="240" class="tm-chart"></canvas>
     </div>
 
     <!-- 7 天趋势 -->
     <div class="card">
         <h2 class="card-title mb-1"><?php echo e(t('admin_traffic_daily_title', '近 7 天趋势')); ?></h2>
-        <p class="text-muted mb-2" style="font-size:0.75rem;">
-            <span style="display:inline-block;width:10px;height:10px;background:var(--primary);border-radius:2px;margin-right:0.25rem;vertical-align:middle;"></span> PV
-            <span style="display:inline-block;width:10px;height:10px;background:#86efac;border-radius:2px;margin-left:0.75rem;margin-right:0.25rem;vertical-align:middle;"></span> UV
+        <p class="text-muted mb-2 text-xs">
+            <span class="tm-swatch-pv"></span> PV
+            <span class="tm-swatch-uv"></span> UV
         </p>
-        <canvas id="chart-daily" height="240" style="width:100%;height:240px;display:block;"></canvas>
+        <canvas id="chart-daily" height="240" class="tm-chart"></canvas>
     </div>
 </div>
 
 <!-- 分析区 -->
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;margin-bottom:1.5rem;">
+<div class="tm-grid-2">
 
     <!-- 流量来源 -->
     <div class="card">
         <h2 class="card-title mb-1"><?php echo e(t('admin_traffic_referrer', '流量来源')); ?></h2>
-        <div id="referrer-list" style="font-size:0.85rem;"></div>
+        <div id="referrer-list" class="text-sm"></div>
     </div>
 
     <!-- 设备分布 -->
     <div class="card">
         <h2 class="card-title mb-1"><?php echo e(t('admin_traffic_device', '设备分布')); ?></h2>
-        <div id="device-bars" style="display:flex;flex-direction:column;gap:0.6rem;"></div>
+        <div id="device-bars" class="tm-bars"></div>
     </div>
 
     <!-- 浏览器 -->
     <div class="card">
         <h2 class="card-title mb-1"><?php echo e(t('admin_traffic_browser', '浏览器分布')); ?></h2>
-        <div id="browser-bars" style="display:flex;flex-direction:column;gap:0.55rem;"></div>
+        <div id="browser-bars" class="tm-bars"></div>
     </div>
 
     <!-- 操作系统 -->
     <div class="card">
         <h2 class="card-title mb-1"><?php echo e(t('admin_traffic_os', '操作系统分布')); ?></h2>
-        <div id="os-bars" style="display:flex;flex-direction:column;gap:0.55rem;"></div>
+        <div id="os-bars" class="tm-bars"></div>
     </div>
 
 </div>
 
 <!-- 热门页面 -->
-<div class="card" style="margin-bottom:1.5rem;">
+<div class="card mb-6">
     <h2 class="card-title mb-1"><?php echo e(t('admin_traffic_hot_title', '今日热门页面 TOP10')); ?></h2>
     <div class="table-responsive">
         <table class="data-table data-table-compact">
@@ -136,25 +139,8 @@ require_once dirname(__DIR__) . '/layout/header.php';
             <tbody id="recent-visitors-body"></tbody>
         </table>
     </div>
-    <div id="recent-visitors-pagination" style="padding:0 1.25rem 1.25rem;"></div>
+    <div id="recent-visitors-pagination" class="tm-pag-pad"></div>
 </div>
-
-<style>
-.stat-card { position: relative; overflow: hidden; }
-.stat-card-value.pulse { animation: statPulse 0.4s ease; }
-@keyframes statPulse {
-    0%,100% { transform: scale(1); }
-    50% { transform: scale(1.08); color: var(--primary); }
-}
-.bar-fill { height: 18px; border-radius: 4px; transition: width 0.5s ease; min-width: 2px; }
-.bar-label { font-size: 0.8rem; display: flex; justify-content: space-between; margin-bottom: 3px; }
-.heat-bar { display: inline-block; height: 6px; border-radius: 3px; background: linear-gradient(90deg, #86efac, #22c55e, #eab308, #ef4444); min-width: 20px; }
-#refresh-dot.pulse-dot { animation: dotPulse 1s ease infinite; }
-@keyframes dotPulse {
-    0%,100% { opacity: 1; }
-    50% { opacity: 0.3; }
-}
-</style>
 
 <script>
 (function() {

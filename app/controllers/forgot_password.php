@@ -10,6 +10,7 @@
 
 require_once APP_ROOT . 'app/includes/functions.php';
 require_once APP_ROOT . 'app/includes/db.php';
+require_once APP_ROOT . 'app/includes/mailer.php'; // functions.php 已懒加载 mailer，本文件直接调用 send_mail，需自行引入
 require_once APP_ROOT . 'app/captcha/core.php';
 
 if (file_exists(INSTALLED_FILE) === false) {
@@ -175,7 +176,7 @@ include APP_ROOT . 'app/includes/header.php';
 ?>
 
 <div class="auth-container">
-    <div class="card">
+    <div class="card auth-card">
         <div class="auth-header">
             <img src="../public/images/logo.svg" alt="" class="auth-logo">
             <h1 class="auth-title"><?php echo e(t('forgot_heading', '忘记密码')); ?></h1>

@@ -7,18 +7,24 @@
  */
 
 require_once dirname(__DIR__) . '/layout/admin-init.php';
+
+// 权限门禁：数据备份仅超级管理员可用（含下载/恢复/删除分支）
+require_super_admin();
+
 require_once APP_ROOT . 'app/includes/backup_manager.php';
 
 $dbDriver = get_db_driver();
 $manager = new BackupManager();
 $GLOBALS['_backup_manager'] = $manager;
 
-// 处理下载请求（GET 方式，需要 CSRF token 校验）
+// 处理下载请求（GET 方式，需要一次性派生令牌校验）
 if (($_GET['action'] ?? '') === 'download') {
     $manager = $GLOBALS['_backup_manager'];
     $filename = $_GET['filename'] ?? '';
     $token = $_GET['token'] ?? '';
-    if (!hash_equals(session_id(), $token)) {
+    // 令牌为 hash_hmac('sha256', 文件名, csrf_token()) 派生，不再使用 session_id，
+    // 避免会话标识泄露到访问日志 / Referer
+    if (!admin_backup_download_token_valid($filename, $token)) {
         set_flash(t('admin_backup_flash_download_token_invalid', '下载令牌无效。'), 'error');
         redirect('/admin/backup');
     }
@@ -211,47 +217,12 @@ if ($flash): ?>
                 </select>
             </div>
         </div>
-        <p class="form-hint" style="margin-top:0.5rem;">
+        <p class="form-hint mt-2">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:2px;"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
             <?php echo t('admin_backup_auto_hint', '启用后，系统将在<b>管理员访问后台</b>时自动检查并执行备份。建议选择 24 小时间隔，避免频繁备份占用资源。'); ?>
         </p>
     </div>
 </div>
-
-<style>
-/* 自动备份样式 */
-.auto-backup-body { padding: 1rem 1.25rem 1.25rem; }
-.auto-backup-info {
-    display: flex;
-    gap: 2rem;
-    margin-bottom: 1rem;
-    padding-bottom: 1rem;
-    border-bottom: 1px solid var(--border-soft);
-}
-.auto-backup-info-item { display: flex; flex-direction: column; gap: 0.125rem; }
-.auto-backup-info-label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
-.auto-backup-info-value { font-size: 0.875rem; font-weight: 600; color: var(--text); }
-.auto-backup-form { display: flex; gap: 1.5rem; }
-@media (max-width: 640px) {
-    .auto-backup-info { flex-direction: column; gap: 0.5rem; }
-    .auto-backup-form { flex-direction: column; }
-    .auto-backup-form .form-group { margin-left: 0 !important; }
-}
-
-/* 切换开关 */
-.toggle-switch { position: relative; display: inline-block; width: 44px; height: 24px; cursor: pointer; }
-.toggle-switch input { opacity: 0; width: 0; height: 0; }
-.toggle-slider {
-    position: absolute; top: 0; left: 0; right: 0; bottom: 0;
-    background: var(--border); border-radius: 12px; transition: var(--transition);
-}
-.toggle-slider::before {
-    content: ''; position: absolute; left: 3px; bottom: 3px; width: 18px; height: 18px;
-    background: white; border-radius: 50%; transition: var(--transition);
-}
-.toggle-switch input:checked + .toggle-slider { background: var(--primary); }
-.toggle-switch input:checked + .toggle-slider::before { transform: translateX(20px); }
-</style>
 
 <!-- 创建备份区 -->
 <div class="card backup-create-card">
@@ -268,7 +239,7 @@ if ($flash): ?>
             <?php echo e(t('admin_backup_create_btn', '创建备份')); ?>
         </button>
     </div>
-    <p class="form-hint" style="margin-top:0.75rem;"><?php echo e(t('admin_backup_create_hint', '备份将使用 gzip 压缩存储，自动保留最近 30 个备份，更早的备份将被自动清理。')); ?></p>
+    <p class="form-hint mt-3"><?php echo e(t('admin_backup_create_hint', '备份将使用 gzip 压缩存储，自动保留最近 30 个备份，更早的备份将被自动清理。')); ?></p>
 </div>
 
 <!-- 备份列表 -->
@@ -321,7 +292,7 @@ if ($flash): ?>
                                 <td class="backup-cell-desc"><?php echo $b['description'] ? e($b['description']) : '<span class="text-muted">—</span>'; ?></td>
                                 <td><?php echo e($b['created_by_name']); ?></td>
                                 <td class="backup-cell-actions">
-                                    <a href="<?php echo site_url('admin/backup', ['action' => 'download', 'filename' => $b['filename'], 'token' => session_id()]); ?>" class="btn btn-secondary btn-sm backup-action-btn" title="<?php echo e(t('admin_backup_btn_download', '下载')); ?>">
+                                    <a href="<?php echo site_url('admin/backup', ['action' => 'download', 'filename' => $b['filename'], 'token' => admin_backup_download_token($b['filename'])]); ?>" class="btn btn-secondary btn-sm backup-action-btn" title="<?php echo e(t('admin_backup_btn_download', '下载')); ?>">
                                         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                                         <?php echo e(t('admin_backup_btn_download', '下载')); ?>
                                     </a>
@@ -390,295 +361,6 @@ if ($flash): ?>
         </div>
     </div>
 </div>
-
-<style>
-/* === 备份页面专用样式 === */
-.backup-status-banner {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    padding: 1.25rem 1.5rem;
-    background: linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%);
-    border: 1px solid #c7d2fe;
-    border-radius: var(--radius-lg);
-    margin-bottom: 1.25rem;
-}
-.backup-status-banner-icon {
-    width: 56px;
-    height: 56px;
-    border-radius: var(--radius);
-    background: var(--surface);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--primary);
-    flex-shrink: 0;
-    box-shadow: 0 2px 8px rgba(99, 102, 241, 0.15);
-}
-.backup-status-banner-title {
-    font-size: 1.1rem;
-    font-weight: 700;
-    color: var(--text);
-    margin-bottom: 0.25rem;
-}
-.backup-status-banner-meta {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 0.875rem;
-    color: var(--text-secondary);
-}
-.backup-meta-item { display: inline-flex; gap: 0.375rem; }
-.backup-meta-label { color: var(--text-muted); }
-.backup-meta-divider { width: 1px; height: 14px; background: var(--border); }
-
-.backup-stats-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 1rem;
-    margin-bottom: 1.25rem;
-}
-@media (max-width: 768px) {
-    .backup-stats-grid { grid-template-columns: repeat(2, 1fr); }
-    .backup-status-banner-meta { flex-direction: column; align-items: flex-start; gap: 0.25rem; }
-    .backup-meta-divider { display: none; }
-}
-
-.backup-stat-card {
-    display: flex;
-    align-items: center;
-    gap: 0.875rem;
-    padding: 1.1rem 1.25rem;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    box-shadow: var(--shadow-xs);
-    transition: var(--transition);
-}
-.backup-stat-card:hover {
-    box-shadow: var(--shadow-sm);
-    border-color: var(--primary-lighter);
-}
-.backup-stat-icon {
-    width: 42px;
-    height: 42px;
-    border-radius: var(--radius-sm);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-}
-.backup-stat-icon-count { background: #eef2ff; color: var(--primary); }
-.backup-stat-icon-size { background: #d1fae5; color: #10b981; }
-.backup-stat-icon-db { background: #dbeafe; color: #2563eb; }
-.backup-stat-icon-last { background: #fef3c7; color: #d97706; }
-.backup-stat-value {
-    font-size: 1.4rem;
-    font-weight: 700;
-    color: var(--text);
-    line-height: 1.2;
-}
-.backup-stat-label {
-    font-size: 0.8125rem;
-    color: var(--text-muted);
-    margin-top: 0.125rem;
-}
-
-.backup-create-card { margin-bottom: 1.25rem; }
-.backup-create-body {
-    display: flex;
-    gap: 0.875rem;
-    align-items: flex-end;
-}
-@media (max-width: 640px) {
-    .backup-create-body { flex-direction: column; align-items: stretch; }
-}
-
-.backup-refresh-hint {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.375rem;
-    font-size: 0.8125rem;
-    color: var(--text-muted);
-}
-.backup-refresh-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: #10b981;
-    animation: backup-pulse 2s ease-in-out infinite;
-}
-@keyframes backup-pulse {
-    0%, 100% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.5; transform: scale(0.85); }
-}
-
-.backup-list { min-height: 200px; }
-.backup-empty {
-    text-align: center;
-    padding: 3rem 1rem;
-    color: var(--text-muted);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-}
-.backup-empty p { margin: 0; }
-
-.backup-table-wrap { overflow-x: auto; }
-.backup-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.875rem;
-}
-.backup-table th {
-    text-align: left;
-    padding: 0.75rem 1rem;
-    background: var(--surface-2);
-    color: var(--text-muted);
-    font-weight: 600;
-    font-size: 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    border-bottom: 1px solid var(--border);
-    white-space: nowrap;
-}
-.backup-table td {
-    padding: 0.875rem 1rem;
-    border-bottom: 1px solid var(--border-soft);
-    color: var(--text);
-    vertical-align: middle;
-}
-.backup-table tbody tr:hover { background: var(--surface-2); }
-.backup-table tbody tr:last-child td { border-bottom: none; }
-
-.backup-cell-filename {
-    font-family: 'SF Mono', Monaco, Consolas, monospace;
-    font-size: 0.8125rem;
-    max-width: 280px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-.backup-version-tag {
-    display: inline-block;
-    padding: 1px 6px;
-    font-size: 0.6875rem;
-    background: var(--primary-light);
-    color: var(--primary-dark);
-    border-radius: 4px;
-    margin-left: 0.375rem;
-    vertical-align: 1px;
-}
-.backup-size-info { display: flex; flex-direction: column; gap: 2px; }
-.backup-size-current { font-weight: 600; color: var(--text); }
-.backup-size-orig { font-size: 0.75rem; color: var(--text-muted); }
-.backup-cell-desc { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.backup-cell-actions { white-space: nowrap; text-align: right; min-width: 180px; }
-.backup-action-btn {
-    padding: 0.3rem 0.55rem !important;
-    font-size: 0.75rem !important;
-    margin-left: 0.25rem;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-}
-.backup-action-btn.is-danger:hover {
-    color: #ef4444;
-    border-color: #fecaca;
-    background: #fef2f2;
-}
-
-.backup-confirm-warning {
-    padding: 0.625rem 0.875rem;
-    background: #fef3c7;
-    border: 1px solid #fde68a;
-    border-radius: var(--radius-sm);
-    color: #92400e;
-    font-size: 0.8125rem;
-}
-
-.backup-toast {
-    position: fixed;
-    top: 1.5rem;
-    right: 1.5rem;
-    z-index: 10000;
-    padding: 0.875rem 1.25rem;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    box-shadow: var(--shadow-lg);
-    font-size: 0.875rem;
-    font-weight: 500;
-    color: var(--text);
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    transition: opacity 0.3s, transform 0.3s;
-}
-.backup-toast.is-success { border-left: 4px solid #10b981; }
-.backup-toast.is-error { border-left: 4px solid #ef4444; }
-.backup-toast.is-info { border-left: 4px solid var(--primary); }
-
-/* 恢复进度条 */
-.backup-progress-track {
-    width: 100%;
-    height: 8px;
-    background: var(--border);
-    border-radius: 999px;
-    overflow: hidden;
-    margin-bottom: 0.75rem;
-}
-.backup-progress-bar {
-    width: 30%;
-    height: 100%;
-    background: linear-gradient(90deg, var(--primary), #8b5cf6);
-    border-radius: 999px;
-    animation: backup-progress-move 1.5s ease-in-out infinite;
-}
-@keyframes backup-progress-move {
-    0% { transform: translateX(-100%); }
-    100% { transform: translateX(400%); }
-}
-.backup-progress-status {
-    text-align: center;
-    font-size: 0.8125rem;
-    color: var(--text-muted);
-}
-
-/* 行操作中的状态 */
-.backup-table tbody tr.is-processing { opacity: 0.6; pointer-events: none; }
-.backup-table tbody tr.is-restoring { background: #fef3c7 !important; }
-
-/* === 暗色模式适配 === */
-[data-theme="dark"] .backup-status-banner {
-    background: linear-gradient(135deg, rgba(99, 102, 241, 0.12) 0%, rgba(99, 102, 241, 0.06) 100%);
-    border-color: rgba(99, 102, 241, 0.3);
-}
-[data-theme="dark"] .backup-status-banner-icon {
-    background: var(--surface-2);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-}
-[data-theme="dark"] .backup-stat-icon-count { background: rgba(99, 102, 241, 0.18); color: #a5b4fc; }
-[data-theme="dark"] .backup-stat-icon-size { background: rgba(16, 185, 129, 0.18); color: #6ee7b7; }
-[data-theme="dark"] .backup-stat-icon-db { background: rgba(37, 99, 235, 0.18); color: #93c5fd; }
-[data-theme="dark"] .backup-stat-icon-last { background: rgba(217, 119, 6, 0.18); color: #fcd34d; }
-[data-theme="dark"] .backup-confirm-warning {
-    background: rgba(217, 119, 6, 0.15);
-    border-color: rgba(217, 119, 6, 0.4);
-    color: #fcd34d;
-}
-[data-theme="dark"] .backup-action-btn.is-danger:hover {
-    color: #fca5a5;
-    border-color: rgba(239, 68, 68, 0.4);
-    background: rgba(239, 68, 68, 0.12);
-}
-[data-theme="dark"] .backup-table tbody tr.is-restoring { background: rgba(217, 119, 6, 0.18) !important; }
-[data-theme="dark"] .backup-version-tag {
-    background: rgba(99, 102, 241, 0.25);
-    color: #c7d2fe;
-}
-</style>
 
 <script>
 (function () {

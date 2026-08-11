@@ -8,6 +8,8 @@
 
 require_once dirname(__DIR__) . '/../includes/functions.php';
 require_once dirname(__DIR__) . '/../includes/db.php';
+// 后台公共辅助函数（帖子动作 flag、备份下载令牌等）
+require_once __DIR__ . '/admin-helpers.php';
 
 if (file_exists(INSTALLED_FILE) === false) {
     redirect('/install');

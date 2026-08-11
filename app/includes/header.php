@@ -70,9 +70,6 @@ if (is_logged_in() && $currentUser) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
     <meta name="description" content="<?php echo e(t('common_meta_description', '一个简洁美观的社区论坛') . ' - ' . SITE_NAME); ?>">
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-    <meta http-equiv="Pragma" content="no-cache">
-    <meta http-equiv="Expires" content="0">
     <title><?php echo e($pageTitle); ?> · <?php echo e(SITE_NAME); ?></title>
     <script>
         // 主题初始化 + 切换（内联，不依赖外部 JS，避免缓存导致失效）
@@ -101,16 +98,17 @@ if (is_logged_in() && $currentUser) {
             }
         })();
     </script>
-    <link rel="stylesheet" href="/public/css/style.css?v=<?php echo e(APP_VERSION); ?>-ui2">
-    <link rel="stylesheet" href="/index.php?route=captcha/assets&file=captcha.css&v=<?php echo e(APP_VERSION); ?>-ui2">
-    <link rel="stylesheet" href="/public/css/tokens.css?v=<?php echo e(APP_VERSION); ?>-ui2">
-    <link rel="stylesheet" href="/public/css/base.css?v=<?php echo e(APP_VERSION); ?>-ui2">
-    <link rel="stylesheet" href="/public/css/utilities.css?v=<?php echo e(APP_VERSION); ?>-ui2">
-    <link rel="stylesheet" href="/public/css/dark.css?v=<?php echo e(APP_VERSION); ?>-ui2">
-    <link rel="stylesheet" href="/public/css/header.css?v=<?php echo e(APP_VERSION); ?>-ui3">
+    <link rel="stylesheet" href="/public/css/style.css?v=<?php echo e(APP_VERSION); ?>-ui4">
+    <link rel="stylesheet" href="/index.php?route=captcha/assets&file=captcha.css&v=<?php echo e(APP_VERSION); ?>-ui4">
+    <link rel="stylesheet" href="/public/css/tokens.css?v=<?php echo e(APP_VERSION); ?>-ui4">
+    <link rel="stylesheet" href="/public/css/base.css?v=<?php echo e(APP_VERSION); ?>-ui4">
+    <link rel="stylesheet" href="/public/css/utilities.css?v=<?php echo e(APP_VERSION); ?>-ui4">
+    <link rel="stylesheet" href="/public/css/components.css?v=<?php echo e(APP_VERSION); ?>-ui4">
+    <link rel="stylesheet" href="/public/css/dark.css?v=<?php echo e(APP_VERSION); ?>-ui4">
+    <link rel="stylesheet" href="/public/css/header.css?v=<?php echo e(APP_VERSION); ?>-ui4">
     <?php if (!empty($extraStyles) && is_array($extraStyles)): ?>
         <?php foreach ($extraStyles as $style): ?>
-            <link rel="stylesheet" href="<?php echo e($style); ?>?v=<?php echo e(APP_VERSION); ?>-ui2">
+            <link rel="stylesheet" href="<?php echo e($style); ?>?v=<?php echo e(APP_VERSION); ?>-ui4">
         <?php endforeach; ?>
     <?php endif; ?>
     <link rel="icon" type="image/x-icon" href="/favicon.ico">
@@ -135,6 +133,7 @@ if (is_logged_in() && $currentUser) {
                         <li><a href="/" class="nav-link <?php echo current_route() === 'home' ? 'active' : ''; ?>"><?php echo e(t('nav_home', '首页')); ?></a></li>
                         <?php if (is_logged_in()): ?>
                             <li><a href="<?php echo site_url('new_post'); ?>" class="nav-link <?php echo current_route() === 'new_post' ? 'active' : ''; ?>"><?php echo e(t('nav_new_post', '发帖')); ?></a></li>
+                            <li><a href="<?php echo site_url('ticket'); ?>" class="nav-link <?php echo current_route() === 'ticket' ? 'active' : ''; ?>"><?php echo e(t('nav_ticket', '意见反馈')); ?></a></li>
                             <?php if (is_admin()): ?>
                                 <li><a href="<?php echo site_url('admin'); ?>" class="nav-link nav-link-admin"><?php echo e(t('nav_admin', '管理后台')); ?></a></li>
                             <?php endif; ?>
@@ -172,7 +171,12 @@ if (is_logged_in() && $currentUser) {
                                     <span class="notification-panel-title"><?php echo e(t('notifications', '通知')); ?></span>
                                     <div class="notification-panel-actions">
                                         <?php if ($unreadNotify > 0): ?>
-                                            <a href="<?php echo e(site_url('notifications', ['action' => 'mark_all_read', 'csrf_token' => csrf_token(), 'redirect' => $_SERVER['REQUEST_URI'] ?? '/'])); ?>" class="notification-panel-mark"><?php echo e(t('mark_all_read', '全部已读')); ?></a>
+                                            <form method="post" action="<?php echo site_url('notifications'); ?>" class="inline-action-form">
+                                                <input type="hidden" name="csrf_token" value="<?php echo e(csrf_token()); ?>">
+                                                <input type="hidden" name="action" value="mark_all_read">
+                                                <input type="hidden" name="redirect" value="<?php echo e($_SERVER['REQUEST_URI'] ?? '/'); ?>">
+                                                <button type="submit" class="notification-panel-mark"><?php echo e(t('mark_all_read', '全部已读')); ?></button>
+                                            </form>
                                         <?php endif; ?>
                                         <a href="<?php echo site_url('notifications'); ?>" class="notification-panel-all"><?php echo e(t('view_all', '查看全部')); ?></a>
                                     </div>
@@ -183,13 +187,18 @@ if (is_logged_in() && $currentUser) {
                                     <?php else: ?>
                                         <?php foreach ($recentNotifications as $n): ?>
                                             <li class="notification-item <?php echo (int)$n['is_read'] === 0 ? 'is-unread' : 'is-read'; ?>">
-                                                <a href="<?php echo e(site_url('notification_read', ['id' => (int)$n['id'], 'csrf_token' => csrf_token()])); ?>" class="notification-link">
-                                                    <div class="notification-title"><?php echo e($n['title']); ?></div>
-                                                    <?php if ($n['content'] !== ''): ?>
-                                                        <div class="notification-content"><?php echo e(mb_substr(strip_tags($n['content']), 0, 40, 'UTF-8')); ?></div>
-                                                    <?php endif; ?>
-                                                    <div class="notification-time"><?php echo time_ago($n['created_at']); ?></div>
-                                                </a>
+                                                <form method="post" action="<?php echo site_url('notification_read'); ?>" class="inline-action-form">
+                                                    <input type="hidden" name="csrf_token" value="<?php echo e(csrf_token()); ?>">
+                                                    <input type="hidden" name="id" value="<?php echo (int)$n['id']; ?>">
+                                                    <input type="hidden" name="link" value="<?php echo e($n['link'] ?? ''); ?>">
+                                                    <button type="submit" class="notification-link">
+                                                        <div class="notification-title"><?php echo e($n['title']); ?></div>
+                                                        <?php if ($n['content'] !== ''): ?>
+                                                            <div class="notification-content"><?php echo e(mb_substr(strip_tags($n['content']), 0, 40, 'UTF-8')); ?></div>
+                                                        <?php endif; ?>
+                                                        <div class="notification-time"><?php echo time_ago($n['created_at']); ?></div>
+                                                    </button>
+                                                </form>
                                             </li>
                                         <?php endforeach; ?>
                                     <?php endif; ?>
@@ -272,9 +281,10 @@ if (is_logged_in() && $currentUser) {
                                     </a>
                                 </div>
 
-                                <a href="<?php echo e(site_url('logout', ['csrf_token' => csrf_token()])); ?>" class="user-dropdown-logout" data-confirm="<?php echo e(t('confirm_logout', '确定要退出登录吗？')); ?>">
-                                    <?php echo e(t('logout', '退出登录')); ?>
-                                </a>
+                                <form method="post" action="<?php echo site_url('logout'); ?>" class="inline-action-form" data-confirm="<?php echo e(t('confirm_logout', '确定要退出登录吗？')); ?>">
+                                    <input type="hidden" name="csrf_token" value="<?php echo e(csrf_token()); ?>">
+                                    <button type="submit" class="user-dropdown-logout"><?php echo e(t('logout', '退出登录')); ?></button>
+                                </form>
                             </div>
                         </div>
                     <?php else: ?>

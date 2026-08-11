@@ -6,6 +6,9 @@
 
 require_once dirname(__DIR__) . '/layout/admin-init.php';
 
+// 权限门禁：回复管理（超管天然通过；社区管理员需 manage_replies 权限）
+require_permission('manage_replies');
+
 $db = get_db();
 $driver = get_db_driver();
 $action = $_GET['action'] ?? 'list';
@@ -24,15 +27,16 @@ if ($action === 'batch' && validate_csrf()) {
 }
 
 // ===================== 单个删除 =====================
-// CSRF 统一校验：涉及状态变更的 GET 操作必须先通过校验，失败时明确提示（避免静默失败）
-if ($action === 'delete' && !validate_csrf()) {
-    set_flash(t('admin_replies_flash_csrf_failed', '安全校验失败（链接已过期），请刷新页面后重新操作。'), 'error');
+// 仅接受 POST（CSRF 由 admin-init.php 对所有 POST 统一校验）
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete') {
+    $delReplyId = (int)($_POST['reply_id'] ?? 0);
+    if ($delReplyId > 0 && delete_reply($delReplyId)) set_flash(t('admin_replies_flash_deleted', '回复已删除。'), 'success');
+    else set_flash(t('admin_replies_flash_delete_failed', '回复不存在或删除失败。'), 'error');
     redirect('/admin/replies');
 }
-
-if ($action === 'delete' && $replyId > 0) {
-    if (delete_reply($replyId)) set_flash(t('admin_replies_flash_deleted', '回复已删除。'), 'success');
-    else set_flash(t('admin_replies_flash_delete_failed', '回复不存在或删除失败。'), 'error');
+// 旧 GET 删除链接命中：不执行删除，提示刷新
+if ($action === 'delete') {
+    set_flash(t('post_flash_method_changed', '操作方式已变更，请刷新页面重试。'), 'error');
     redirect('/admin/replies');
 }
 
@@ -68,10 +72,16 @@ if ($authorFilter !== '') {
 $whereSql = implode(' AND ', $where);
 
 // ===================== 统计卡片 =====================
+// replies 表两项统计合并为单条 SUM(CASE WHEN)（标准 SQL 三方言通用）；
+// totalPosts 属 posts 表，无法与 replies 表合并
 $today = date('Y-m-d');
+$replyStatsRow = $db->query("SELECT
+        COUNT(*) AS total,
+        SUM(CASE WHEN " . $driver->dateColExpr('created_at') . " = " . $db->quote($today) . " THEN 1 ELSE 0 END) AS today
+    FROM replies")->fetch();
 $stats = [
-    'total'      => (int)$db->query("SELECT COUNT(*) FROM replies")->fetchColumn(),
-    'today'      => (int)$db->query("SELECT COUNT(*) FROM replies WHERE " . $driver->dateColExpr('created_at') . " = " . $db->quote($today))->fetchColumn(),
+    'total'      => (int)($replyStatsRow['total'] ?? 0),
+    'today'      => (int)($replyStatsRow['today'] ?? 0),
     'totalPosts' => (int)$db->query("SELECT COUNT(*) FROM posts")->fetchColumn(),
 ];
 
@@ -112,113 +122,10 @@ $activeMenu = 'replies';
 require_once dirname(__DIR__) . '/layout/header.php';
 ?>
 
-<style>
-/* ===== 回复管理样式 ===== */
-.stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; margin-bottom: 1.25rem; }
-.stats-row .stat-card {
-    background: var(--surface); border: 1px solid var(--border-soft);
-    border-radius: var(--radius-md); padding: 1rem 1.125rem; cursor: default;
-    transition: all 0.2s; display: flex; align-items: center; gap: 0.75rem;
-}
-.stats-row .stat-card:hover { border-color: var(--primary); box-shadow: 0 2px 12px rgba(0,0,0,0.06); }
-.stats-row .stat-icon { width: 40px; height: 40px; border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-.stats-row .stat-icon svg { width: 20px; height: 20px; }
-.stat-icon--indigo { background: #eef2ff; color: #6366f1; }
-.stat-icon--green  { background: #ecfdf5; color: #10b981; }
-.stat-icon--blue   { background: #eff6ff; color: #3b82f6; }
-.stats-row .stat-info { min-width: 0; }
-.stats-row .stat-num { font-size: 1.35rem; font-weight: 700; color: var(--text); line-height: 1.2; }
-.stats-row .stat-label { font-size: 0.72rem; color: var(--text-muted); margin-top: 2px; }
-
-.filter-bar {
-    display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center;
-    padding: 0.75rem 1rem; background: var(--surface); border: 1px solid var(--border-soft);
-    border-radius: var(--radius-md); margin-bottom: 0.75rem;
-}
-.filter-bar input {
-    height: 35px; font-size: 0.85rem; padding: 0 0.65rem;
-    border: 1px solid var(--border); border-radius: var(--radius-sm);
-    background: var(--bg); color: var(--text); outline: none;
-}
-.filter-bar input:focus { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(59,130,246,0.12); }
-.filter-bar input[type="search"] { min-width: 200px; }
-.filter-bar input[type="number"] { width: 90px; min-width: 0; }
-.filter-bar input[type="text"]   { width: 110px; min-width: 0; }
-.filter-bar .btn { height: 35px; padding: 0 0.85rem; font-size: 0.825rem; }
-
-.batch-bar {
-    display: none; align-items: center; gap: 0.5rem;
-    padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); margin-bottom: 0.75rem;
-    background: color-mix(in srgb, var(--primary) 8%, var(--surface));
-    border: 1px solid color-mix(in srgb, var(--primary) 20%, var(--border));
-}
-.batch-bar.show { display: flex; }
-.batch-bar .batch-count { font-weight: 600; font-size: 0.85rem; white-space: nowrap; }
-
-/* 表格 */
-.data-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
-.data-table thead { position: sticky; top: 0; z-index: 2; }
-.data-table th {
-    padding: 0.6rem 0.75rem; text-align: left; font-size: 0.75rem; font-weight: 600;
-    color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em;
-    background: var(--bg-soft); border-bottom: 2px solid var(--border); white-space: nowrap;
-}
-.data-table td {
-    padding: 0.65rem 0.75rem; border-bottom: 1px solid var(--border-soft);
-    vertical-align: middle;
-}
-.data-table tbody tr { transition: background 0.15s; }
-.data-table tbody tr:hover { background: color-mix(in srgb, var(--primary) 3%, var(--bg)); }
-.data-table tbody tr:nth-child(even) { background: rgba(128,128,128,0.02); }
-.data-table tbody tr:nth-child(even):hover { background: color-mix(in srgb, var(--primary) 3%, var(--bg)); }
-
-.sort-link { color: var(--text-muted); text-decoration: none; white-space: nowrap; user-select: none; }
-.sort-link:hover { color: var(--text); }
-.sort-link.active { color: var(--primary); font-weight: 600; }
-.sort-link.asc::after  { content: ' ▲'; font-size: 0.55rem; }
-.sort-link.desc::after { content: ' ▼'; font-size: 0.55rem; }
-
-/* 回复内容预览 */
-.reply-preview {
-    cursor: pointer; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-    overflow: hidden; max-width: 320px; font-size: 0.85rem; line-height: 1.5; 
-}
-.reply-preview:hover { color: var(--primary); }
-.reply-ref { display: block; font-size: 0.7rem; color: var(--text-muted); margin-top: 2px; }
-
-/* 操作按钮 */
-.actions { display: flex; gap: 4px; }
-.actions .btn-icon {
-    display: inline-flex; align-items: center; justify-content: center;
-    width: 30px; height: 30px; border-radius: var(--radius-sm); border: 1px solid transparent;
-    background: transparent; color: var(--text-muted); cursor: pointer; transition: all 0.15s;
-    text-decoration: none; padding: 0;
-}
-.actions .btn-icon:hover { background: var(--bg-soft); color: var(--text); border-color: var(--border); }
-.actions .btn-icon.danger:hover { color: #dc2626; background: #fef2f2; border-color: #fecaca; }
-.actions .btn-icon svg { width: 15px; height: 15px; }
-
-/* 模态框 */
-.modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 999; justify-content: center; align-items: flex-start; padding-top: 5vh; }
-.modal-overlay.show { display: flex; }
-.modal-content { background: var(--surface); border-radius: var(--radius-lg); width: 95%; max-height: 85vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.2); }
-.modal-header { display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.25rem; border-bottom: 1px solid var(--border-soft); position: sticky; top: 0; background: var(--surface); z-index: 1; }
-.modal-header h3 { margin: 0; font-size: 1rem; }
-.modal-body { padding: 1rem 1.25rem; line-height: 1.7; font-size: 0.9rem; word-break: break-word; }
-.modal-body .reply-meta { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.75rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border-soft); }
-.modal-close { background: none; border: none; font-size: 1.25rem; cursor: pointer; color: var(--text-muted); padding: 0.25rem; line-height: 1; }
-
-@media (max-width: 768px) {
-    .stats-row { grid-template-columns: repeat(2, 1fr); }
-    .filter-bar { flex-direction: column; align-items: stretch; }
-    .filter-bar input[type="search"] { width: 100%; min-width: 0; }
-}
-</style>
-
 <div class="page-header">
     <h1 class="page-title"><?php echo e(t('admin_replies_title', '回复管理')); ?></h1>
     <div class="page-actions">
-        <span style="font-size:0.8rem;color:var(--text-muted);"><?php echo e(t('admin_replies_total_count', '共 {n} 条回复', ['n' => $total])); ?></span>
+        <span class="text-xs text-muted"><?php echo e(t('admin_replies_total_count', '共 {n} 条回复', ['n' => $total])); ?></span>
     </div>
 </div>
 
@@ -245,7 +152,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
     <input type="text" name="author" value="<?php echo e($authorFilter); ?>" placeholder="<?php echo e(t('admin_replies_author_placeholder', '作者')); ?>">
     <button type="submit" class="btn btn-primary btn-sm"><?php echo e(t('admin_replies_filter', '筛选')); ?></button>
     <?php if ($search || $postFilter || $authorFilter): ?>
-        <a href="<?php echo site_url('admin/replies'); ?>" class="btn btn-secondary btn-sm" style="text-decoration:none;"><?php echo e(t('admin_replies_clear', '清除')); ?></a>
+        <a href="<?php echo site_url('admin/replies'); ?>" class="btn btn-secondary btn-sm"><?php echo e(t('admin_replies_clear', '清除')); ?></a>
     <?php endif; ?>
 </form>
 
@@ -255,7 +162,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
     <button class="btn btn-sm btn-danger" onclick="batchAction('delete')"><?php echo e(t('admin_replies_batch_delete', '批量删除')); ?></button>
 </div>
 
-<div class="card" style="overflow:hidden;">
+<div class="card card-clip">
     <div class="table-responsive">
         <table class="data-table">
             <thead>
@@ -274,13 +181,13 @@ require_once dirname(__DIR__) . '/layout/header.php';
             </thead>
             <tbody>
                 <?php if (empty($replies)): ?>
-                    <tr><td colspan="8" style="text-align:center;padding:2.5rem;color:var(--text-muted);"><?php echo e(t('admin_replies_empty', '暂无回复数据')); ?></td></tr>
+                    <tr><td colspan="8" class="empty-cell"><?php echo e(t('admin_replies_empty', '暂无回复数据')); ?></td></tr>
                 <?php else: ?>
                     <?php foreach ($replies as $reply): ?>
                         <tr>
                             <td><input type="checkbox" class="reply-check" value="<?php echo $reply['id']; ?>" onchange="updateBatchBar()"></td>
-                            <td><code style="font-size:0.8rem;">#<?php echo $reply['id']; ?></code></td>
-                            <td><span style="font-weight:600;color:var(--primary);font-size:0.85rem;">#<?php echo (int)$reply['floor']; ?></span></td>
+                            <td><code class="text-xs">#<?php echo $reply['id']; ?></code></td>
+                            <td><span class="floor-num">#<?php echo (int)$reply['floor']; ?></span></td>
                             <td>
                                 <div class="reply-preview" onclick="viewReplyContent(<?php echo $reply['id']; ?>)" title="<?php echo e(t('admin_replies_click_to_view', '点击查看完整内容')); ?>">
                                     <?php echo e($reply['content']); ?>
@@ -289,9 +196,9 @@ require_once dirname(__DIR__) . '/layout/header.php';
                                     <span class="reply-ref">↳ <?php echo e(t('admin_replies_reply_to_ref', '回复 #{n}', ['n' => $reply['reply_to']])); ?></span>
                                 <?php endif; ?>
                             </td>
-                            <td><a href="<?php echo site_url('profile', ['user_id' => (int)$reply['user_id']]); ?>" style="font-size:0.85rem;"><?php echo e($reply['username']); ?></a></td>
+                            <td><a href="<?php echo site_url('profile', ['user_id' => (int)$reply['user_id']]); ?>" class="text-sm"><?php echo e($reply['username']); ?></a></td>
                             <td>
-                                <a href="<?php echo site_url('post', ['id' => (int)$reply['post_id']]); ?>" target="_blank" style="font-size:0.8rem;">
+                                <a href="<?php echo site_url('post', ['id' => (int)$reply['post_id']]); ?>" target="_blank" class="text-xs">
                                     <?php $ptitle = e($reply['post_title']); ?>
                                     <?php echo mb_strlen($ptitle, 'UTF-8') > 22 ? mb_substr($ptitle, 0, 22, 'UTF-8') . '…' : $ptitle; ?>
                                 </a>
@@ -301,7 +208,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
                                 <div class="actions">
                                     <a href="<?php echo site_url('post', ['id' => (int)$reply['post_id']]); ?>#reply-<?php echo (int)$reply['id']; ?>" target="_blank" class="btn-icon" title="<?php echo e(t('admin_replies_action_view_in_post', '在原帖查看')); ?>"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></a>
                                     <button class="btn-icon" onclick="viewReplyContent(<?php echo $reply['id']; ?>)" title="<?php echo e(t('admin_replies_action_preview', '预览内容')); ?>"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></button>
-                                    <a href="<?php echo site_url('admin/replies', ['action' => 'delete', 'reply_id' => (int)$reply['id'], 'csrf_token' => csrf_token()]); ?>" class="btn-icon danger" data-confirm="<?php echo e(t('admin_replies_confirm_delete', '确定删除该回复吗？此操作不可撤销。')); ?>" title="<?php echo e(t('admin_replies_action_delete', '删除')); ?>"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></a>
+                                    <?php echo admin_action_form(site_url('admin/replies'), 'delete', ['reply_id' => (int)$reply['id']], '', ['class' => 'btn-icon danger', 'confirm' => t('admin_replies_confirm_delete', '确定删除该回复吗？此操作不可撤销。'), 'icon' => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg>', 'title' => t('admin_replies_action_delete', '删除')]); ?>
                                 </div>
                             </td>
                         </tr>
@@ -381,7 +288,11 @@ require_once dirname(__DIR__) . '/layout/header.php';
             return;
         }
 
-        fetch('<?php echo site_url('admin/api/replies_ajax'); ?>&action=get_content&reply_id=' + replyId + '&csrf_token=<?php echo csrf_token(); ?>')
+        var replyPreviewFd = new FormData();
+        replyPreviewFd.append('action', 'get_content');
+        replyPreviewFd.append('reply_id', replyId);
+        replyPreviewFd.append('csrf_token', <?php echo json_encode(csrf_token()); ?>);
+        fetch('<?php echo site_url('admin/api/replies_ajax'); ?>', { method: 'POST', body: replyPreviewFd, credentials: 'same-origin' })
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 if (data.success) {

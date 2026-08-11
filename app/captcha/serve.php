@@ -26,8 +26,9 @@ if (!isset($whitelist[$file])) {
 list($mime, $path) = $whitelist[$file];
 
 header('Content-Type: ' . $mime);
-header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
-header('Pragma: no-cache');
-header('Expires: Thu, 01 Jan 1970 00:00:00 GMT');
+// 静态资源（captcha.js / captcha.css）允许浏览器缓存 7 天：
+// 引用 URL 已带版本参数（?v=APP_VERSION），版本升级自动失效。
+// 验证码图片/接口的缓存头在各自端点中保持不缓存，不受此处影响。
+header('Cache-Control: public, max-age=604800');
 readfile($path);
 exit;

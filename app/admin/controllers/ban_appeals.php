@@ -7,6 +7,10 @@
  */
 
 require_once dirname(__DIR__) . '/layout/admin-init.php';
+require_once APP_ROOT . 'app/includes/mailer.php'; // functions.php 已懒加载 mailer，本文件审核通过后直接调用 send_mail，需自行引入
+
+// 权限门禁：申诉管理（超管天然通过；社区管理员需 manage_ban_appeals 权限）
+require_permission('manage_ban_appeals');
 
 $db = get_db();
 $action = $_GET['action'] ?? 'list';
@@ -18,6 +22,15 @@ $appealId = (int)($_GET['appeal_id'] ?? 0);
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!validate_csrf()) {
         set_flash(t('admin_appeals_flash_csrf_form', '安全校验失败（表单已过期），请刷新页面后重新操作。'), 'error');
+        redirect('/admin/ban_appeals');
+    }
+    // 删除申诉记录（POST 化，替代原 GET 删除链接）
+    if (($_POST['action'] ?? '') === 'delete') {
+        $delAppealId = (int)($_POST['appeal_id'] ?? 0);
+        if ($delAppealId > 0) {
+            $db->prepare("DELETE FROM ban_appeals WHERE id = :id")->execute([':id' => $delAppealId]);
+            set_flash(t('admin_appeals_flash_deleted', '申诉记录已删除。'), 'success');
+        }
         redirect('/admin/ban_appeals');
     }
     if (!isset($_POST['handle_appeal'])) {
@@ -144,16 +157,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     redirect('/admin/ban_appeals');
 }
 
-// 删除申诉记录
-// CSRF 统一校验：涉及状态变更的 GET 操作必须先通过校验，失败时明确提示（避免静默失败）
-if ($action === 'delete' && !validate_csrf()) {
-    set_flash(t('admin_appeals_flash_csrf_link', '安全校验失败（链接已过期），请刷新页面后重新操作。'), 'error');
-    redirect('/admin/ban_appeals');
-}
-
-if ($action === 'delete' && $appealId > 0) {
-    $db->prepare("DELETE FROM ban_appeals WHERE id = :id")->execute([':id' => $appealId]);
-    set_flash(t('admin_appeals_flash_deleted', '申诉记录已删除。'), 'success');
+// 旧 GET 删除链接命中：不执行删除，提示刷新（删除已改由上方 POST 分支处理）
+if ($action === 'delete') {
+    set_flash(t('post_flash_method_changed', '操作方式已变更，请刷新页面重试。'), 'error');
     redirect('/admin/ban_appeals');
 }
 
@@ -213,7 +219,7 @@ $stats = [
 // 申诉类型显示辅助
 function appeal_type_badge(?string $type): string {
     if ($type === 'mute') {
-        return '<span class="badge" style="background:#f59e0b;color:#fff;">' . e(t('admin_appeals_type_mute', '禁言申诉')) . '</span>';
+        return '<span class="badge badge-warn">' . e(t('admin_appeals_type_mute', '禁言申诉')) . '</span>';
     }
     return '<span class="badge badge-danger">' . e(t('admin_appeals_type_ban', '封禁申诉')) . '</span>';
 }
@@ -226,7 +232,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
 
 <div class="page-header">
     <h1 class="page-title"><?php echo e(t('admin_appeals_title', '申诉管理')); ?></h1>
-    <p class="text-muted" style="margin:0;"><?php echo e(t('admin_appeals_subtitle', '统一处理封禁申诉与禁言申诉')); ?></p>
+    <p class="text-muted ba-subtitle"><?php echo e(t('admin_appeals_subtitle', '统一处理封禁申诉与禁言申诉')); ?></p>
 </div>
 
 <!-- 统计卡片 -->
@@ -236,15 +242,15 @@ require_once dirname(__DIR__) . '/layout/header.php';
         <div class="stat-card-label"><?php echo e(t('admin_appeals_stat_total', '申诉总数')); ?></div>
     </div>
     <div class="stat-card">
-        <div class="stat-card-value" id="stat-pending" style="color:#f59e0b;"><?php echo $stats['pending']; ?></div>
+        <div class="stat-card-value stat-warn" id="stat-pending"><?php echo $stats['pending']; ?></div>
         <div class="stat-card-label"><?php echo e(t('admin_appeals_stat_pending', '待审核')); ?></div>
     </div>
     <div class="stat-card">
-        <div class="stat-card-value" id="stat-approved" style="color:#10b981;"><?php echo $stats['approved']; ?></div>
+        <div class="stat-card-value stat-success" id="stat-approved"><?php echo $stats['approved']; ?></div>
         <div class="stat-card-label"><?php echo e(t('admin_appeals_stat_approved', '已通过')); ?></div>
     </div>
     <div class="stat-card">
-        <div class="stat-card-value" id="stat-rejected" style="color:#ef4444;"><?php echo $stats['rejected']; ?></div>
+        <div class="stat-card-value stat-danger" id="stat-rejected"><?php echo $stats['rejected']; ?></div>
         <div class="stat-card-label"><?php echo e(t('admin_appeals_stat_rejected', '已拒绝')); ?></div>
     </div>
 </div>
@@ -286,13 +292,15 @@ require_once dirname(__DIR__) . '/layout/header.php';
                         <tr>
                             <td><?php echo appeal_type_badge($a['appeal_type'] ?? 'ban'); ?></td>
                             <td>
-                                <div style="font-weight:600;"><?php echo e($a['username']); ?></div>
-                                <div class="text-muted" style="font-size:0.75rem;"><?php echo e($a['email']); ?></div>
+                                <div class="font-semibold"><?php echo e($a['username']); ?></div>
+                                <?php if (is_super_admin()): ?>
+                                    <div class="text-muted text-xs"><?php echo e($a['email']); ?></div>
+                                <?php endif; ?>
                             </td>
-                            <td style="max-width:300px;">
-                                <div style="max-height:60px;overflow:hidden;text-overflow:ellipsis;"><?php echo e(mb_substr($a['appeal_reason'], 0, 100, 'UTF-8')); ?><?php if (mb_strlen($a['appeal_reason']) > 100) echo '…'; ?></div>
+                            <td class="ba-reason-cell">
+                                <div class="ba-reason-clamp"><?php echo e(mb_substr($a['appeal_reason'], 0, 100, 'UTF-8')); ?><?php if (mb_strlen($a['appeal_reason']) > 100) echo '…'; ?></div>
                             </td>
-                            <td style="max-width:200px;">
+                            <td class="ba-penalty-cell">
                                 <?php if ($a['ban_reason'] !== ''): ?>
                                     <?php echo e(mb_substr($a['ban_reason'], 0, 50, 'UTF-8')); ?>
                                 <?php else: ?>
@@ -311,7 +319,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
                             <td>
                                 <div><?php echo e(db_datetime($a['created_at'])); ?></div>
                                 <?php if (!empty($a['handled_at'])): ?>
-                                    <div class="text-muted" style="font-size:0.75rem;"><?php echo e(t('admin_ban_appeals_handled_at', '处理于 {time}', ['time' => db_datetime($a['handled_at'])])); ?></div>
+                                    <div class="text-muted text-xs"><?php echo e(t('admin_ban_appeals_handled_at', '处理于 {time}', ['time' => db_datetime($a['handled_at'])])); ?></div>
                                 <?php endif; ?>
                             </td>
                             <td>
@@ -319,7 +327,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
                                 <?php if ($a['status'] === 'pending'): ?>
                                     <a href="<?php echo site_url('admin/ban_appeals', ['action' => 'view', 'appeal_id' => (int)$a['id']]); ?>" class="btn btn-sm btn-primary"><?php echo e(t('admin_ban_appeals_review', '审核')); ?></a>
                                 <?php endif; ?>
-                                <a href="<?php echo site_url('admin/ban_appeals', ['action' => 'delete', 'appeal_id' => (int)$a['id'], 'csrf_token' => csrf_token()]); ?>" class="btn btn-sm btn-danger" data-confirm="<?php echo e(t('admin_ban_appeals_delete_confirm', '确定删除该申诉记录吗？')); ?>"><?php echo e(t('admin_ban_appeals_delete', '删除')); ?></a>
+                                <?php echo admin_action_form(site_url('admin/ban_appeals'), 'delete', ['appeal_id' => (int)$a['id']], t('admin_ban_appeals_delete', '删除'), ['class' => 'btn btn-sm btn-danger', 'confirm' => t('admin_ban_appeals_delete_confirm', '确定删除该申诉记录吗？')]); ?>
                             </td>
                         </tr>
                     <?php endforeach; ?>
@@ -338,33 +346,35 @@ if ($action === 'view' && $appealId > 0):
     $detail = $stmt->fetch();
     if ($detail):
 ?>
-<div class="modal-overlay" style="display:flex;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center;padding:1rem;" onclick="if(event.target===this)location.href='<?php echo site_url('admin/ban_appeals'); ?>';">
-    <div class="card" style="max-width:640px;width:100%;max-height:90vh;overflow-y:auto;">
+<div class="modal-overlay ba-detail-overlay" onclick="if(event.target===this)location.href='<?php echo site_url('admin/ban_appeals'); ?>';">
+    <div class="card ba-detail-card">
         <div class="card-header">
             <h2 class="card-title"><?php echo e(t('admin_ban_appeals_detail_title', '申诉详情')); ?></h2>
             <a href="<?php echo site_url('admin/ban_appeals'); ?>" class="btn btn-sm btn-secondary"><?php echo e(t('admin_ban_appeals_close', '关闭')); ?></a>
         </div>
 
-        <div style="padding:0 1.5rem 1.5rem;">
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:1rem;">
+        <div class="ba-detail-body">
+            <div class="ba-detail-grid">
                 <div>
-                    <div class="text-muted" style="font-size:0.75rem;"><?php echo e(t('admin_ban_appeals_detail_type', '申诉类型')); ?></div>
+                    <div class="text-muted text-xs"><?php echo e(t('admin_ban_appeals_detail_type', '申诉类型')); ?></div>
                     <div><?php echo appeal_type_badge($detail['appeal_type'] ?? 'ban'); ?></div>
                 </div>
                 <div>
-                    <div class="text-muted" style="font-size:0.75rem;"><?php echo e(t('admin_ban_appeals_detail_username', '用户名')); ?></div>
-                    <div style="font-weight:600;"><?php echo e($detail['username']); ?></div>
+                    <div class="text-muted text-xs"><?php echo e(t('admin_ban_appeals_detail_username', '用户名')); ?></div>
+                    <div class="font-semibold"><?php echo e($detail['username']); ?></div>
                 </div>
+                <?php if (is_super_admin()): ?>
+                    <div>
+                        <div class="text-muted text-xs"><?php echo e(t('admin_ban_appeals_detail_email', '邮箱')); ?></div>
+                        <div><?php echo e($detail['email']); ?></div>
+                    </div>
+                <?php endif; ?>
                 <div>
-                    <div class="text-muted" style="font-size:0.75rem;"><?php echo e(t('admin_ban_appeals_detail_email', '邮箱')); ?></div>
-                    <div><?php echo e($detail['email']); ?></div>
-                </div>
-                <div>
-                    <div class="text-muted" style="font-size:0.75rem;"><?php echo e(t('admin_ban_appeals_detail_submitted_at', '提交时间')); ?></div>
+                    <div class="text-muted text-xs"><?php echo e(t('admin_ban_appeals_detail_submitted_at', '提交时间')); ?></div>
                     <div><?php echo e(db_datetime($detail['created_at'])); ?></div>
                 </div>
                 <div>
-                    <div class="text-muted" style="font-size:0.75rem;"><?php echo e(t('admin_ban_appeals_detail_status', '状态')); ?></div>
+                    <div class="text-muted text-xs"><?php echo e(t('admin_ban_appeals_detail_status', '状态')); ?></div>
                     <?php if ($detail['status'] === 'pending'): ?>
                         <span class="badge badge-warning"><?php echo e(t('admin_ban_appeals_status_pending', '待审核')); ?></span>
                     <?php elseif ($detail['status'] === 'approved'): ?>
@@ -377,13 +387,13 @@ if ($action === 'view' && $appealId > 0):
 
             <div class="form-group">
                 <label class="form-label"><?php echo e(t('admin_ban_appeals_penalty_reason', '处罚原因')); ?></label>
-                <div style="padding:0.75rem;background:var(--surface-2);border-radius:var(--radius);"><?php echo e($detail['ban_reason'] !== '' ? $detail['ban_reason'] : t('admin_ban_appeals_287a1d','未填写')); ?></div>
+                <div class="ba-info-box"><?php echo e($detail['ban_reason'] !== '' ? $detail['ban_reason'] : t('admin_ban_appeals_287a1d','未填写')); ?></div>
             </div>
 
             <?php if (!empty($detail['ban_until'])): ?>
             <div class="form-group">
                 <label class="form-label"><?php echo e(t('admin_ban_appeals_penalty_until', '处罚期限')); ?></label>
-                <div style="padding:0.75rem;background:var(--surface-2);border-radius:var(--radius);"><?php echo e(date('Y-m-d H:i', db_time($detail['ban_until']))); ?></div>
+                <div class="ba-info-box"><?php echo e(date('Y-m-d H:i', db_time($detail['ban_until']))); ?></div>
             </div>
             <?php endif; ?>
 
@@ -445,6 +455,10 @@ endif;
     var currentPage = <?php echo $page; ?>;
     var perPage = <?php echo $perPage; ?>;
     var ajaxUrl = '<?php echo site_url('admin/api/ban_appeals_ajax'); ?>';
+        var banAppealsUrl = '<?php echo site_url('admin/ban_appeals'); ?>';
+        var csrfToken = '<?php echo csrf_token(); ?>';
+        var DEL_LABEL = <?php echo json_encode(t('admin_ban_appeals_delete', '删除')); ?>;
+        var DEL_CONFIRM = <?php echo json_encode(t('admin_ban_appeals_delete_confirm', '确定删除该申诉记录吗？')); ?>;
     var INTERVAL = 1000; // 1 秒（ban_appeals_ajax 服务端 1 秒缓存合并并发，不阻塞）
     var checking = false; // 请求去重：上一请求未返回时跳过本次轮询，避免堆积
 
@@ -478,17 +492,21 @@ endif;
         var reason = a.ban_reason !== '' ? escapeHtml(a.ban_reason.length > 50 ? a.ban_reason.substring(0, 50) : a.ban_reason) : <?php echo json_encode(t('admin_ban_appeals_22f2f3','<span class="text-muted">未填写</span>')); ?>;
         var appealText = a.appeal_reason.length > 100 ? a.appeal_reason.substring(0, 100) + '…' : a.appeal_reason;
 
-        var handledHtml = a.handled_at_fmt ? <?php echo json_encode(t('admin_ban_appeals_66f0c7','<div class="text-muted" style="font-size:0.75rem;">处理于 ')); ?> + escapeHtml(a.handled_at_fmt) + '</div>' : '';
+        var handledHtml = a.handled_at_fmt ? <?php echo json_encode(t('admin_ban_appeals_66f0c7','<div class="text-muted text-xs">处理于 ')); ?> + escapeHtml(a.handled_at_fmt) + '</div>' : '';
 
         var actionHtml = '<a href="<?php echo site_url('admin/ban_appeals'); ?>&action=view&appeal_id=' + a.id + <?php echo json_encode(t('admin_ban_appeals_803dce','" class="btn btn-sm btn-secondary">查看</a> ')); ?>;
         if (a.status === 'pending') {
             actionHtml += '<a href="<?php echo site_url('admin/ban_appeals'); ?>&action=view&appeal_id=' + a.id + <?php echo json_encode(t('admin_ban_appeals_53e582','" class="btn btn-sm btn-primary">审核</a> ')); ?>;
         }
-        actionHtml += '<a href="<?php echo site_url('admin/ban_appeals'); ?>&action=delete&appeal_id=' + a.id + '&csrf_token=' + <?php echo json_encode(csrf_token()); ?> + <?php echo json_encode(t('admin_ban_appeals_b82e0b','" class="btn btn-sm btn-danger" data-confirm="确定删除该申诉记录吗？">删除</a>')); ?>;
+        actionHtml += '<form method="post" action="' + banAppealsUrl + '" class="inline-action-form" data-confirm="' + escapeHtml(DEL_CONFIRM) + '" onsubmit="return confirm(this.getAttribute(\'data-confirm\'));">'
+            + '<input type="hidden" name="csrf_token" value="' + csrfToken + '">'
+            + '<input type="hidden" name="action" value="delete">'
+            + '<input type="hidden" name="appeal_id" value="' + a.id + '">'
+            + '<button type="submit" class="btn btn-sm btn-danger">' + escapeHtml(DEL_LABEL) + '</button></form> ';
 
         return '<tr>' +
             '<td>' + typeBadge + '</td>' +
-            '<td><div style="font-weight:600;">' + escapeHtml(a.username) + '</div><div class="text-muted" style="font-size:0.75rem;">' + escapeHtml(a.email) + '</div></td>' +
+            '<td><div style="font-weight:600;">' + escapeHtml(a.username) + '</div><div class="text-muted text-xs">' + escapeHtml(a.email) + '</div></td>' +
             '<td style="max-width:300px;"><div style="max-height:60px;overflow:hidden;text-overflow:ellipsis;">' + escapeHtml(appealText) + '</div></td>' +
             '<td style="max-width:200px;">' + reason + '</td>' +
             '<td>' + statusBadge + '</td>' +

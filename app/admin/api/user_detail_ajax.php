@@ -13,8 +13,16 @@
  */
 
 require_once APP_ROOT . 'app/includes/functions.php';
+require_once dirname(__DIR__) . '/layout/admin-helpers.php';
 
 if (!is_logged_in() || !is_admin()) {
+    http_response_code(403);
+    echo json_encode(['error' => t('admin_ajax_forbidden', '无权访问')], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+// 细粒度门禁：用户详情属用户管理，需 manage_user_dispose 权限（超管天然通过）
+if (!has_permission('manage_user_dispose')) {
     http_response_code(403);
     echo json_encode(['error' => t('admin_ajax_forbidden', '无权访问')], JSON_UNESCAPED_UNICODE);
     exit;
@@ -65,7 +73,9 @@ $stmt = $db->prepare("
                  AND r.status = 'resolved' AND r.created_at >= '{$cutoff}'
            ) AS recent_resolved_report_count,
            (SELECT COUNT(*) FROM sensitive_word_logs WHERE user_id = u.id AND action IN ('review','block') AND created_at >= '{$cutoff}') AS recent_sensitive_review_count,
-           (SELECT COUNT(*) FROM ban_appeals WHERE user_id = u.id AND status = 'rejected') AS rejected_appeal_count
+           (SELECT COUNT(*) FROM ban_appeals WHERE user_id = u.id AND status = 'rejected') AS rejected_appeal_count,
+           EXISTS (SELECT 1 FROM user_roles ur JOIN roles rr ON rr.id = ur.role_id
+               WHERE ur.user_id = u.id AND rr.name = 'community_admin') AS is_community_admin
     FROM users u
     WHERE u.id = :id
     LIMIT 1
@@ -136,14 +146,34 @@ try {
 $regDays       = !empty($u['created_at']) ? (int)max(0, floor((time() - db_time($u['created_at'])) / 86400)) : 0;
 $lastActiveTxt = !empty($u['last_active']) ? time_ago($u['last_active']) : t('admin_ajax_never', '从未');
 
+// 隐私控制：非超管（社区管理员）默认隐藏邮箱，申请披露经超管审核通过后可见
+$emailVisible = admin_can_view_email((int)$u['id']);
+// 一次性披露：展示即消耗（仅社区管理员经申请批准后查看时生效）
+if ($emailVisible) {
+    admin_consume_email_disclosure((int)$u['id']);
+}
+// 披露申请锁定：已有 pending / 未消费 approved 申请时隐藏申请入口（防重复提交）
+$edrLocked = 0;
+if (!is_super_admin() && (int)$u['id'] !== (int)($_SESSION['user_id'] ?? 0)) {
+    try {
+        $stmt = $db->prepare("SELECT COUNT(*) FROM email_disclosure_requests WHERE applicant_id = :aid AND target_user_id = :tid AND (status = 'pending' OR (status = 'approved' AND viewed_at IS NULL))");
+        $stmt->execute([':aid' => (int)($_SESSION['user_id'] ?? 0), ':tid' => (int)$u['id']]);
+        $edrLocked = (int)$stmt->fetchColumn() > 0 ? 1 : 0;
+    } catch (\Throwable $e) {
+        $edrLocked = 0;
+    }
+}
 // 扁平结构：前端 buildUserDrawerHtml(detail) 直接按字段取值
 $detail = [
     'id'              => (int)$u['id'],
     'uid'             => isset($u['uid']) && $u['uid'] !== null ? (int)$u['uid'] : null,
     'username'        => $u['username'],
-    'email'           => $u['email'] ?? '',
+    'email'           => $emailVisible ? ($u['email'] ?? '') : '',
+    'email_visible'   => $emailVisible ? 1 : 0,
+    'edr_locked'      => $edrLocked,
     'avatar'          => avatar_url($u['avatar'] ?? null, (string)$u['username']),
     'role'            => $u['role'] ?? 'user',
+    'is_community_admin' => !empty($u['is_community_admin']) ? 1 : 0,
     'status'          => $u['status'] ?? 'active',
     'status_fmt'      => format_user_status($u['status'] ?? 'active'),
     'status_reason'   => $u['status_reason'] ?? '',

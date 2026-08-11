@@ -5,6 +5,9 @@
 
 require_once dirname(__DIR__) . '/layout/admin-init.php';
 
+// 权限门禁：举报管理（超管天然通过；社区管理员需 manage_reports 权限）
+require_permission('manage_reports');
+
 $db = get_db();
 $action = $_GET['action'] ?? 'list';
 $reportId = (int)($_GET['report_id'] ?? 0);
@@ -50,15 +53,18 @@ if (in_array($action, ['resolve', 'reject'], true) && $reportId > 0 && validate_
     redirect('/admin/reports');
 }
 
-// CSRF 统一校验：涉及状态变更的 GET 操作必须先通过校验，失败时明确提示（避免静默失败）
-if ($action === 'delete' && !validate_csrf()) {
-    set_flash(t('admin_reports_flash_csrf_failed', '安全校验失败（链接已过期），请刷新页面后重新操作。'), 'error');
+// 删除举报记录：仅接受 POST（CSRF 由 admin-init.php 对所有 POST 统一校验）
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete') {
+    $delReportId = (int)($_POST['report_id'] ?? 0);
+    if ($delReportId > 0) {
+        $db->prepare("DELETE FROM reports WHERE id = :id")->execute([':id' => $delReportId]);
+        set_flash(t('admin_reports_flash_deleted', '举报记录已删除。'), 'success');
+    }
     redirect('/admin/reports');
 }
-
-if ($action === 'delete' && $reportId > 0) {
-    $db->prepare("DELETE FROM reports WHERE id = :id")->execute([':id' => $reportId]);
-    set_flash(t('admin_reports_flash_deleted', '举报记录已删除。'), 'success');
+// 旧 GET 删除链接命中：不执行删除，提示刷新
+if ($action === 'delete') {
+    set_flash(t('post_flash_method_changed', '操作方式已变更，请刷新页面重试。'), 'error');
     redirect('/admin/reports');
 }
 
@@ -199,7 +205,8 @@ require_once dirname(__DIR__) . '/layout/header.php';
                             <td><?php echo time_ago($report['created_at']); ?></td>
                             <td>
                                 <?php if ($report['status'] === 'pending'): ?>
-                                    <form method="POST" action="<?php echo site_url('admin/reports', ['action' => 'resolve', 'report_id' => (int)$report['id'], 'csrf_token' => csrf_token()]); ?>" style="display:inline-block;margin-bottom:0.25rem;">
+                                    <form method="POST" action="<?php echo site_url('admin/reports', ['action' => 'resolve', 'report_id' => (int)$report['id']]); ?>" style="display:inline-block;margin-bottom:0.25rem;">
+                                        <input type="hidden" name="csrf_token" value="<?php echo e(csrf_token()); ?>">
                                         <select name="handle_action" class="form-control form-control-sm" style="width:150px;display:inline-block;margin-right:0.25rem;" title="<?php echo e(t('admin_reports_handle_action', '处理动作')); ?>">
                                             <option value="none"><?php echo e(t('admin_reports_handle_mark_only', '仅标记已处理')); ?></option>
                                             <option value="delete"><?php echo e(t('admin_reports_handle_delete_content', '删除被举报内容')); ?></option>
@@ -207,7 +214,8 @@ require_once dirname(__DIR__) . '/layout/header.php';
                                         <input type="text" name="admin_note" class="form-control form-control-sm" placeholder="<?php echo e(t('admin_reports_note_placeholder', '处理备注（可选）')); ?>" style="width:140px;display:inline-block;margin-right:0.25rem;">
                                         <button type="submit" class="btn btn-sm btn-success"><?php echo e(t('admin_reports_btn_resolve', '处理')); ?></button>
                                     </form>
-                                    <form method="POST" action="<?php echo site_url('admin/reports', ['action' => 'reject', 'report_id' => (int)$report['id'], 'csrf_token' => csrf_token()]); ?>" style="display:inline-block;">
+                                    <form method="POST" action="<?php echo site_url('admin/reports', ['action' => 'reject', 'report_id' => (int)$report['id']]); ?>" style="display:inline-block;">
+                                        <input type="hidden" name="csrf_token" value="<?php echo e(csrf_token()); ?>">
                                         <button type="submit" class="btn btn-sm btn-secondary"><?php echo e(t('admin_reports_btn_reject', '驳回')); ?></button>
                                     </form>
                                 <?php else: ?>
@@ -219,7 +227,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
                                             <div><?php echo e(t('admin_reports_note_prefix', '备注：')); ?><?php echo e($report['admin_note']); ?></div>
                                         <?php endif; ?>
                                     </div>
-                                    <a href="<?php echo site_url('admin/reports', ['action' => 'delete', 'report_id' => (int)$report['id'], 'csrf_token' => csrf_token()]); ?>" class="btn btn-sm btn-danger" data-confirm="<?php echo e(t('admin_reports_confirm_delete', '确定删除该举报记录吗？')); ?>"><?php echo e(t('admin_reports_btn_delete', '删除')); ?></a>
+                                    <?php echo admin_action_form(site_url('admin/reports'), 'delete', ['report_id' => (int)$report['id']], t('admin_reports_btn_delete', '删除'), ['class' => 'btn btn-sm btn-danger', 'confirm' => t('admin_reports_confirm_delete', '确定删除该举报记录吗？')]); ?>
                                 <?php endif; ?>
                             </td>
                         </tr>
@@ -288,7 +296,8 @@ require_once dirname(__DIR__) . '/layout/header.php';
         // 操作
         var actionHtml = '';
         if (r.status === 'pending') {
-            actionHtml = '<form method="POST" action="<?php echo site_url('admin/reports'); ?>&action=resolve&report_id=' + r.id + '&csrf_token=' + csrfToken + '" style="display:inline-block;margin-bottom:0.25rem;">' +
+            actionHtml = '<form method="POST" action="<?php echo site_url('admin/reports'); ?>&action=resolve&report_id=' + r.id + '" style="display:inline-block;margin-bottom:0.25rem;">' +
+                '<input type="hidden" name="csrf_token" value="' + csrfToken + '">' +
                 '<select name="handle_action" class="form-control form-control-sm" style="width:150px;display:inline-block;margin-right:0.25rem;" title="' + escapeHtml(<?php echo json_encode(t('admin_reports_handle_action', '处理动作')); ?>) + '">' +
                 '<option value="none">' + escapeHtml(<?php echo json_encode(t('admin_reports_handle_mark_only', '仅标记已处理')); ?>) + '</option>' +
                 '<option value="delete">' + escapeHtml(<?php echo json_encode(t('admin_reports_handle_delete_content', '删除被举报内容')); ?>) + '</option>' +
@@ -296,7 +305,8 @@ require_once dirname(__DIR__) . '/layout/header.php';
                 '<input type="text" name="admin_note" class="form-control form-control-sm" placeholder="' + escapeHtml(<?php echo json_encode(t('admin_reports_note_placeholder', '处理备注（可选）')); ?>) + '" style="width:140px;display:inline-block;margin-right:0.25rem;">' +
                 '<button type="submit" class="btn btn-sm btn-success">' + escapeHtml(<?php echo json_encode(t('admin_reports_btn_resolve', '处理')); ?>) + '</button>' +
                 '</form>' +
-                '<form method="POST" action="<?php echo site_url('admin/reports'); ?>&action=reject&report_id=' + r.id + '&csrf_token=' + csrfToken + '" style="display:inline-block;">' +
+                '<form method="POST" action="<?php echo site_url('admin/reports'); ?>&action=reject&report_id=' + r.id + '" style="display:inline-block;">' +
+                '<input type="hidden" name="csrf_token" value="' + csrfToken + '">' +
                 '<button type="submit" class="btn btn-sm btn-secondary">' + escapeHtml(<?php echo json_encode(t('admin_reports_btn_reject', '驳回')); ?>) + '</button>' +
                 '</form>';
         } else {
@@ -308,7 +318,11 @@ require_once dirname(__DIR__) . '/layout/header.php';
                 actionHtml += '<div>' + escapeHtml(<?php echo json_encode(t('admin_reports_note_prefix', '备注：')); ?>) + escapeHtml(r.admin_note) + '</div>';
             }
             actionHtml += '</div>';
-            actionHtml += ' <a href="<?php echo site_url('admin/reports'); ?>&action=delete&report_id=' + r.id + '&csrf_token=' + csrfToken + '" class="btn btn-sm btn-danger" data-confirm="' + escapeHtml(<?php echo json_encode(t('admin_reports_confirm_delete', '确定删除该举报记录吗？')); ?>) + '">' + escapeHtml(<?php echo json_encode(t('admin_reports_btn_delete', '删除')); ?>) + '</a>';
+            actionHtml += ' <form method="post" action="<?php echo site_url('admin/reports'); ?>" class="inline-action-form" data-confirm="' + escapeHtml(<?php echo json_encode(t('admin_reports_confirm_delete', '确定删除该举报记录吗？')); ?>) + '" onsubmit="return confirm(this.getAttribute(\'data-confirm\'));">' +
+                '<input type="hidden" name="csrf_token" value="' + csrfToken + '">' +
+                '<input type="hidden" name="action" value="delete">' +
+                '<input type="hidden" name="report_id" value="' + r.id + '">' +
+                '<button type="submit" class="btn btn-sm btn-danger">' + escapeHtml(<?php echo json_encode(t('admin_reports_btn_delete', '删除')); ?>) + '</button></form>';
         }
 
         return '<tr>' +

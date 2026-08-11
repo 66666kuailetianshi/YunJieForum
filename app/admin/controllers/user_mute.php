@@ -7,6 +7,9 @@
 
 require_once dirname(__DIR__) . '/layout/admin-init.php';
 
+// 权限门禁：用户处置（禁言）——超管天然通过；社区管理员需 manage_user_dispose 权限
+require_permission('manage_user_dispose');
+
 $db = get_db();
 $userId = (int)($_GET['user_id'] ?? 0);
 $errors = [];
@@ -27,6 +30,12 @@ if (!$user) {
 
 if ($user['role'] === 'admin') {
     set_flash(t('admin_usermute_cannot_mute_admin', '不能对管理员账号执行禁言操作。'), 'error');
+    redirect('/admin/users');
+}
+
+// 层级保护：非超级管理员不得对社区管理员执行禁言
+if (!is_super_admin() && admin_user_has_role($userId, 'community_admin')) {
+    set_flash(t('admin_users_cannot_operate_community_admin', '不能对社区管理员执行该操作。'), 'error');
     redirect('/admin/users');
 }
 

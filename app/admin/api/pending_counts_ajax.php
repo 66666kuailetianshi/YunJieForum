@@ -16,21 +16,28 @@ if (!is_logged_in() || !is_admin()) {
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-cache, no-store, must-revalidate');
 
+// 按权限按需查询：只返回当前用户有权查看的菜单项对应的计数，
+// 无权项不下发（前端侧栏对应菜单已隐藏，badge 元素也不存在）。
+$canReports    = has_permission('manage_reports');
+$canBanAppeals = has_permission('manage_ban_appeals');
+$canPwReset    = is_super_admin();
+
 // 1 秒服务端缓存：合并多管理员/多标签页的并发轮询，避免每次请求都查 3 张表（防阻塞）
-$data = realtime_cache('admin_pending_counts', 1, function () {
-    return [
-        'reports'        => get_pending_report_count(),
-        'ban_appeals'    => get_pending_ban_appeal_count(),
-        'password_reset' => get_pending_password_reset_count(),
-    ];
+// 缓存 key 按权限组合区分，避免不同权限管理员互相看到对方的计数
+$cacheKey = 'admin_pending_counts_' . ($canReports ? 1 : 0) . ($canBanAppeals ? 1 : 0) . ($canPwReset ? 1 : 0);
+$data = realtime_cache($cacheKey, 1, function () use ($canReports, $canBanAppeals, $canPwReset) {
+    $out = [];
+    if ($canReports)    $out['reports']        = get_pending_report_count();
+    if ($canBanAppeals) $out['ban_appeals']    = get_pending_ban_appeal_count();
+    if ($canPwReset)    $out['password_reset'] = get_pending_password_reset_count();
+    return $out;
 });
 
 if (!is_array($data)) {
-    $data = [
-        'reports'        => get_pending_report_count(),
-        'ban_appeals'    => get_pending_ban_appeal_count(),
-        'password_reset' => get_pending_password_reset_count(),
-    ];
+    $data = [];
+    if ($canReports)    $data['reports']        = get_pending_report_count();
+    if ($canBanAppeals) $data['ban_appeals']    = get_pending_ban_appeal_count();
+    if ($canPwReset)    $data['password_reset'] = get_pending_password_reset_count();
 }
 
 echo json_encode($data, JSON_UNESCAPED_UNICODE);

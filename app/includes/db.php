@@ -44,17 +44,10 @@ function get_db_driver(): AbstractDriver {
 function get_db(): PDO {
     $driver = get_db_driver();
     try {
+        // 连接探活已由 get_db_driver() 内置的 5 秒节流探活 + reconnect 覆盖
+        // （含 "MySQL server has gone away" 恢复），此处不再无条件执行 SELECT 1，
+        // 避免同一请求内 5-10 次 get_db() 调用各自重复探活。
         $db = $driver->pdo();
-        // 快速探活：检测持久连接是否已被 MySQL 超时断开
-        try {
-            $db->query('SELECT 1');
-        } catch (\PDOException $e) {
-            if (stripos($e->getMessage(), 'gone away') !== false) {
-                $driver->reconnect();
-            } else {
-                throw $e;
-            }
-        }
     } catch (\Throwable $e) {
         // 首次连接失败时也尝试重连（兜底）
         try {
@@ -62,8 +55,8 @@ function get_db(): PDO {
         } catch (\Throwable $ignored) {
             throw $e;
         }
+        $db = $driver->pdo();
     }
-    $db = $driver->pdo();
     auto_migrate();
     return $db;
 }
@@ -155,6 +148,8 @@ function ensure_core_tables(PDO $db): void {
         banned_until DATETIME DEFAULT NULL,
         muted_until DATETIME DEFAULT NULL,
         status_reason TEXT DEFAULT '',
+        login_fails INTEGER DEFAULT 0,
+        login_locked_until DATETIME DEFAULT NULL,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )");
     ddl_exec("CREATE TABLE IF NOT EXISTS forum_categories (
@@ -247,7 +242,7 @@ function mark_migration_done(): void {
  */
 function ensure_schema_patch(PDO $db): void {
     $patchFile = DATA_PATH . 'db_patch_version.lock';
-    if ((int)@file_get_contents($patchFile) >= 3) {
+    if ((int)@file_get_contents($patchFile) >= 7) {
         return;
     }
     ensure_mail_logs_table($db);
@@ -265,7 +260,17 @@ function ensure_schema_patch(PDO $db): void {
             $ins->execute([':v' => SITE_LANG]);
         }
     }
-    @file_put_contents($patchFile, '3', LOCK_EX);
+    // v4：账号级登录锁定列（失败计数 + 锁定到期时间，存量库补齐）
+    migrate_column($db, 'users', 'login_fails', 'INTEGER DEFAULT 0');
+    migrate_column($db, 'users', 'login_locked_until', 'DATETIME DEFAULT NULL');
+    // v5：邮箱披露申请表（社区管理员查看用户邮箱需申请并经超管审核）
+    ensure_email_disclosure_table($db);
+    // v6：邮箱披露一次性查看列（批准后仅可查看一次）+ 工单系统表
+    migrate_column($db, 'email_disclosure_requests', 'viewed_at', 'DATETIME DEFAULT NULL');
+    ensure_tickets_table($db);
+// v7：工单来源列（user=前台用户反馈 / admin=后台管理员工单）
+    migrate_column($db, 'tickets', 'source', "VARCHAR(10) NOT NULL DEFAULT 'admin'");
+    @file_put_contents($patchFile, '7', LOCK_EX);
 }
 
 /**
@@ -328,6 +333,9 @@ function auto_migrate(): void {
             migrate_column($db, 'users', 'security_question', 'TEXT DEFAULT NULL');
             migrate_column($db, 'users', 'security_answer_hash', 'TEXT DEFAULT NULL');
             migrate_column($db, 'users', 'force_password_change', 'INTEGER DEFAULT 0');
+            // 账号级登录锁定列（存量库补齐，全新安装由 CREATE TABLE 直接包含）
+            migrate_column($db, 'users', 'login_fails', 'INTEGER DEFAULT 0');
+            migrate_column($db, 'users', 'login_locked_until', 'DATETIME DEFAULT NULL');
             ensure_reports_table($db);
             ensure_notifications_table($db);
             ensure_mail_logs_table($db);
@@ -337,6 +345,8 @@ function auto_migrate(): void {
             ensure_sensitive_words_tables($db);
             init_default_sensitive_words($db);
             ensure_ban_appeals_table($db);
+            ensure_email_disclosure_table($db);
+            ensure_tickets_table($db);
             ensure_site_pages_table($db);
             init_default_site_pages($db);
             ensure_announcements_table($db);
@@ -377,7 +387,8 @@ function is_forum_installed(): bool {
     }
     $cacheFile = APP_ROOT . 'data/installed_check.cache';
     if (is_file($cacheFile)) {
-        $data = @unserialize((string)@file_get_contents($cacheFile));
+        // JSON 格式缓存；旧 serialize 格式文件 json_decode 失败返回 null，视为 miss 自然重建
+        $data = json_decode((string)@file_get_contents($cacheFile), true);
         if (is_array($data) && isset($data['time']) && (time() - (int)$data['time']) < 30) {
             $cache = (bool)$data['ok'];
             return $cache;
@@ -389,7 +400,7 @@ function is_forum_installed(): bool {
         $requiredTables = ['users', 'posts', 'forums', 'replies', 'forum_categories'];
         $missing = array_diff($requiredTables, $tables);
         $ok = empty($missing);
-        @file_put_contents($cacheFile, serialize(['time' => time(), 'ok' => $ok]), LOCK_EX);
+        @file_put_contents($cacheFile, json_encode(['time' => time(), 'ok' => $ok]), LOCK_EX);
         $cache = $ok;
         return $ok;
     } catch (\Throwable $e) {
@@ -448,7 +459,7 @@ function ensure_db_indexes(): void {
     $done = true;
 
     $idxFile = APP_ROOT . 'data/db_index_version.lock';
-    $currentIdxVersion = 3; // 新增索引时递增此版本号
+    $currentIdxVersion = 4; // 新增索引时递增此版本号
     if ((int)@file_get_contents($idxFile) >= $currentIdxVersion) {
         return;
     }
@@ -486,6 +497,24 @@ function ensure_db_indexes(): void {
             // 站内信：会话/未读查询（pm_messages 表无 recipient_id 列，收件箱按 sender_id/conversation_id 查询）
             'pm_messages' => [
                 'idx_pm_messages_conv'     => 'pm_messages(conversation_id, created_at)',
+            ],
+            // v4：头部/私信/公告热路径索引
+            // 通知：头部未读通知查询（idx_notifications_user 三列索引已可覆盖，此处按规格补双列索引）
+            'notifications' => [
+                'idx_notifications_user_read' => 'notifications(user_id, is_read)',
+            ],
+            // 收藏：头部下拉统计与收藏列表（UNIQUE(user_id, post_id) 前缀亦可服务，按规格显式补建）
+            'favorites' => [
+                'idx_favorites_user'       => 'favorites(user_id)',
+            ],
+            // 私信会话：未读子查询按 user1_id / user2_id 两侧检索
+            'pm_conversations' => [
+                'idx_pm_conv_user1'        => 'pm_conversations(user1_id)',
+                'idx_pm_conv_user2'        => 'pm_conversations(user2_id)',
+            ],
+            // 公告：每页头部 is_active 公告查询
+            'announcements' => [
+                'idx_announcements_active' => 'announcements(is_active)',
             ],
             // 流量统计：traffic_visitors 表实际列为 visit_date / last_visit，
             // 已在 ensure_remaining_tables 中建 idx_visitors_date / idx_visitors_last_visit，
@@ -655,6 +684,60 @@ function ensure_ban_appeals_table(PDO $db): void {
     // 申诉类型：'ban' 封禁申诉 / 'mute' 禁言申诉（旧数据默认 ban）
     migrate_column($db, 'ban_appeals', 'appeal_type', "VARCHAR(20) DEFAULT 'ban'");
     ddl_exec("CREATE INDEX IF NOT EXISTS idx_ba_type ON ban_appeals(appeal_type, status)");
+}
+
+/**
+ * 确保邮箱披露申请表存在
+ *
+ * 社区管理员默认隐藏用户邮箱（隐私保护），可对目标用户发起披露申请并说明原因，
+ * 由超级管理员审核（pending -> approved / rejected）；审核通过后申请人可见该用户邮箱。
+ */
+function ensure_email_disclosure_table(PDO $db): void {
+    ddl_exec("CREATE TABLE IF NOT EXISTS email_disclosure_requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        applicant_id INTEGER NOT NULL,
+        target_user_id INTEGER NOT NULL,
+        reason TEXT NOT NULL,
+        status VARCHAR(20) DEFAULT 'pending',
+        admin_note TEXT DEFAULT '',
+        handled_by INTEGER DEFAULT NULL,
+        handled_at DATETIME DEFAULT NULL,
+        viewed_at DATETIME DEFAULT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (applicant_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (target_user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (handled_by) REFERENCES users(id) ON DELETE SET NULL
+    )");
+    ddl_exec("CREATE INDEX IF NOT EXISTS idx_edr_status ON email_disclosure_requests(status, created_at DESC)");
+    ddl_exec("CREATE INDEX IF NOT EXISTS idx_edr_applicant ON email_disclosure_requests(applicant_id, created_at DESC)");
+}
+
+/**
+ * 确保工单表存在（工单系统：社区管理员与超级管理员协作反馈/处理问题）
+ */
+function ensure_tickets_table(PDO $db): void {
+    ddl_exec("CREATE TABLE IF NOT EXISTS tickets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title VARCHAR(200) NOT NULL,
+        content TEXT NOT NULL,
+        reporter_id INTEGER NOT NULL,
+        source VARCHAR(10) NOT NULL DEFAULT 'admin',
+        status VARCHAR(20) DEFAULT 'open',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (reporter_id) REFERENCES users(id) ON DELETE CASCADE
+    )");
+    ddl_exec("CREATE TABLE IF NOT EXISTS ticket_replies (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticket_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        content TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )");
+    ddl_exec("CREATE INDEX IF NOT EXISTS idx_tickets_status ON tickets(status, created_at DESC)");
+    ddl_exec("CREATE INDEX IF NOT EXISTS idx_ticket_replies_ticket ON ticket_replies(ticket_id, created_at)");
 }
 
 /**
@@ -1730,6 +1813,8 @@ function init_db(): void {
     migrate_column($db, 'users', 'banned_until', 'DATETIME DEFAULT NULL');
     migrate_column($db, 'users', 'muted_until', 'DATETIME DEFAULT NULL');
     migrate_column($db, 'users', 'status_reason', 'TEXT DEFAULT \'\'');
+    migrate_column($db, 'users', 'login_fails', 'INTEGER DEFAULT 0');
+    migrate_column($db, 'users', 'login_locked_until', 'DATETIME DEFAULT NULL');
 
     // 补充 role 列（兼容从旧版本升级的安装）
     migrate_column($db, 'users', 'role', "VARCHAR(20) DEFAULT 'user'");
@@ -1989,6 +2074,8 @@ function init_db(): void {
     $defaultRoles = [
         ['moderator', '版主', 'manage_posts,manage_replies,manage_users,manage_forums'],
         ['vip', 'VIP用户', ''],
+        // 社区管理员：两级管理员体系的内置角色（带后台准入但不含超管专属权限）
+        ['community_admin', '社区管理员', 'admin_access,manage_posts,manage_replies,manage_reports,manage_ban_appeals,manage_user_dispose'],
     ];
     foreach ($defaultRoles as $role) {
         $stmt = ddl_prepare($db, "INSERT OR IGNORE INTO roles (name, display_name, permissions) VALUES (:name, :display_name, :permissions)");

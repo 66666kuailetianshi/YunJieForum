@@ -19,6 +19,12 @@ if (!is_admin()) {
     exit;
 }
 
+// 细粒度门禁：邮件通知属邮件中心，仅超级管理员可用
+if (!is_super_admin()) {
+    echo json_encode(['success' => false, 'error' => t('common_super_admin_only', '该功能仅最高管理员可用。')], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 $action = $_POST['action'] ?? '';
 
 try {

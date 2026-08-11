@@ -1,0 +1,20 @@
+H_ADMIN	管理后台
+H_TABLE	表格
+H_MAIL	邮件中心
+H_LIGHTBOX	BBCode 图片预览 & 灯箱
+H_RISK	用户管理 - 风险详情
+H_FOOTLANG	页脚语言切换
+H_USERS1	用户管理页 · 全新 UI（紧凑 / 现代 / 响应式）
+L_CARD_START	.card-toolbar {
+L_CARD_END	.card-header {
+L_TABLEC_START	/* 紧凑表格：后台用户管理 */
+L_RESPONSIVE_END	.table-responsive {
+L_MODAL_START	/* admin 控制器使用的 .modal-box 默认样式（兼容旧调用方；建议新代码用 .modal-dialog） */
+L_MODAL_END	.modal-sm {
+L_MAIL2_START	.mail-tab svg {
+L_EMPTY	/* 空状态 */
+L_USERS2_START	/* 响应式：小屏下卡片 2 列，工具条元素撑满 */
+L_USERS2_END	/* 分页增强 */
+L_USERSRESP_START	/* 响应式微调 */
+L_TABLET_ADMIN_START	    .admin-grid {
+L_TABLET_ADMIN_END	    .container {

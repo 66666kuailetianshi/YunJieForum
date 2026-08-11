@@ -72,7 +72,7 @@
     'admin_ajax_reply_not_found'                 => 'Reply does not exist',
 
     // ---------- User bulk operations ----------
-    'admin_ajax_bulk_role_limited'               => 'Only "User" or "Moderator" can be set in bulk; administrators cannot be set in bulk.',
+    'admin_ajax_bulk_role_limited'               => 'Only "Regular User" or "Community Admin" can be set in bulk; administrators cannot be set in bulk.',
     'admin_ajax_bulk_success'                    => 'Operation successful, {affected} users affected.',
     'admin_ajax_pm_content_empty'                => 'The PM content cannot be empty.',
     'admin_ajax_pm_select_recipients'            => 'Please select recipients or specify a filter scope.',

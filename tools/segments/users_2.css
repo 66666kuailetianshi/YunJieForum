@@ -1,0 +1,201 @@
+/* 响应式：小屏下卡片 2 列，工具条元素撑满 */
+@media (max-width: 768px) {
+    .stats-grid-compact {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    .toolbar-field-grow {
+        flex: 1 1 100%;
+        max-width: none;
+    }
+    .admin-toolbar-form .btn {
+        flex: 1 1 auto;
+    }
+    .user-table .col-actions {
+        min-width: 0;
+    }
+    .user-table .action-btns {
+        flex-wrap: wrap;
+        gap: 0.25rem;
+    }
+    .user-table .action-btns .btn {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.75rem;
+    }
+}
+
+/* ============================================
+   用户管理页 UI 优化（覆盖与补充）
+   ============================================ */
+
+/* 统计卡片：图标独立色块 + 更协调的数值 */
+.stats-grid-compact {
+    gap: 0.875rem;
+}
+.stats-grid-compact .stat-card {
+    gap: 0.875rem;
+    padding: 1rem 1.25rem;
+    min-height: 0;
+}
+.stats-grid-compact .stat-card-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border-radius: var(--radius-sm);
+    background: var(--primary-light);
+    color: var(--primary);
+}
+.stats-grid-compact .stat-card:nth-child(2) .stat-card-icon { background: var(--error-light); color: var(--error); }
+.stats-grid-compact .stat-card:nth-child(3) .stat-card-icon { background: var(--warning-light); color: var(--warning); }
+.stats-grid-compact .stat-card:nth-child(4) .stat-card-icon { background: var(--info-light); color: var(--info); }
+.stats-grid-compact .stat-card-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--text);
+}
+.stats-grid-compact .stat-card:nth-child(2) .stat-card-value { color: var(--error); }
+.stats-grid-compact .stat-card:nth-child(3) .stat-card-value { color: var(--warning); }
+.stats-grid-compact .stat-card:nth-child(4) .stat-card-value { color: var(--info); }
+.stats-grid-compact .stat-card-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-top: 0.125rem;
+}
+.stats-grid-compact .stat-card::before {
+    height: 0;
+}
+
+/* 筛选工具条：仅保留表单，更紧凑 */
+.card-toolbar {
+    align-items: flex-start;
+    padding: 0.75rem;
+}
+.admin-toolbar-form {
+    gap: 0.5rem;
+}
+.toolbar-field-select .form-control { min-width: 110px; width: auto; }
+.toolbar-field-date .form-control { min-width: 140px; width: auto; }
+.admin-toolbar-form .form-control,
+.admin-toolbar-form .btn {
+    height: 2.25rem;
+    padding-top: 0;
+    padding-bottom: 0;
+    line-height: 2.25rem;
+    font-size: 0.875rem;
+}
+
+/* 表格卡片头部 */
+.user-list-card {
+    padding: 1rem 1.25rem 1.25rem;
+}
+.user-list-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--border-soft);
+}
+.user-list-header .card-title {
+    font-size: 1rem;
+    font-weight: 700;
+    margin: 0;
+}
+.user-list-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-shrink: 0;
+}
+.user-list-actions .btn {
+    white-space: nowrap;
+}
+
+/* 表格优化 */
+.user-table thead th {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: none;
+    letter-spacing: 0;
+    background: var(--surface-2);
+    border-bottom: 1px solid var(--border);
+    padding: 0.625rem 0.75rem;
+}
+.user-table tbody td {
+    padding: 0.625rem 0.75rem;
+    border-bottom: 1px solid var(--border-soft);
+}
+.user-table tbody tr:nth-child(even) td {
+    background: rgba(241, 245, 249, 0.5);
+}
+.user-table tbody tr:hover td {
+    background: var(--primary-light);
+}
+.user-table .col-actions {
+    width: 120px;
+    min-width: 120px;
+}
+
+/* 柔和徽章 */
+.badge-soft-success { background: var(--success-light); color: #065f46; }
+.badge-soft-warning { background: var(--warning-light); color: var(--warning-dark); }
+.badge-soft-danger { background: var(--error-light); color: #991b1b; }
+.badge-soft-primary { background: var(--primary-light); color: var(--primary-dark); }
+.badge-soft-secondary { background: var(--surface-3); color: var(--text-secondary); }
+.badge-outline {
+    background: transparent;
+    border: 1px solid currentColor;
+}
+
+/* 操作下拉菜单 */
+.action-dropdown {
+    position: relative;
+}
+.dropdown-toggle {
+    white-space: nowrap;
+}
+.dropdown-menu {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    z-index: 100;
+    min-width: 140px;
+    padding: 0.35rem 0;
+    margin-top: 0.25rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-md);
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-4px);
+    transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s ease;
+}
+.dropdown-menu.open {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+}
+.dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.875rem;
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+    white-space: nowrap;
+    transition: var(--transition);
+}
+.dropdown-item:hover {
+    background: var(--surface-2);
+    color: var(--text);
+}
+.dropdown-divider {
+    height: 1px;
+    margin: 0.35rem 0;
+    background: var(--border-soft);
+}
+

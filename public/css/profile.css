@@ -327,3 +327,40 @@
         font-size: var(--text-xs);
     }
 }
+
+/* ============================================
+   内联样式收敛（模板仅注入自定义属性，配色交给 CSS）
+   ============================================ */
+
+/* 等级徽章：动态色由模板以 --profile-level-color 注入 */
+.profile-level-badge {
+    background: var(--profile-level-color, var(--brand));
+}
+
+/* 勋章：动态色由模板以 --medal-color 注入，边框沿用 currentColor */
+.profile-medal {
+    color: var(--medal-color, var(--brand));
+}
+
+/* 头像预览行 */
+.avatar-preview {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-bottom: var(--space-3);
+}
+
+/* 卡片内空状态：比全局 .empty-state 更紧凑 */
+.profile-card .empty-state {
+    padding: var(--space-6) var(--space-4);
+}
+
+/* 收藏列表内的「取消收藏」文字按钮 */
+.btn-fav-remove {
+    font-size: var(--text-sm);
+    color: var(--text-3);
+}
+
+.btn-fav-remove:hover {
+    color: var(--error);
+}

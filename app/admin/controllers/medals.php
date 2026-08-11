@@ -5,20 +5,27 @@
 
 require_once dirname(__DIR__) . '/layout/admin-init.php';
 
+// 权限门禁：勋章管理仅超级管理员可用
+require_super_admin();
+
 $db = get_db();
 $action = $_GET['action'] ?? 'list';
 $medalId = (int)($_GET['medal_id'] ?? 0);
 $errors = [];
 
-// CSRF 统一校验：涉及状态变更的 GET 操作必须先通过校验，失败时明确提示（避免静默失败）
-if ($action === 'delete' && !validate_csrf()) {
-    set_flash(t('admin_medals_csrf_failed', '安全校验失败（链接已过期），请刷新页面后重新操作。'), 'error');
+// 删除：仅接受 POST（CSRF 由 admin-init.php 对所有 POST 统一校验）
+// 注意：必须置于下方泛化 POST 保存分支之前，命中后直接 redirect
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete') {
+    $delMedalId = (int)($_POST['medal_id'] ?? 0);
+    if ($delMedalId > 0) {
+        $db->prepare("DELETE FROM medals WHERE id = :id")->execute([':id' => $delMedalId]);
+        set_flash(t('admin_medals_flash_deleted', '勋章已删除。'), 'success');
+    }
     redirect('/admin/medals');
 }
-
-if ($action === 'delete' && $medalId > 0) {
-    $db->prepare("DELETE FROM medals WHERE id = :id")->execute([':id' => $medalId]);
-    set_flash(t('admin_medals_flash_deleted', '勋章已删除。'), 'success');
+// 旧 GET 删除链接命中：不执行删除，提示刷新
+if ($action === 'delete') {
+    set_flash(t('post_flash_method_changed', '操作方式已变更，请刷新页面重试。'), 'error');
     redirect('/admin/medals');
 }
 
@@ -126,7 +133,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
                             </td>
                             <td>
                                 <a href="<?php echo site_url('admin/medals', ['action' => 'edit', 'medal_id' => (int)$m['id']]); ?>" class="btn btn-sm btn-secondary"><?php echo e(t('admin_medals_action_edit', '编辑')); ?></a>
-                                <a href="<?php echo site_url('admin/medals', ['action' => 'delete', 'medal_id' => (int)$m['id'], 'csrf_token' => csrf_token()]); ?>" class="btn btn-sm btn-danger" data-confirm="<?php echo e(t('admin_medals_confirm_delete', "确定删除该勋章吗？\n已授予该勋章的用户记录也会被一并移除。")); ?>"><?php echo e(t('admin_medals_action_delete', '删除')); ?></a>
+                                <?php echo admin_action_form(site_url('admin/medals'), 'delete', ['medal_id' => (int)$m['id']], t('admin_medals_action_delete', '删除'), ['class' => 'btn btn-sm btn-danger', 'confirm' => t('admin_medals_confirm_delete', "确定删除该勋章吗？\n已授予该勋章的用户记录也会被一并移除。")] ); ?>
                             </td>
                         </tr>
                     <?php endforeach; ?>

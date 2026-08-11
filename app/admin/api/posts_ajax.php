@@ -8,6 +8,8 @@ ob_start();
 
 require_once APP_ROOT . 'app/includes/functions.php';
 require_once APP_ROOT . 'app/includes/db.php';
+// 后台公共辅助函数（帖子动作 flag 等，供后续接口复用）
+require_once APP_ROOT . 'app/admin/layout/admin-helpers.php';
 
 if (!is_logged_in() || !is_admin()) {
     ob_end_clean();
@@ -16,10 +18,18 @@ if (!is_logged_in() || !is_admin()) {
     exit;
 }
 
-$action = $_GET['action'] ?? '';
+// 细粒度门禁：帖子管理需 manage_posts 权限（超管天然通过）
+if (!has_permission('manage_posts')) {
+    ob_end_clean();
+    http_response_code(403);
+    echo json_encode(['error' => t('admin_ajax_forbidden', '无权访问')], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+$action = $_SERVER['REQUEST_METHOD'] === 'POST' ? (string)($_POST['action'] ?? '') : '';
 
 if ($action === 'get_content' && validate_csrf()) {
-    $postId = (int)($_GET['post_id'] ?? 0);
+    $postId = (int)($_POST['post_id'] ?? 0);
     if ($postId <= 0) {
         ob_end_clean();
         echo json_encode(['success' => false, 'error' => t('admin_ajax_invalid_post_id', '无效的帖子 ID')]);

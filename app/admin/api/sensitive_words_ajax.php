@@ -23,6 +23,13 @@ if (!is_logged_in() || !is_admin()) {
     exit;
 }
 
+// 细粒度门禁：敏感词管理仅超级管理员可用
+if (!is_super_admin()) {
+    http_response_code(403);
+    echo json_encode(['error' => t('common_super_admin_only', '该功能仅最高管理员可用。')], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
     echo json_encode(['error' => t('admin_ajax_post_only', '仅支持 POST 请求')], JSON_UNESCAPED_UNICODE);

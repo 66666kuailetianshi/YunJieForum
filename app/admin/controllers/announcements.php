@@ -7,6 +7,10 @@
 
 $activeMenu = 'announcements';
 require_once dirname(__DIR__) . '/layout/admin-init.php';
+
+// 权限门禁：公告管理仅超级管理员可用
+require_super_admin();
+
 $pageTitle = t('admin_ann_title', '公告管理');
 
 $db = get_db();
@@ -14,24 +18,25 @@ $action = $_GET['action'] ?? 'list';
 $annId = (int)($_GET['id'] ?? 0);
 $errors = [];
 
-// CSRF 统一校验：涉及状态变更的 GET 操作必须先通过校验，失败时明确提示（避免静默失败）
-if (in_array($action, ['delete', 'toggle'], true) && !validate_csrf()) {
-    set_flash(t('admin_ann_csrf_failed', '安全校验失败（链接已过期），请刷新页面后重新操作。'), 'error');
+// 删除/启用禁用切换：仅接受 POST（CSRF 由 admin-init.php 对所有 POST 统一校验）
+// 注意：必须置于下方泛化 POST 保存分支之前，命中后直接 redirect
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['action'] ?? '', ['delete', 'toggle'], true)) {
+    $postAnnId = (int)($_POST['id'] ?? 0);
+    if ($postAnnId > 0) {
+        if ($_POST['action'] === 'delete') {
+            $db->prepare("DELETE FROM announcements WHERE id = :id")->execute([':id' => $postAnnId]);
+            set_flash(t('admin_ann_flash_deleted', '公告已删除。'), 'success');
+        } else {
+            $stmt = $db->prepare("UPDATE announcements SET is_active = CASE WHEN is_active = 1 THEN 0 ELSE 1 END WHERE id = :id");
+            $stmt->execute([':id' => $postAnnId]);
+            set_flash(t('admin_ann_flash_status_updated', '公告状态已更新。'), 'success');
+        }
+    }
     redirect('/admin/announcements');
 }
-
-// GET: 删除公告
-if ($action === 'delete' && $annId > 0) {
-    $db->prepare("DELETE FROM announcements WHERE id = :id")->execute([':id' => $annId]);
-    set_flash(t('admin_ann_flash_deleted', '公告已删除。'), 'success');
-    redirect('/admin/announcements');
-}
-
-// GET: 启用/禁用切换
-if ($action === 'toggle' && $annId > 0) {
-    $stmt = $db->prepare("UPDATE announcements SET is_active = CASE WHEN is_active = 1 THEN 0 ELSE 1 END WHERE id = :id");
-    $stmt->execute([':id' => $annId]);
-    set_flash(t('admin_ann_flash_status_updated', '公告状态已更新。'), 'success');
+// 旧 GET 写操作链接命中：不执行写操作，提示刷新
+if (in_array($action, ['delete', 'toggle'], true)) {
+    set_flash(t('post_flash_method_changed', '操作方式已变更，请刷新页面重试。'), 'error');
     redirect('/admin/announcements');
 }
 
@@ -154,9 +159,9 @@ require_once dirname(__DIR__) . '/layout/header.php';
                                 <td><?php echo (int)$a['display_order']; ?></td>
                                 <td><?php echo e(date('Y-m-d H:i', db_time($a['created_at']))); ?></td>
                                 <td>
-                                    <a href="<?php echo site_url('admin/announcements', ['action' => 'toggle', 'id' => (int)$a['id'], 'csrf_token' => csrf_token()]); ?>" class="btn btn-sm btn-secondary"><?php echo (int)$a['is_active'] === 1 ? e(t('admin_ann_action_disable', '禁用')) : e(t('admin_ann_action_enable', '启用')); ?></a>
+                                    <?php echo admin_action_form(site_url('admin/announcements'), 'toggle', ['id' => (int)$a['id']], (int)$a['is_active'] === 1 ? t('admin_ann_action_disable', '禁用') : t('admin_ann_action_enable', '启用'), ['class' => 'btn btn-sm btn-secondary']); ?>
                                     <a href="<?php echo site_url('admin/announcements', ['action' => 'edit', 'id' => (int)$a['id']]); ?>" class="btn btn-sm btn-secondary"><?php echo e(t('admin_ann_action_edit', '编辑')); ?></a>
-                                    <a href="<?php echo site_url('admin/announcements', ['action' => 'delete', 'id' => (int)$a['id'], 'csrf_token' => csrf_token()]); ?>" class="btn btn-sm btn-danger" data-confirm="<?php echo e(t('admin_ann_confirm_delete', '确定删除该公告吗？此操作不可撤销。')); ?>"><?php echo e(t('admin_ann_action_delete', '删除')); ?></a>
+                                    <?php echo admin_action_form(site_url('admin/announcements'), 'delete', ['id' => (int)$a['id']], t('admin_ann_action_delete', '删除'), ['class' => 'btn btn-sm btn-danger', 'confirm' => t('admin_ann_confirm_delete', '确定删除该公告吗？此操作不可撤销。')]); ?>
                                 </td>
                             </tr>
                         <?php endforeach; ?>

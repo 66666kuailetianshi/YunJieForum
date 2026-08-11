@@ -22,6 +22,13 @@ if (!is_logged_in() || !is_admin()) {
     exit;
 }
 
+// 细粒度门禁：敏感词日志仅超级管理员可用
+if (!is_super_admin()) {
+    http_response_code(403);
+    echo json_encode(['error' => t('common_super_admin_only', '该功能仅最高管理员可用。')], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-cache, no-store, must-revalidate');
 

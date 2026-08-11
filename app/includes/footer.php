@@ -32,25 +32,27 @@ if (is_logged_in() && !is_admin()):
     (function () {
         // 排除封禁页本身，避免死循环
         if (location.pathname.indexOf('banned') !== -1 || location.search.indexOf('route=banned') !== -1) return;
-        var INTERVAL = 5000; // 5 秒轮询，封禁后最多 5 秒内感知
+        var INTERVAL = 10000; // 10 秒轮询，封禁后最多 10 秒内感知（端点带 3 秒服务端缓存）
         var timer = null;
         var MUTE_DEFAULT = <?php echo json_encode(t('mute_tip_default', '你当前处于禁言状态，无法发帖或回复。')); ?>;
         var PM_NEW = <?php echo json_encode(t('pm_new_message', ' 给你发来新消息')); ?>;
         // 显示/隐藏禁言提示条（禁言不踢下线，仅提示并拦截发帖/回帖）
+        // 样式由 .toast/.mute-tip/.mute-tip--floating 组件类提供，配合 .is-visible 切换显隐
         function showMuteTip(m) {
             var el = document.getElementById('mute-tip');
             if (!el) {
                 el = document.createElement('div');
                 el.id = 'mute-tip';
-                el.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:9999;background:#fef3c7;color:#92400e;padding:10px 18px;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.15);font-size:14px;max-width:90vw;text-align:center;';
+                el.className = 'toast mute-tip mute-tip--floating';
+                el.setAttribute('role', 'status');
                 document.body.appendChild(el);
             }
             el.textContent = (m && m.message) ? m.message : MUTE_DEFAULT;
-            el.style.display = 'block';
+            el.classList.add('is-visible');
         }
         function hideMuteTip() {
             var el = document.getElementById('mute-tip');
-            if (el) el.style.display = 'none';
+            if (el) el.classList.remove('is-visible');
         }
         function checkBan() {
             try {
@@ -137,19 +139,19 @@ if (is_logged_in()):
             if (!wrap) {
                 wrap = document.createElement('div');
                 wrap.id = 'pm-toast-wrap';
-                wrap.style.cssText = 'position:fixed;top:16px;right:16px;z-index:99999;display:flex;flex-direction:column;gap:10px;max-width:340px;width:calc(100vw - 32px);';
+                wrap.className = 'pm-toast-wrap';
                 document.body.appendChild(wrap);
             }
             var toast = document.createElement('a');
             toast.href = '<?php echo site_url('pm', ['action' => 'view']); ?>&id=' + latest.conversation_id;
-            toast.style.cssText = 'display:flex;align-items:center;gap:10px;background:#fff;border:1px solid var(--border,#e5e7eb);border-left:4px solid var(--primary,#6366f1);border-radius:12px;padding:10px 12px;box-shadow:0 8px 24px rgba(0,0,0,.14);text-decoration:none;color:inherit;animation:pmToastIn .3s ease;';
+            toast.className = 'pm-toast';
             toast.innerHTML =
-                '<img src="' + latest.avatar + '" alt="" style="width:36px;height:36px;border-radius:50%;flex-shrink:0;object-fit:cover;background:#f1f5f9;">' +
-                '<div style="min-width:0;flex:1;">' +
-                '<div style="font-weight:600;font-size:13px;line-height:1.4;">' + escapeHtml(latest.username) + PM_NEW + '</div>' +
-                '<div style="font-size:12px;color:#6b7280;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px;">' + escapeHtml(latest.content) + '</div>' +
+                '<img src="' + latest.avatar + '" alt="" class="pm-toast-avatar">' +
+                '<div class="pm-toast-body">' +
+                '<div class="pm-toast-title">' + escapeHtml(latest.username) + PM_NEW + '</div>' +
+                '<div class="pm-toast-content">' + escapeHtml(latest.content) + '</div>' +
                 '</div>' +
-                '<button type="button" data-close-toast style="border:none;background:none;color:#9ca3af;cursor:pointer;font-size:14px;line-height:1;padding:2px 4px;" aria-label="' . e(t('common_close_aria', '关闭')) . '">×</button>';
+                '<button type="button" data-close-toast class="pm-toast-close" aria-label="' . e(t('common_close_aria', '关闭')) . '">×</button>';
             wrap.appendChild(toast);
 
             var closer = toast.querySelector('[data-close-toast]');

@@ -17,7 +17,6 @@ if (is_logged_in()) {
 
 $errors = [];
 $account = '';
-$credKey = get_remember_credentials_key();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // ---- 阶段 1：安全校验（CSRF + 验证码），仅收集错误，不阻断后续流程 ----
@@ -45,7 +44,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errors[] = t('login_agree_terms_required', '请阅读并同意用户协议与隐私政策。');
     }
 
-    // ---- 阶段 3：无错误时执行登录逻辑 ----
+    // ---- 阶段 3：登录锁定校验 ----
+    // 连续失败达阈值（LOGIN_MAX_FAILS）后账号进入锁定期，锁定中直接拒绝登录。
+    // 错误文案与「账号或密码错误」完全一致，不透露锁定状态，防止账号枚举。
+    if (empty($errors) && login_lock_check($account)) {
+        $errors[] = t('login_account_password_error', '账号或密码错误。');
+    }
+
+    // ---- 阶段 4：无错误时执行登录逻辑 ----
     if (empty($errors)) {
         $db = get_db();
         $stmt = $db->prepare("SELECT * FROM users WHERE LOWER(username) = LOWER(:account1) OR LOWER(email) = LOWER(:account2) LIMIT 1");
@@ -61,6 +67,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     . ' hash_prefix=' . substr($user['password'], 0, 8) . ' len=' . strlen($user['password']));
             }
             captcha_record_signal('login_fail');
+            // 记录一次失败；达阈值后自动写入 15 分钟锁定
+            login_lock_hit($account);
             $errors[] = t('login_account_password_error', '账号或密码错误。');
         } else {
             // 检查账号是否被封禁
@@ -76,6 +84,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ];
                 redirect('/banned');
             } else {
+                // 登录成功：清零失败计数与锁定状态
+                login_lock_clear($account);
                 // 重新生成 session id，防止会话固定攻击
                 session_regenerate_id(true);
                 $_SESSION['user_id'] = (int)$user['id'];
@@ -129,7 +139,7 @@ include APP_ROOT . 'app/includes/header.php';
 ?>
 
 <div class="auth-container">
-    <div class="card">
+    <div class="card auth-card">
         <div class="auth-header">
             <img src="../public/images/logo.svg" alt="" class="auth-logo">
             <h1 class="auth-title"><?php echo e(t('login_welcome_title', '欢迎回来')); ?></h1>
@@ -153,22 +163,22 @@ include APP_ROOT . 'app/includes/header.php';
                 <input type="password" class="form-control" id="password" name="password" autocomplete="current-password" required>
             </div>
             <div class="form-group">
-                <label class="flex items-center gap-1" style="cursor: pointer;">
+                <label class="flex items-center gap-1 auth-check">
                     <input type="checkbox" id="remember" name="remember" value="1">
-                    <span><?php echo e(t('login_remember', '记住账号密码并保持登录')); ?></span>
+                    <span><?php echo e(t('login_remember_me', '保持登录')); ?></span>
                 </label>
             </div>
             <div class="form-group">
-                <label class="flex items-start gap-1" style="cursor: pointer; line-height: 1.5;">
+                <label class="flex items-start gap-1 auth-check">
                     <input type="checkbox" id="agree_terms" name="agree_terms" value="1">
-                    <span style="font-size: 0.875rem;">
+                    <span class="auth-agree-text">
                         <?php echo e(t('login_agree_intro', '我已阅读并同意')); ?>
                         <a href="<?php echo site_url('terms'); ?>" target="_blank"><?php echo e(t('login_terms_text', '用户协议')); ?></a>
                         <?php echo e(t('login_and', '和')); ?>
                         <a href="<?php echo site_url('privacy'); ?>" target="_blank"><?php echo e(t('login_privacy_text', '隐私政策')); ?></a>
                     </span>
                 </label>
-                <div id="agree-terms-error" class="form-error" style="display: none; margin-top: 0.25rem; color: var(--error); font-size: 0.875rem;"><?php echo e(t('login_agree_error', '请阅读并同意用户协议与隐私政策。')); ?></div>
+                <div id="agree-terms-error" class="form-error is-initially-hidden"><?php echo e(t('login_agree_error', '请阅读并同意用户协议与隐私政策。')); ?></div>
             </div>
             <?php if (captcha_enabled()): ?>
             <div class="form-group" data-captcha-wrap>
@@ -181,16 +191,18 @@ include APP_ROOT . 'app/includes/header.php';
 
         <script>
         (function () {
+            // 安全升级后的存量清理：旧版「记住账号密码」会把明文凭据加密后存入 localStorage，
+            // 加密密钥由非 HttpOnly cookie（forum_cred_key）下发，任何 XSS 即可解密还原明文，
+            // 该机制已整体移除，「保持登录」改由服务端 HttpOnly cookie（forum_remember）实现。
+            // 此处一次性清除客户端残留的密文与密钥 cookie。
+            try { localStorage.removeItem('forum_credentials'); } catch (e) {}
+            document.cookie = 'forum_cred_key=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
+
             var form = document.getElementById('login-form');
-            var accountInput = document.getElementById('account');
-            var passwordInput = document.getElementById('password');
-            var rememberCheckbox = document.getElementById('remember');
             var agreeCheckbox = document.getElementById('agree_terms');
             var agreeError = document.getElementById('agree-terms-error');
-            var rawKey = <?php echo json_encode($credKey, JSON_UNESCAPED_UNICODE); ?>;
-            var storageKey = 'forum_credentials';
 
-            if (!form || !accountInput || !passwordInput) return;
+            if (!form) return;
 
             function hideAgreeError() {
                 if (agreeError) agreeError.style.display = 'none';
@@ -204,104 +216,6 @@ include APP_ROOT . 'app/includes/header.php';
 
             if (agreeCheckbox) agreeCheckbox.addEventListener('change', hideAgreeError);
 
-            if (rememberCheckbox) {
-                rememberCheckbox.addEventListener('change', function () {
-                    if (!rememberCheckbox.checked) {
-                        localStorage.removeItem(storageKey);
-                    }
-                });
-            }
-
-            function bufferToBase64(buffer) {
-                var bytes = new Uint8Array(buffer);
-                var binary = '';
-                for (var i = 0; i < bytes.byteLength; i++) {
-                    binary += String.fromCharCode(bytes[i]);
-                }
-                return btoa(binary);
-            }
-
-            function base64ToBuffer(base64) {
-                var binary = atob(base64);
-                var bytes = new Uint8Array(binary.length);
-                for (var i = 0; i < binary.length; i++) {
-                    bytes[i] = binary.charCodeAt(i);
-                }
-                return bytes;
-            }
-
-            // 检测浏览器是否支持 Web Crypto API（需要 HTTPS 或 localhost）
-            var cryptoSupported = typeof crypto !== 'undefined' && typeof crypto.subtle !== 'undefined' && typeof TextEncoder !== 'undefined';
-
-            function getKey() {
-                if (!cryptoSupported) return Promise.reject(new Error('crypto.subtle 不可用'));
-                var enc = new TextEncoder();
-                return crypto.subtle.digest('SHA-256', enc.encode(rawKey)).then(function (hash) {
-                    return crypto.subtle.importKey('raw', hash, {name: 'AES-GCM'}, false, ['encrypt', 'decrypt']);
-                });
-            }
-
-            function encrypt(text, key) {
-                var iv = crypto.getRandomValues(new Uint8Array(12));
-                var enc = new TextEncoder();
-                return crypto.subtle.encrypt({name: 'AES-GCM', iv: iv}, key, enc.encode(text)).then(function (ciphertext) {
-                    return JSON.stringify({
-                        iv: bufferToBase64(iv),
-                        data: bufferToBase64(ciphertext)
-                    });
-                });
-            }
-
-            function decrypt(payload, key) {
-                var parsed = JSON.parse(payload);
-                var iv = base64ToBuffer(parsed.iv);
-                var data = base64ToBuffer(parsed.data);
-                return crypto.subtle.decrypt({name: 'AES-GCM', iv: iv}, key, data).then(function (plain) {
-                    return new TextDecoder().decode(plain);
-                });
-            }
-
-            function saveCredentials() {
-                if (!rememberCheckbox || !rememberCheckbox.checked) return Promise.resolve();
-                if (!cryptoSupported) return Promise.resolve(); // 不可用时跳过加密存储
-                var account = accountInput.value;
-                var password = passwordInput.value;
-                if (!account || !password) return Promise.resolve();
-                return getKey().then(function (key) {
-                    return Promise.all([
-                        encrypt(account, key),
-                        encrypt(password, key)
-                    ]);
-                }).then(function (results) {
-                    localStorage.setItem(storageKey, JSON.stringify({
-                        account: results[0],
-                        password: results[1]
-                    }));
-                });
-            }
-
-            function loadCredentials() {
-                if (!cryptoSupported) return; // 不可用时跳过加载
-                var stored = localStorage.getItem(storageKey);
-                if (!stored) return;
-                getKey().then(function (key) {
-                    var parsed = JSON.parse(stored);
-                    return Promise.all([
-                        decrypt(parsed.account, key),
-                        decrypt(parsed.password, key)
-                    ]);
-                }).then(function (values) {
-                    accountInput.value = values[0];
-                    passwordInput.value = values[1];
-                    if (rememberCheckbox) rememberCheckbox.checked = true;
-                }).catch(function () {
-                    // 解密失败（如密钥变更）则清除旧数据
-                    localStorage.removeItem(storageKey);
-                });
-            }
-
-            loadCredentials();
-
             form.addEventListener('submit', function (e) {
                 if (agreeCheckbox && !agreeCheckbox.checked) {
                     e.preventDefault();
@@ -310,16 +224,6 @@ include APP_ROOT . 'app/includes/header.php';
                     return false;
                 }
                 hideAgreeError();
-
-                if (rememberCheckbox && rememberCheckbox.checked) {
-                    e.preventDefault();
-                    saveCredentials().then(function () {
-                        form.submit();
-                    }).catch(function () {
-                        form.submit();
-                    });
-                    return false;
-                }
             });
         })();
         </script>

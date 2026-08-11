@@ -20,14 +20,13 @@ include APP_ROOT . 'app/includes/header.php';
     <span class="breadcrumb-current"><?php echo e(t('terms_page_title', '用户协议')); ?></span>
 </nav>
 
-<div class="card" style="max-width: 900px; margin: 0 auto;">
-    <div class="page-header" style="border-bottom: 1px solid var(--border); padding-bottom: 1rem;">
-        <h1 class="page-title"><?php echo e($pageData['title'] ?? t('terms_page_title', '用户协议')); ?></h1>
-        <p class="text-muted"><?php echo e(t('terms_last_updated', '最后更新日期：{date}', ['date' => $pageData['updated_at'] ?? date('Y-m-d')])); ?></p>
-    </div>
+<div class="card doc-page">
+    <header class="doc-header">
+        <h1><?php echo e($pageData['title'] ?? t('terms_page_title', '用户协议')); ?></h1>
+        <p class="doc-updated"><?php echo e(t('terms_last_updated', '最后更新日期：{date}', ['date' => $pageData['updated_at'] ?? date('Y-m-d')])); ?></p>
+    </header>
 
-    <div class="terms-content" style="line-height: 1.8; padding: 1rem 0;">
-        <?php if ($pageData): ?>
+    <?php if ($pageData): ?>
             <?php echo $pageData['content']; ?>
         <?php else: ?>
             <p><?php echo e(t('terms_intro', '欢迎您使用 {site}（以下简称"本论坛"）。请您仔细阅读以下用户协议内容。当您完成注册或登录流程时，即视为您已充分阅读、理解并同意接受本协议的全部条款。', ['site' => SITE_NAME])); ?></p>
@@ -75,29 +74,7 @@ include APP_ROOT . 'app/includes/header.php';
                 <li><?php echo e(t('terms_s7_i2', '如本协议任何条款被认定为无效或不可执行，不影响其他条款的效力。')); ?></li>
                 <li><?php echo e(t('terms_s7_i3', '如您对本协议有任何疑问，可通过站内信或管理员邮箱与我们联系。')); ?></li>
             </ol>
-        <?php endif; ?>
-    </div>
+    <?php endif; ?>
 </div>
-
-<style>
-.terms-content h2 {
-    font-size: 1.25rem;
-    font-weight: 600;
-    margin-top: 1.75rem;
-    margin-bottom: 0.75rem;
-    color: var(--text);
-}
-.terms-content ol,
-.terms-content ul {
-    padding-left: 1.5rem;
-    margin-bottom: 1rem;
-}
-.terms-content li {
-    margin-bottom: 0.5rem;
-}
-.terms-content p {
-    margin-bottom: 1rem;
-}
-</style>
 
 <?php include APP_ROOT . 'app/includes/footer.php'; ?>

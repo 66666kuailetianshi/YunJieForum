@@ -1,0 +1,36 @@
+/* admin 控制器使用的 .modal-box 默认样式（兼容旧调用方；建议新代码用 .modal-dialog） */
+.modal-box {
+    width: 100%;
+    max-width: 560px;
+    max-height: calc(100vh - 2rem);
+    overflow-y: auto;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-xl);
+    display: flex;
+    flex-direction: column;
+}
+
+/* 无外框浮层：用于「内容自带背景/边框」的预览类弹窗（邮件预览、模板预览等）。
+   去掉白底/边框/阴影，避免「白框套白框」。header 仍保留白底作为浮层顶部标识。 */
+.modal-box-flat {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+}
+.modal-box-flat .modal-header {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-bottom: 1px solid var(--border-soft);
+    border-top-left-radius: var(--radius-lg);
+    border-top-right-radius: var(--radius-lg);
+}
+.modal-box-flat .modal-body {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-top: none;
+    border-bottom-left-radius: var(--radius-lg);
+    border-bottom-right-radius: var(--radius-lg);
+}
+

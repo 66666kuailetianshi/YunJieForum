@@ -171,6 +171,7 @@ $routes = [
     'terms'                     => 'terms',
     'disclaimer'                => 'disclaimer',
     'service'                   => 'service',
+    'ticket'                    => 'ticket',
 ];
 
 $controller = $routes[$route] ?? null;

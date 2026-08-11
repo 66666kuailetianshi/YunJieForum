@@ -1,7 +1,7 @@
 <?php
 /**
  * 云界论坛 - 退出登录
- * 需要 CSRF 校验，防止通过 <img src="logout.php"> 强制登出
+ * 仅接受 POST（表单提交），防止通过 <img src="logout.php"> 或 GET 链接强制登出
  */
 
 require_once APP_ROOT . 'app/includes/functions.php';
@@ -11,7 +11,12 @@ if (file_exists(INSTALLED_FILE) === false) {
     redirect('/install');
 }
 
-// CSRF 校验：支持 GET 参数 csrf_token（前台导航退出链接）
+// GET 命中不登出，直接回首页
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    redirect('/');
+}
+
+// CSRF 校验（从 POST 表单隐藏域读取）
 if (!validate_csrf()) {
     set_flash(t('logout_f13f10','退出登录失败，请重试。'), 'error');
     redirect('/');

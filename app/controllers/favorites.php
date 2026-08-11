@@ -16,11 +16,15 @@ update_last_active();
 $db = get_db();
 $userId = (int)$_SESSION['user_id'];
 
-// 处理取消收藏
-$action = isset($_GET['action']) ? $_GET['action'] : '';
+// 处理取消收藏（写操作统一走 POST，GET 分支仅作旧链接兼容提示）
+$action = isset($_REQUEST['action']) ? $_REQUEST['action'] : '';
 if ($action === 'remove') {
-    $removeId = (int)($_GET['id'] ?? 0);
-    $token = isset($_GET['csrf_token']) ? $_GET['csrf_token'] : '';
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        set_flash(t('fav_method_changed', '操作方式已变更，请刷新页面重试。'), 'error');
+        redirect('/favorites');
+    }
+    $removeId = (int)($_POST['id'] ?? 0);
+    $token = isset($_POST['csrf_token']) ? $_POST['csrf_token'] : '';
     if ($removeId > 0 && validate_csrf($token)) {
         $stmt = $db->prepare("DELETE FROM favorites WHERE user_id = :uid AND post_id = :pid");
         $stmt->execute([':uid' => $userId, ':pid' => $removeId]);
@@ -61,6 +65,11 @@ $pageTitle = t('fav_page_title', '我的收藏');
 include APP_ROOT . 'app/includes/header.php';
 ?>
 
+<style>
+/* 收藏列表操作区内联 POST 小表单 */
+.post-stats form.inline-form { display: inline; margin: 0; }
+</style>
+
 <nav class="breadcrumb" aria-label="<?php echo e(t('fav_breadcrumb_aria', '面包屑导航')); ?>">
     <a href="/"><?php echo e(t('fav_home', '首页')); ?></a>
     <span class="breadcrumb-separator">/</span>
@@ -100,11 +109,14 @@ include APP_ROOT . 'app/includes/header.php';
                 <div class="post-stats">
                     <span class="post-stat"><?php echo ui_icon('eye', 14); ?> <?php echo (int)$item['views']; ?></span>
                     <span class="post-stat"><?php echo ui_icon('message', 14); ?> <?php echo (int)$item['replies_count']; ?></span>
-                    <a class="btn btn-sm btn-danger"
-                       href="<?php echo site_url('favorites', ['action' => 'remove', 'id' => (int)$item['id'], 'csrf_token' => $csrfToken]); ?>"
-                       data-confirm="<?php echo e(t('fav_remove_confirm', '确定取消收藏这篇帖子吗？')); ?>">
-                        <?php echo e(t('fav_remove', '取消收藏')); ?>
-                    </a>
+                    <form method="post" action="<?php echo e(site_url('favorites')); ?>" class="inline-form">
+                        <input type="hidden" name="csrf_token" value="<?php echo e($csrfToken); ?>">
+                        <input type="hidden" name="action" value="remove">
+                        <input type="hidden" name="id" value="<?php echo (int)$item['id']; ?>">
+                        <button type="submit" class="btn btn-sm btn-danger" data-confirm="<?php echo e(t('fav_remove_confirm', '确定取消收藏这篇帖子吗？')); ?>">
+                            <?php echo e(t('fav_remove', '取消收藏')); ?>
+                        </button>
+                    </form>
                 </div>
             </article>
         <?php endforeach; ?>

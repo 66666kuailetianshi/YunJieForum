@@ -10,7 +10,7 @@
     'login_login_site' => '登入 {site}',
     'login_label_account' => '使用者名稱或電子郵件',
     'login_label_password' => '密碼',
-    'login_remember' => '記住帳號密碼並保持登入',
+    'login_remember_me' => '保持登入',
     'login_agree_intro' => '我已閱讀並同意',
     'login_terms_text' => '使用者條款',
     'login_and' => '和',

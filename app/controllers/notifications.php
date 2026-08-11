@@ -15,22 +15,31 @@ require_login();
 $db = get_db();
 $userId = (int)$_SESSION['user_id'];
 
-// 标记全部已读
+// 标记全部已读：仅接受 POST
 $action = $_GET['action'] ?? '';
-if ($action === 'mark_all_read') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'mark_all_read') {
     if (!validate_csrf()) {
-        set_flash(t('notif_csrf_failed', '安全校验失败（链接已过期），请刷新页面后重新操作。'), 'error');
+        set_flash(t('notif_csrf_failed', '安全校验失败，请刷新页面后重新操作。'), 'error');
         redirect('/notifications');
     }
     $stmt = $db->prepare("UPDATE notifications SET is_read = 1 WHERE user_id = :user_id AND is_read = 0");
     $stmt->execute([':user_id' => $userId]);
     set_flash(t('notif_all_marked_read', '全部通知已标记为已读。'), 'success');
-    $redirect = $_GET['redirect'] ?? '/notifications';
-    // 仅允许相对路径或本站路径，防止开放重定向
-    if (!is_string($redirect) || preg_match('#^(https?://|//|javascript:)#i', $redirect)) {
+    $redirect = $_POST['redirect'] ?? '/notifications';
+    // 白名单校验：仅接受以 / 或 ? 开头、不含 // 与反斜杠、不带 scheme 的站内相对路径，防止开放重定向
+    if (!is_string($redirect)
+        || (strpos($redirect, '/') !== 0 && strpos($redirect, '?') !== 0)
+        || strpos($redirect, '//') !== false
+        || strpos($redirect, '\\') !== false
+        || preg_match('/^[a-z0-9+.-]+:/i', $redirect)) {
         $redirect = '/notifications';
     }
     redirect($redirect);
+}
+// 旧 GET 链接命中：不执行写操作，提示刷新
+if ($action === 'mark_all_read') {
+    set_flash(t('post_flash_method_changed', '操作方式已变更，请刷新页面重试。'), 'error');
+    redirect('/notifications');
 }
 
 $page = max(1, (int)($_GET['page'] ?? 1));
@@ -55,7 +64,12 @@ include APP_ROOT . 'app/includes/header.php';
 <div class="page-header">
     <h1 class="page-title"><?php echo e(t('notif_page_title', '我的通知')); ?></h1>
     <div class="page-tools">
-        <a href="<?php echo site_url('notifications', ['action' => 'mark_all_read', 'csrf_token' => csrf_token()]); ?>" class="btn btn-secondary"><?php echo e(t('notif_mark_all_read', '全部已读')); ?></a>
+        <form method="post" action="<?php echo site_url('notifications'); ?>" class="inline-action-form">
+            <input type="hidden" name="csrf_token" value="<?php echo e(csrf_token()); ?>">
+            <input type="hidden" name="action" value="mark_all_read">
+            <input type="hidden" name="redirect" value="/notifications">
+            <button type="submit" class="btn btn-secondary"><?php echo e(t('notif_mark_all_read', '全部已读')); ?></button>
+        </form>
     </div>
 </div>
 
@@ -71,18 +85,23 @@ include APP_ROOT . 'app/includes/header.php';
         <ul class="notification-full-list">
             <?php foreach ($notifications as $n): ?>
                 <li class="notification-full-item <?php echo (int)$n['is_read'] === 0 ? 'is-unread' : 'is-read'; ?>">
-                    <a href="<?php echo site_url('notification_read', ['id' => (int)$n['id'], 'csrf_token' => csrf_token()]); ?>" class="notification-full-link">
-                        <div class="notification-full-main">
-                            <div class="notification-full-title"><?php echo e($n['title']); ?></div>
-                            <?php if ($n['content'] !== ''): ?>
-                                <div class="notification-full-content"><?php echo e($n['content']); ?></div>
+                    <form method="post" action="<?php echo site_url('notification_read'); ?>" class="inline-action-form notification-full-form">
+                        <input type="hidden" name="csrf_token" value="<?php echo e(csrf_token()); ?>">
+                        <input type="hidden" name="id" value="<?php echo (int)$n['id']; ?>">
+                        <input type="hidden" name="link" value="<?php echo e($n['link'] ?? ''); ?>">
+                        <button type="submit" class="notification-full-link">
+                            <div class="notification-full-main">
+                                <div class="notification-full-title"><?php echo e($n['title']); ?></div>
+                                <?php if ($n['content'] !== ''): ?>
+                                    <div class="notification-full-content"><?php echo e($n['content']); ?></div>
+                                <?php endif; ?>
+                                <div class="notification-full-time"><?php echo time_ago($n['created_at']); ?></div>
+                            </div>
+                            <?php if ((int)$n['is_read'] === 0): ?>
+                                <span class="notification-unread-dot" aria-label="<?php echo e(t('notif_unread', '未读')); ?>"></span>
                             <?php endif; ?>
-                            <div class="notification-full-time"><?php echo time_ago($n['created_at']); ?></div>
-                        </div>
-                        <?php if ((int)$n['is_read'] === 0): ?>
-                            <span class="notification-unread-dot" aria-label="<?php echo e(t('notif_unread', '未读')); ?>"></span>
-                        <?php endif; ?>
-                    </a>
+                        </button>
+                    </form>
                 </li>
             <?php endforeach; ?>
         </ul>

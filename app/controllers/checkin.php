@@ -21,6 +21,12 @@ if (!$user) {
     redirect('/login');
 }
 
+// 仅接受 POST 签到：GET 命中不执行写操作，提示刷新
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    set_flash(t('post_flash_method_changed', '操作方式已变更，请刷新页面重试。'), 'error');
+    redirect('/profile?tab=checkins');
+}
+
 // CSRF 校验：防止通过 <img src="checkin.php"> 强制签到
 if (!validate_csrf()) {
     set_flash(t('checkin_csrf_failed', '签到失败，请从个人中心页面点击签到。'), 'error');

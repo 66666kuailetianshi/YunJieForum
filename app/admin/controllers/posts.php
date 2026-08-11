@@ -6,10 +6,26 @@
 
 require_once dirname(__DIR__) . '/layout/admin-init.php';
 
+// 权限门禁：帖子管理（超管天然通过；社区管理员需 manage_posts 权限）
+require_permission('manage_posts');
+
 $db = get_db();
 $driver = get_db_driver();
 $action = $_GET['action'] ?? 'list';
 $postId = (int)($_GET['post_id'] ?? 0);
+
+// 单个写操作动作：仅接受 POST（CSRF 由 admin-init.php 对所有 POST 统一校验）
+$postActionFlags = ['pin', 'unpin', 'essence', 'unessence', 'lock', 'unlock', 'delete'];
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['action'] ?? '', $postActionFlags, true)) {
+    $flagResult = admin_apply_post_flag((int)($_POST['post_id'] ?? 0), $_POST['action']);
+    set_flash($flagResult['message'], $flagResult['type']);
+    redirect('/admin/posts');
+}
+// 旧 GET 写操作链接命中：不执行写操作，提示刷新
+if (in_array($action, $postActionFlags, true)) {
+    set_flash(t('post_flash_method_changed', '操作方式已变更，请刷新页面重试。'), 'error');
+    redirect('/admin/posts');
+}
 
 // ===================== 批量操作 =====================
 if ($action === 'batch' && validate_csrf()) {
@@ -43,26 +59,6 @@ if ($action === 'batch' && validate_csrf()) {
         }
     }
     redirect('/admin/posts' . ($_SERVER['QUERY_STRING'] ? '?' . preg_replace('/&?action=batch[^&]*/', '', $_SERVER['QUERY_STRING']) : ''));
-}
-
-// ===================== 单个操作 =====================
-// CSRF 统一校验：涉及状态变更的 GET 操作必须先通过校验，失败时明确提示（避免静默失败）
-if (in_array($action, ['pin', 'unpin', 'essence', 'unessence', 'lock', 'unlock', 'delete'], true) && !validate_csrf()) {
-    set_flash(t('admin_posts_flash_csrf_failed', '安全校验失败（链接已过期），请刷新页面后重新操作。'), 'error');
-    redirect('/admin/posts');
-}
-
-if (in_array($action, ['pin', 'unpin', 'essence', 'unessence', 'lock', 'unlock', 'delete']) && $postId > 0) {
-    $flags = ['pin' => 'is_pinned=1', 'unpin' => 'is_pinned=0', 'essence' => 'is_essence=1', 'unessence' => 'is_essence=0', 'lock' => 'is_locked=1', 'unlock' => 'is_locked=0'];
-    $msgs = ['pin' => t('admin_posts_flash_pinned', '已置顶。'), 'unpin' => t('admin_posts_flash_unpinned', '已取消置顶。'), 'essence' => t('admin_posts_flash_essenced', '已加精。'), 'unessence' => t('admin_posts_flash_unessenced', '已取消加精。'), 'lock' => t('admin_posts_flash_locked', '已锁定。'), 'unlock' => t('admin_posts_flash_unlocked', '已解锁。')];
-    if (isset($flags[$action])) {
-        $db->exec("UPDATE posts SET {$flags[$action]} WHERE id = $postId");
-        set_flash($msgs[$action], 'success');
-    } elseif ($action === 'delete') {
-        if (delete_post($postId)) set_flash(t('admin_posts_flash_deleted', '帖子已删除。'), 'success');
-        else set_flash(t('admin_posts_flash_delete_failed', '帖子不存在或删除失败。'), 'error');
-    }
-    redirect('/admin/posts');
 }
 
 // ===================== 搜索与筛选参数 =====================
@@ -100,21 +96,31 @@ switch ($statusFilter) {
 $whereSql = implode(' AND ', $where);
 
 // ===================== 统计卡片 =====================
+// 5 项统计合并为单条 SUM(CASE WHEN)（标准 SQL，SQLite/MySQL/PostgreSQL 通用）
 $today = date('Y-m-d');
+$statsRow = $db->query("SELECT
+        COUNT(*) AS total,
+        SUM(CASE WHEN " . $driver->dateColExpr('created_at') . " = " . $db->quote($today) . " THEN 1 ELSE 0 END) AS today,
+        SUM(CASE WHEN is_pinned = 1 THEN 1 ELSE 0 END) AS pinned,
+        SUM(CASE WHEN is_essence = 1 THEN 1 ELSE 0 END) AS essence,
+        SUM(CASE WHEN is_locked = 1 THEN 1 ELSE 0 END) AS locked
+    FROM posts")->fetch();
 $stats = [
-    'total'   => (int)$db->query("SELECT COUNT(*) FROM posts")->fetchColumn(),
-    'today'   => (int)$db->query("SELECT COUNT(*) FROM posts WHERE " . $driver->dateColExpr('created_at') . " = " . $db->quote($today))->fetchColumn(),
-    'pinned'  => (int)$db->query("SELECT COUNT(*) FROM posts WHERE is_pinned = 1")->fetchColumn(),
-    'essence' => (int)$db->query("SELECT COUNT(*) FROM posts WHERE is_essence = 1")->fetchColumn(),
-    'locked'  => (int)$db->query("SELECT COUNT(*) FROM posts WHERE is_locked = 1")->fetchColumn(),
+    'total'   => (int)($statsRow['total'] ?? 0),
+    'today'   => (int)($statsRow['today'] ?? 0),
+    'pinned'  => (int)($statsRow['pinned'] ?? 0),
+    'essence' => (int)($statsRow['essence'] ?? 0),
+    'locked'  => (int)($statsRow['locked'] ?? 0),
 ];
 
 // ===================== 查询帖子列表 =====================
-$total = (int)$db->query("SELECT COUNT(*) FROM posts p JOIN users u ON p.user_id = u.id WHERE $whereSql")->fetchColumn();
+// 单一分支：有筛选参数时走 prepare，否则直接 query，COUNT 只执行一次
 if (!empty($params)) {
     $countStmt = $db->prepare("SELECT COUNT(*) FROM posts p JOIN users u ON p.user_id = u.id WHERE $whereSql");
     $countStmt->execute($params);
     $total = (int)$countStmt->fetchColumn();
+} else {
+    $total = (int)$db->query("SELECT COUNT(*) FROM posts p JOIN users u ON p.user_id = u.id WHERE $whereSql")->fetchColumn();
 }
 
 $sql = "SELECT p.*, u.username, f.name AS forum_name
@@ -158,150 +164,10 @@ $activeMenu = 'posts';
 require_once dirname(__DIR__) . '/layout/header.php';
 ?>
 
-<style>
-/* ===== 帖子管理样式 ===== */
-.stats-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.75rem; margin-bottom: 1.25rem; }
-.stats-row .stat-card {
-    background: var(--surface); border: 1px solid var(--border-soft);
-    border-radius: var(--radius-md); padding: 1rem 1.125rem; cursor: pointer;
-    transition: all 0.2s; display: flex; align-items: center; gap: 0.75rem;
-}
-.stats-row .stat-card:hover { border-color: var(--primary); box-shadow: 0 2px 12px rgba(0,0,0,0.06); transform: translateY(-1px); }
-.stats-row .stat-card.active { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 5%, var(--surface)); }
-.stats-row .stat-icon { width: 40px; height: 40px; border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-.stats-row .stat-icon svg { width: 20px; height: 20px; }
-.stat-icon--blue  { background: #eff6ff; color: #3b82f6; }
-.stat-icon--amber { background: #fef3c7; color: #d97706; }
-.stat-icon--pink  { background: #fce7f3; color: #db2777; }
-.stat-icon--red   { background: #fee2e2; color: #dc2626; }
-.stat-icon--green { background: #ecfdf5; color: #10b981; }
-.stats-row .stat-info { min-width: 0; }
-.stats-row .stat-num { font-size: 1.35rem; font-weight: 700; color: var(--text); line-height: 1.2; }
-.stats-row .stat-label { font-size: 0.72rem; color: var(--text-muted); margin-top: 2px; }
-
-.filter-bar {
-    display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center;
-    padding: 0.75rem 1rem; background: var(--surface); border: 1px solid var(--border-soft);
-    border-radius: var(--radius-md); margin-bottom: 0.75rem;
-}
-.filter-bar input, .filter-bar select {
-    height: 35px; font-size: 0.85rem; padding: 0 0.65rem;
-    border: 1px solid var(--border); border-radius: var(--radius-sm);
-    background: var(--bg); color: var(--text); outline: none;
-}
-.filter-bar input:focus, .filter-bar select:focus { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(59,130,246,0.12); }
-.filter-bar input[type="search"] { min-width: 200px; }
-.filter-bar select { min-width: 110px; }
-.filter-bar .btn { height: 35px; padding: 0 0.85rem; font-size: 0.825rem; }
-.filter-bar .filter-gap { width: 4px; }
-
-.batch-bar {
-    display: none; align-items: center; gap: 0.5rem; flex-wrap: wrap;
-    padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); margin-bottom: 0.75rem;
-    background: color-mix(in srgb, var(--primary) 8%, var(--surface));
-    border: 1px solid color-mix(in srgb, var(--primary) 20%, var(--border));
-}
-.batch-bar.show { display: flex; }
-.batch-bar .batch-count { font-weight: 600; font-size: 0.85rem; white-space: nowrap; }
-
-/* 表格 */
-.data-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
-.data-table thead { position: sticky; top: 0; z-index: 2; }
-.data-table th {
-    padding: 0.6rem 0.75rem; text-align: left; font-size: 0.75rem; font-weight: 600;
-    color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em;
-    background: var(--bg-soft); border-bottom: 2px solid var(--border); white-space: nowrap;
-}
-.data-table td {
-    padding: 0.65rem 0.75rem; border-bottom: 1px solid var(--border-soft);
-    vertical-align: middle;
-}
-.data-table tbody tr { transition: background 0.15s; }
-.data-table tbody tr:hover { background: color-mix(in srgb, var(--primary) 3%, var(--bg)); }
-.data-table tbody tr:nth-child(even) { background: rgba(128,128,128,0.02); }
-.data-table tbody tr:nth-child(even):hover { background: color-mix(in srgb, var(--primary) 3%, var(--bg)); }
-.data-table a { color: var(--text); text-decoration: none; }
-.data-table a:hover { color: var(--primary); }
-
-/* 状态标签 */
-.post-tags { display: flex; gap: 3px; flex-wrap: wrap; margin-top: 3px; }
-.post-tag {
-    display: inline-flex; align-items: center; gap: 2px; padding: 1px 6px;
-    border-radius: 3px; font-size: 0.68rem; font-weight: 600; line-height: 1.5;
-}
-.post-tag svg { width: 10px; height: 10px; flex-shrink: 0; }
-.tag-pin { background: #fef3c7; color: #92400e; }
-.tag-best { background: #fce7f3; color: #9d174d; }
-.tag-lock { background: #fee2e2; color: #991b1b; }
-
-/* 风险标签 */
-.risk-tag {
-    display: inline-block; padding: 2px 8px; border-radius: 3px;
-    font-size: 0.7rem; font-weight: 700; white-space: nowrap;
-}
-.risk-high  { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
-.risk-medium{ background: #fffbeb; color: #d97706; border: 1px solid #fde68a; }
-.risk-low   { background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; }
-.risk-safe  { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
-
-/* 操作按钮 */
-.actions { display: flex; gap: 2px; flex-wrap: wrap; }
-.actions .btn-icon {
-    display: inline-flex; align-items: center; justify-content: center;
-    width: 30px; height: 30px; border-radius: var(--radius-sm); border: 1px solid transparent;
-    background: transparent; color: var(--text-muted); cursor: pointer; transition: all 0.15s;
-    text-decoration: none; padding: 0;
-}
-.actions .btn-icon:hover { background: var(--bg-soft); color: var(--text); border-color: var(--border); }
-.actions .btn-icon.active { color: var(--primary); background: color-mix(in srgb, var(--primary) 8%, var(--surface)); }
-.actions .btn-icon.danger:hover { color: #dc2626; background: #fef2f2; border-color: #fecaca; }
-.actions .btn-icon svg { width: 15px; height: 15px; }
-
-/* 排序链接 */
-.sort-link { color: var(--text-muted); text-decoration: none; white-space: nowrap; user-select: none; }
-.sort-link:hover { color: var(--text); }
-.sort-link.active { color: var(--primary); font-weight: 600; }
-.sort-link.asc::after  { content: ' ▲'; font-size: 0.55rem; }
-.sort-link.desc::after { content: ' ▼'; font-size: 0.55rem; }
-
-/* 互动数 */
-.interact { display: flex; gap: 0.5rem; font-size: 0.8rem; }
-.interact span { white-space: nowrap; }
-.interact .val { font-weight: 600; color: var(--text); }
-
-/* 模态框 */
-.modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 999; justify-content: center; align-items: flex-start; padding-top: 5vh; }
-.modal-overlay.show { display: flex; }
-.modal-content { background: var(--surface); border-radius: var(--radius-lg); width: 95%; max-height: 85vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.2); }
-.modal-header { display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.25rem; border-bottom: 1px solid var(--border-soft); position: sticky; top: 0; background: var(--surface); z-index: 1; }
-.modal-header h3 { margin: 0; font-size: 1rem; }
-.modal-body { padding: 1rem 1.25rem; line-height: 1.7; font-size: 0.9rem; }
-.modal-close { background: none; border: none; font-size: 1.25rem; cursor: pointer; color: var(--text-muted); padding: 0.25rem; line-height: 1; }
-
-/* 预览内容 */
-.preview-meta { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem; }
-.preview-content { line-height: 1.7; }
-.preview-replies { margin-top: 0.5rem; }
-.preview-reply-item {
-    padding: 0.6rem 0.75rem; margin-bottom: 0.5rem;
-    background: var(--bg-soft); border-radius: var(--radius-sm); border-left: 3px solid var(--border);
-}
-.preview-reply-header { display: flex; align-items: center; gap: 0.35rem; font-size: 0.8rem; margin-bottom: 0.35rem; }
-.preview-reply-body { font-size: 0.85rem; line-height: 1.6; }
-
-@media (max-width: 768px) {
-    .stats-row { grid-template-columns: repeat(2, 1fr); }
-    .filter-bar { flex-direction: column; align-items: stretch; }
-    .filter-bar input[type="search"] { width: 100%; min-width: 0; }
-    .data-table th:nth-child(5), .data-table td:nth-child(5),
-    .data-table th:nth-child(6), .data-table td:nth-child(6) { display: none; }
-}
-</style>
-
 <div class="page-header">
     <h1 class="page-title"><?php echo e(t('admin_posts_title', '帖子管理')); ?></h1>
     <div class="page-actions">
-        <span style="font-size:0.8rem;color:var(--text-muted);"><?php echo e(t('admin_posts_total_count', '共 {n} 个帖子', ['n' => $total])); ?></span>
+        <span class="text-xs text-muted"><?php echo e(t('admin_posts_total_count', '共 {n} 个帖子', ['n' => $total])); ?></span>
     </div>
 </div>
 
@@ -349,7 +215,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
     </select>
     <button type="submit" class="btn btn-primary btn-sm"><?php echo e(t('admin_posts_filter', '筛选')); ?></button>
     <?php if ($search || $forumFilter || $statusFilter): ?>
-        <a href="<?php echo site_url('admin/posts'); ?>" class="btn btn-secondary btn-sm" style="text-decoration:none;"><?php echo e(t('admin_posts_clear', '清除')); ?></a>
+        <a href="<?php echo site_url('admin/posts'); ?>" class="btn btn-secondary btn-sm"><?php echo e(t('admin_posts_clear', '清除')); ?></a>
     <?php endif; ?>
 </form>
 
@@ -365,7 +231,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
     <button class="btn btn-sm btn-danger" onclick="batchAction('delete')"><?php echo e(t('admin_posts_batch_delete', '删除')); ?></button>
 </div>
 
-<div class="card" style="overflow:hidden;">
+<div class="card card-clip">
     <div class="table-responsive">
         <table class="data-table">
             <thead>
@@ -385,7 +251,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
             </thead>
             <tbody>
                 <?php if (empty($allPosts)): ?>
-                    <tr><td colspan="9" style="text-align:center;padding:2.5rem;color:var(--text-muted);"><?php echo e(t('admin_posts_empty', '暂无帖子数据')); ?></td></tr>
+                    <tr><td colspan="9" class="empty-cell"><?php echo e(t('admin_posts_empty', '暂无帖子数据')); ?></td></tr>
                 <?php else: ?>
                     <?php foreach ($allPosts as $post): ?>
                         <?php
@@ -396,9 +262,9 @@ require_once dirname(__DIR__) . '/layout/header.php';
                         ?>
                         <tr>
                             <td><input type="checkbox" class="post-check" value="<?php echo $post['id']; ?>" onchange="updateBatchBar()"></td>
-                            <td><code style="font-size:0.8rem;">#<?php echo $post['id']; ?></code></td>
+                            <td><code class="text-xs">#<?php echo $post['id']; ?></code></td>
                             <td>
-                                <a href="<?php echo site_url('post', ['id' => (int)$post['id']]); ?>" target="_blank" style="font-weight:500;"><?php echo $titleDisplay; ?></a>
+                                <a href="<?php echo site_url('post', ['id' => (int)$post['id']]); ?>" target="_blank" class="font-medium"><?php echo $titleDisplay; ?></a>
                                 <?php if ($post['is_pinned'] || $post['is_essence'] || $post['is_locked']): ?>
                                 <div class="post-tags">
                                     <?php if ($post['is_pinned']): ?><span class="post-tag tag-pin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2l2 8h6l-4 5 2 7-6-3-6 3 2-7-4-5h6l2-8z"/></svg><?php echo e(t('admin_posts_tag_pinned', '置顶')); ?></span><?php endif; ?>
@@ -407,8 +273,8 @@ require_once dirname(__DIR__) . '/layout/header.php';
                                 </div>
                                 <?php endif; ?>
                             </td>
-                            <td><a href="<?php echo site_url('profile', ['user_id' => (int)$post['user_id']]); ?>" style="font-size:0.85rem;"><?php echo e($post['username']); ?></a></td>
-                            <td style="font-size:0.8rem;color:var(--text-muted);"><?php echo e($post['forum_name'] ?? '-'); ?></td>
+                            <td><a href="<?php echo site_url('profile', ['user_id' => (int)$post['user_id']]); ?>" class="text-sm"><?php echo e($post['username']); ?></a></td>
+                            <td class="text-xs text-muted"><?php echo e($post['forum_name'] ?? '-'); ?></td>
                             <td><span class="risk-tag <?php echo $riskClass; ?>" title="<?php echo e(t('admin_posts_risk_score_title', '风险分数: {score}/100', ['score' => $risk['score']])); ?>"><?php echo $risk['label']; ?></span></td>
                             <td>
                                 <div class="interact">
@@ -421,10 +287,10 @@ require_once dirname(__DIR__) . '/layout/header.php';
                                 <div class="actions">
                                     <a href="<?php echo site_url('post', ['id' => (int)$post['id']]); ?>" target="_blank" class="btn-icon" title="<?php echo e(t('admin_posts_action_view', '查看帖子')); ?>"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></a>
                                     <button class="btn-icon" onclick="viewContent(<?php echo $post['id']; ?>)" title="<?php echo e(t('admin_posts_action_preview', '预览内容')); ?>"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></button>
-                                    <a href="<?php echo site_url('admin/posts', ['action' => $post['is_pinned'] ? 'unpin' : 'pin', 'post_id' => (int)$post['id'], 'csrf_token' => csrf_token()]); ?>" class="btn-icon<?php echo $post['is_pinned'] ? ' active' : ''; ?>" title="<?php echo e($post['is_pinned'] ? t('admin_posts_action_unpin', '取消置顶') : t('admin_posts_action_pin', '置顶')); ?>"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2l2 8h6l-4 5 2 7-6-3-6 3 2-7-4-5h6l2-8z"/></svg></a>
-                                    <a href="<?php echo site_url('admin/posts', ['action' => $post['is_essence'] ? 'unessence' : 'essence', 'post_id' => (int)$post['id'], 'csrf_token' => csrf_token()]); ?>" class="btn-icon<?php echo $post['is_essence'] ? ' active' : ''; ?>" title="<?php echo e($post['is_essence'] ? t('admin_posts_action_unessence', '取消加精') : t('admin_posts_action_essence', '加精')); ?>"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h12l4 8-10 11L2 11z"/></svg></a>
-                                    <a href="<?php echo site_url('admin/posts', ['action' => $post['is_locked'] ? 'unlock' : 'lock', 'post_id' => (int)$post['id'], 'csrf_token' => csrf_token()]); ?>" class="btn-icon<?php echo $post['is_locked'] ? ' active' : ''; ?>" title="<?php echo e($post['is_locked'] ? t('admin_posts_action_unlock', '解锁') : t('admin_posts_action_lock', '锁定')); ?>"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg></a>
-                                    <a href="<?php echo site_url('admin/posts', ['action' => 'delete', 'post_id' => (int)$post['id'], 'csrf_token' => csrf_token()]); ?>" class="btn-icon danger" data-confirm="<?php echo e(t('admin_posts_confirm_delete', '确定删除该帖子吗？所有回复也将一并删除。')); ?>" title="<?php echo e(t('admin_posts_action_delete', '删除')); ?>"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></a>
+                                    <?php echo admin_action_form(site_url('admin/posts'), $post['is_pinned'] ? 'unpin' : 'pin', ['post_id' => (int)$post['id']], '', ['class' => 'btn-icon' . ($post['is_pinned'] ? ' active' : ''), 'icon' => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2l2 8h6l-4 5 2 7-6-3-6 3 2-7-4-5h6l2-8z"/></svg>', 'title' => $post['is_pinned'] ? t('admin_posts_action_unpin', '取消置顶') : t('admin_posts_action_pin', '置顶')]); ?>
+                                    <?php echo admin_action_form(site_url('admin/posts'), $post['is_essence'] ? 'unessence' : 'essence', ['post_id' => (int)$post['id']], '', ['class' => 'btn-icon' . ($post['is_essence'] ? ' active' : ''), 'icon' => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h12l4 8-10 11L2 11z"/></svg>', 'title' => $post['is_essence'] ? t('admin_posts_action_unessence', '取消加精') : t('admin_posts_action_essence', '加精')]); ?>
+                                    <?php echo admin_action_form(site_url('admin/posts'), $post['is_locked'] ? 'unlock' : 'lock', ['post_id' => (int)$post['id']], '', ['class' => 'btn-icon' . ($post['is_locked'] ? ' active' : ''), 'icon' => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>', 'title' => $post['is_locked'] ? t('admin_posts_action_unlock', '解锁') : t('admin_posts_action_lock', '锁定')]); ?>
+                                    <?php echo admin_action_form(site_url('admin/posts'), 'delete', ['post_id' => (int)$post['id']], '', ['class' => 'btn-icon danger', 'confirm' => t('admin_posts_confirm_delete', '确定删除该帖子吗？所有回复也将一并删除。'), 'icon' => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg>', 'title' => t('admin_posts_action_delete', '删除')]); ?>
                                 </div>
                             </td>
                         </tr>
@@ -497,7 +363,11 @@ require_once dirname(__DIR__) . '/layout/header.php';
         document.getElementById('modal-title').textContent = <?php echo json_encode(t('admin_posts_loading', '加载中...')); ?>;
         body.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:2rem;">' + <?php echo json_encode(t('admin_posts_loading', '加载中...')); ?> + '</p>';
 
-        fetch('<?php echo site_url('admin/api/posts_ajax'); ?>&action=get_content&post_id=' + postId + '&csrf_token=<?php echo csrf_token(); ?>')
+        var previewFd = new FormData();
+        previewFd.append('action', 'get_content');
+        previewFd.append('post_id', postId);
+        previewFd.append('csrf_token', <?php echo json_encode(csrf_token()); ?>);
+        fetch('<?php echo site_url('admin/api/posts_ajax'); ?>', { method: 'POST', body: previewFd, credentials: 'same-origin' })
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 if (data.success) {

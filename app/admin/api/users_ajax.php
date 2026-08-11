@@ -12,8 +12,16 @@
  */
 
 require_once APP_ROOT . 'app/includes/functions.php';
+require_once dirname(__DIR__) . '/layout/admin-helpers.php';
 
 if (!is_logged_in() || !is_admin()) {
+    http_response_code(403);
+    echo json_encode(['error' => t('admin_ajax_forbidden', '无权访问')], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+// 细粒度门禁：用户列表属用户管理，需 manage_user_dispose 权限（超管天然通过）
+if (!has_permission('manage_user_dispose')) {
     http_response_code(403);
     echo json_encode(['error' => t('admin_ajax_forbidden', '无权访问')], JSON_UNESCAPED_UNICODE);
     exit;
@@ -43,12 +51,8 @@ if (!isset($allowedStatus[$filterStatus])) {
     $filterStatus = '';
 }
 $filterRole = $_GET['role'] ?? '';
-$allowedRoles = [];
-try {
-    $roleRows = $db->query("SELECT DISTINCT role FROM users WHERE role IS NOT NULL AND role <> ''")->fetchAll(PDO::FETCH_COLUMN);
-    foreach ($roleRows as $r) { $allowedRoles[$r] = 1; }
-} catch (\Throwable $e) {}
-if (!isset($allowedRoles[$filterRole])) { $filterRole = ''; }
+// 角色筛选（两级管理员体系分级白名单，防注入）
+if (!in_array($filterRole, ['super_admin', 'community_admin', 'user'], true)) { $filterRole = ''; }
 
 $filterGroup = trim($_GET['group'] ?? '');
 $groupRange = null;
@@ -83,11 +87,17 @@ if ($sortDir !== 'asc' && $sortDir !== 'desc') { $sortDir = 'desc'; }
 $conditions = [];
 $params = [];
 if ($search !== '') {
+    // 隐私控制：邮箱仅超管可搜索（社区管理员看不到用户邮箱，避免按邮箱旁路检索）
+    $searchEmailOk = is_super_admin();
     if (ctype_digit($search)) {
-        $conditions[] = "(u.username LIKE :search1 OR u.email LIKE :search2 OR u.uid = :uidExact)";
+        $conditions[] = $searchEmailOk
+            ? "(u.username LIKE :search1 OR u.email LIKE :search2 OR u.uid = :uidExact)"
+            : "(u.username LIKE :search1 OR u.uid = :uidExact)";
         $params[':uidExact'] = (int)$search;
     } else {
-        $conditions[] = "(u.username LIKE :search1 OR u.email LIKE :search2)";
+        $conditions[] = $searchEmailOk
+            ? "(u.username LIKE :search1 OR u.email LIKE :search2)"
+            : "(u.username LIKE :search1)";
     }
     $params[':search1'] = '%' . $search . '%';
     $params[':search2'] = '%' . $search . '%';
@@ -97,8 +107,10 @@ if ($filterStatus !== '') {
     $params[':status'] = $filterStatus;
 }
 if ($filterRole !== '') {
-    $conditions[] = "u.role = :role";
-    $params[':role'] = $filterRole;
+    $roleCond = admin_role_filter_sql($filterRole);
+    if ($roleCond !== '') {
+        $conditions[] = $roleCond;
+    }
 }
 if ($groupRange !== null) {
     $conditions[] = "u.points >= :gMin";
@@ -149,7 +161,9 @@ $stmt = $db->prepare("
            (SELECT COUNT(*) FROM sensitive_word_logs WHERE user_id = u.id) AS sensitive_hit_count,
            (SELECT COUNT(*) FROM sensitive_word_logs WHERE user_id = u.id AND action IN ('review','block')) AS sensitive_review_count,
            (SELECT COUNT(*) FROM sensitive_word_logs WHERE user_id = u.id AND action = 'replace') AS sensitive_replace_count,
-           (SELECT COUNT(*) FROM ban_appeals WHERE user_id = u.id AND status = 'rejected') AS rejected_appeal_count
+           (SELECT COUNT(*) FROM ban_appeals WHERE user_id = u.id AND status = 'rejected') AS rejected_appeal_count,
+           EXISTS (SELECT 1 FROM user_roles ur JOIN roles rr ON rr.id = ur.role_id
+               WHERE ur.user_id = u.id AND rr.name = 'community_admin') AS is_community_admin
     FROM users u
     $where
     $orderBy
@@ -166,6 +180,11 @@ $users = $stmt->fetchAll();
 // 格式化字段
 $now = time();
 foreach ($users as &$u) {
+    // 隐私控制：非超管（社区管理员）默认隐藏邮箱，申请披露经超管审核通过后可见
+    $u['email_visible'] = admin_can_view_email((int)$u['id']) ? 1 : 0;
+    if (!$u['email_visible']) {
+        $u['email'] = '';
+    }
     $u['status_fmt'] = format_user_status($u['status']);
     $u['created_at_fmt'] = date('Y-m-d', db_time($u['created_at']));
     $u['last_active_ago'] = !empty($u['last_active']) ? time_ago($u['last_active']) : t('admin_ajax_never', '从未');
@@ -200,6 +219,9 @@ foreach ($users as &$u) {
 
     // 头像
     $u['avatar_url'] = avatar_url($u['avatar'], $u['username']);
+
+    // 登录锁定状态（列缺失时恒为 0，供列表「解锁登录」按钮显示判断）
+    $u['login_locked'] = !empty($u['login_locked_until']) && db_time($u['login_locked_until']) > $now ? 1 : 0;
 }
 unset($u);
 

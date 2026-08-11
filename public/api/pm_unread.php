@@ -22,8 +22,8 @@ if (!is_logged_in()) {
 $db = get_db();
 $userId = (int)$_SESSION['user_id'];
 
-// 2 秒服务端缓存：合并同一用户的并发轮询，避免每次请求都查询
-$data = realtime_cache('pm_unread_' . $userId, 2, function () use ($db, $userId) {
+// 5 秒服务端缓存：合并同一用户的并发轮询，避免每次请求都查询（客户端轮询间隔 15 秒）
+$data = realtime_cache('pm_unread_' . $userId, 5, function () use ($db, $userId) {
     $unread = 0;
     $latest = null;
 

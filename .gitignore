@@ -1,5 +1,7 @@
 # ===== 运行时数据（含敏感配置，禁止提交） =====
-data/
+# 排除目录内容但保留 data/.htaccess（封禁规则需随代码分发）
+data/*
+!data/.htaccess
 uploads/
 
 # ===== 数据库文件与日志 =====
@@ -16,7 +18,9 @@ uploads/
 .idea/
 *.code-workspace
 .qoder
-
+.tools
+.review_tmp
+.data
 # ===== 备份压缩包 =====
 *.7z
 *.zip

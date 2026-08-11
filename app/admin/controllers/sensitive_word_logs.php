@@ -9,6 +9,10 @@
  */
 
 require_once dirname(__DIR__) . '/layout/admin-init.php';
+
+// 权限门禁：敏感词命中日志仅超级管理员可用
+require_super_admin();
+
 require_once APP_ROOT . 'app' . DIRECTORY_SEPARATOR . 'components' . DIRECTORY_SEPARATOR . 'sensitive_filter' . DIRECTORY_SEPARATOR . 'helper.php';
 
 $db = get_db();
@@ -17,15 +21,10 @@ $db = get_db();
 $tab = $_GET['tab'] ?? 'hits';
 if (!in_array($tab, ['hits', 'status'], true)) $tab = 'hits';
 
-// 清空日志
-// CSRF 统一校验：涉及状态变更的 GET 操作必须先通过校验，失败时明确提示（避免静默失败）
-if (isset($_GET['action']) && $_GET['action'] === 'clear' && !validate_csrf()) {
-    set_flash(t('admin_swl_csrf_failed', '安全校验失败（链接已过期），请刷新页面后重新操作。'), 'error');
-    redirect('/admin/sensitive_word_logs');
-}
-
-if (isset($_GET['action']) && $_GET['action'] === 'clear') {
-    if ($tab === 'status') {
+// 清空日志：仅接受 POST（CSRF 由 admin-init.php 对所有 POST 统一校验）
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'clear') {
+    $clearTab = $_POST['tab'] ?? 'hits';
+    if ($clearTab === 'status') {
         $db->exec("DELETE FROM sensitive_word_status_logs");
         set_flash(t('admin_swl_flash_status_cleared', '操作记录已清空。'), 'success');
         redirect('/admin/sensitive_word_logs?tab=status');
@@ -34,6 +33,11 @@ if (isset($_GET['action']) && $_GET['action'] === 'clear') {
         set_flash(t('admin_swl_flash_logs_cleared', '日志已清空。'), 'success');
         redirect('/admin/sensitive_word_logs');
     }
+}
+// 旧 GET 清空链接命中：不执行清空，提示刷新
+if (isset($_GET['action']) && $_GET['action'] === 'clear') {
+    set_flash(t('post_flash_method_changed', '操作方式已变更，请刷新页面重试。'), 'error');
+    redirect('/admin/sensitive_word_logs' . ($tab === 'status' ? '?tab=status' : ''));
 }
 
 $page = max(1, (int)($_GET['page'] ?? 1));
@@ -83,66 +87,6 @@ $activeMenu = 'sensitive_words';
 require_once dirname(__DIR__) . '/layout/header.php';
 ?>
 
-<style>
-/* ===== 统计卡片 ===== */
-.swl-stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.75rem; margin-bottom: 1.25rem; }
-.swl-stat-card { background: var(--surface); border: 1px solid var(--border-soft); border-radius: var(--radius-lg); padding: 1rem 1.125rem; position: relative; overflow: hidden; transition: var(--transition); }
-.swl-stat-card:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
-.swl-stat-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
-.swl-stat-card.sc-total::before { background: var(--primary); }
-.swl-stat-card.sc-today::before { background: var(--warning); }
-.swl-stat-card.sc-replace::before { background: var(--secondary); }
-.swl-stat-card.sc-reject::before { background: var(--error); }
-.swl-stat-card.sc-review::before { background: var(--info, #0ea5e9); }
-.swl-stat-label { font-size: var(--text-xs); color: var(--text-3); font-weight: 500; text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 0.25rem; }
-.swl-stat-value { font-size: 1.5rem; font-weight: 700; line-height: 1.1; color: var(--text); transition: color 0.3s; }
-.swl-stat-value.pulse { color: var(--primary); animation: swl-pulse 0.6s ease; }
-@keyframes swl-pulse { 0% { transform: scale(1); } 50% { transform: scale(1.15); } 100% { transform: scale(1); } }
-.swl-stat-sub { font-size: var(--text-xs); color: var(--text-4); margin-top: 0.125rem; }
-
-/* ===== 24 小时趋势图 ===== */
-.swl-chart-card { margin-bottom: 1.25rem; }
-.swl-chart { display: flex; align-items: flex-end; gap: 2px; height: 80px; padding-top: 0.5rem; }
-.swl-chart-bar { flex: 1; min-height: 2px; background: var(--primary); border-radius: 2px 2px 0 0; transition: height 0.3s ease, background 0.3s; position: relative; cursor: default; }
-.swl-chart-bar:hover { background: var(--brand-hover); }
-.swl-chart-bar:hover::after { content: attr(data-label); position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--surface); font-size: var(--text-xs); padding: 2px 6px; border-radius: 4px; white-space: nowrap; margin-bottom: 4px; z-index: 10; }
-.swl-chart-axis { display: flex; justify-content: space-between; margin-top: 0.375rem; font-size: 10px; color: var(--text-4); }
-
-/* ===== TOP 10 命中词 ===== */
-.swl-top-list { display: flex; flex-direction: column; gap: 0.375rem; }
-.swl-top-item { display: flex; align-items: center; gap: 0.5rem; }
-.swl-top-rank { width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: var(--text-xs); font-weight: 700; flex-shrink: 0; background: var(--surface-3); color: var(--text-3); }
-.swl-top-rank.r1 { background: var(--error); color: #fff; }
-.swl-top-rank.r2 { background: var(--warning); color: #fff; }
-.swl-top-rank.r3 { background: var(--success); color: #fff; }
-.swl-top-word { flex: 1; font-size: var(--text-sm); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.swl-top-bar { flex: 0 0 80px; height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
-.swl-top-bar-fill { height: 100%; border-radius: 3px; background: var(--primary); transition: width 0.5s ease; }
-.swl-top-count { font-size: var(--text-xs); color: var(--text-3); min-width: 28px; text-align: right; font-weight: 600; }
-
-/* ===== 实时日志列表 ===== */
-.swl-log-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1rem; }
-.swl-live-indicator { display: inline-flex; align-items: center; gap: 0.375rem; font-size: var(--text-sm); color: var(--text-3); }
-.swl-live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); animation: swl-blink 2s ease-in-out infinite; }
-.swl-live-dot.paused { background: var(--text-4); animation: none; }
-@keyframes swl-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
-
-.swl-log-list { display: flex; flex-direction: column; gap: 0.375rem; }
-.swl-log-item { display: flex; align-items: flex-start; gap: 0.75rem; padding: 0.625rem 0.875rem; background: var(--surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); transition: var(--transition); border-left: 3px solid var(--border); }
-.swl-log-item.act-replace { border-left-color: var(--secondary); }
-.swl-log-item.act-reject { border-left-color: var(--error); }
-.swl-log-item.act-review { border-left-color: var(--warning); }
-.swl-log-item.new { animation: swl-slide-in 0.4s ease; }
-@keyframes swl-slide-in { from { opacity: 0; transform: translateX(-12px); } to { opacity: 1; transform: translateX(0); } }
-.swl-log-item:hover { box-shadow: var(--shadow-sm); }
-.swl-log-info { flex: 1; min-width: 0; }
-.swl-log-top { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.25rem; }
-.swl-log-word { font-weight: 600; font-size: var(--text-sm); }
-.swl-log-user { font-size: var(--text-xs); color: var(--text-3); }
-.swl-log-snippet { font-size: var(--text-xs); color: var(--text-4); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 400px; }
-.swl-log-time { font-size: var(--text-xs); color: var(--text-4); white-space: nowrap; flex-shrink: 0; }
-</style>
-
 <div class="page-header">
     <h1 class="page-title"><?php echo e(t('admin_swl_header_title', '敏感词日志')); ?></h1>
     <div class="flex gap-1">
@@ -152,11 +96,11 @@ require_once dirname(__DIR__) . '/layout/header.php';
         </a>
         <?php if ($tab === 'hits'): ?>
         <button id="swl-toggle-live" class="btn btn-primary">
-            <span id="swl-live-dot" class="swl-live-dot" style="display:inline-block;margin-right:4px;"></span>
+            <span id="swl-live-dot" class="swl-live-dot"></span>
             <span id="swl-live-text"><?php echo e(t('admin_swl_live_monitoring', '实时监控中')); ?></span>
         </button>
         <?php endif; ?>
-        <a href="<?php echo site_url('admin/sensitive_word_logs', ['tab' => $tab, 'action' => 'clear', 'csrf_token' => csrf_token()]); ?>" class="btn btn-danger" data-confirm="<?php echo e($tab === 'status' ? t('admin_swl_clear_confirm_status', '确定清空所有操作记录吗？') : t('admin_swl_clear_confirm_logs', '确定清空所有日志吗？')); ?>"><?php echo e($tab === 'status' ? t('admin_swl_btn_clear_status', '清空操作记录') : t('admin_swl_btn_clear_logs', '清空日志')); ?></a>
+        <?php echo admin_action_form(site_url('admin/sensitive_word_logs'), 'clear', ['tab' => $tab], $tab === 'status' ? t('admin_swl_btn_clear_status', '清空操作记录') : t('admin_swl_btn_clear_logs', '清空日志'), ['class' => 'btn btn-danger', 'confirm' => $tab === 'status' ? t('admin_swl_clear_confirm_status', '确定清空所有操作记录吗？') : t('admin_swl_clear_confirm_logs', '确定清空所有日志吗？')]); ?>
     </div>
 </div>
 
@@ -233,7 +177,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
 <!-- 实时操作记录列表 -->
 <div class="card">
     <div class="swl-log-toolbar">
-        <h2 class="profile-card-title" style="margin:0;"><?php echo e(t('admin_swl_status_log_title', '启用/禁用操作记录')); ?> <span class="text-muted" style="font-weight:400;font-size:var(--text-sm);"><?php echo t('admin_swl_log_count_prefix', '（共 '); ?><span id="status-log-count"><?php echo $total; ?></span><?php echo t('admin_swl_log_count_suffix', ' 条）'); ?></span></h2>
+        <h2 class="profile-card-title swl-title"><?php echo e(t('admin_swl_status_log_title', '启用/禁用操作记录')); ?> <span class="text-muted swl-count-note"><?php echo t('admin_swl_log_count_prefix', '（共 '); ?><span id="status-log-count"><?php echo $total; ?></span><?php echo t('admin_swl_log_count_suffix', ' 条）'); ?></span></h2>
         <div class="swl-live-indicator">
             <span class="swl-live-dot" id="status-live-indicator"></span>
             <span id="status-live-status"><?php echo e(t('admin_swl_live_refresh_5s', '每 5 秒自动刷新')); ?></span>
@@ -380,7 +324,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
             var pct = total > 0 ? Math.round(t.count / total * 100) : 0;
             var color = colors[i % colors.length];
             var label = sourceLabels[t.source] || t.source;
-            html += '<div class="swl-top-item" style="margin-bottom:0.5rem;">' +
+            html += '<div class="swl-top-item mb-2">' +
                 '<span class="swl-top-rank" style="background:' + color + ';color:#fff;width:auto;padding:0 8px;border-radius:var(--radius-full);font-size:var(--text-xs);">' + escapeHtml(label) + '</span>' +
                 '<span class="swl-top-word">' + t.count + <?php echo json_encode(t('admin_swl_js_times', ' 次')); ?> + '</span>' +
                 '<span class="swl-top-bar"><span class="swl-top-bar-fill" style="width:' + pct + '%;background:' + color + ';"></span></span>' +
@@ -550,7 +494,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
 <!-- 实时日志列表 -->
 <div class="card">
     <div class="swl-log-toolbar">
-        <h2 class="profile-card-title" style="margin:0;"><?php echo e(t('admin_swl_hits_log_title', '实时命中日志')); ?> <span class="text-muted" style="font-weight:400;font-size:var(--text-sm);"><?php echo t('admin_swl_log_count_prefix', '（共 '); ?><span id="log-count"><?php echo $total; ?></span><?php echo t('admin_swl_log_count_suffix', ' 条）'); ?></span></h2>
+        <h2 class="profile-card-title swl-title"><?php echo e(t('admin_swl_hits_log_title', '实时命中日志')); ?> <span class="text-muted swl-count-note"><?php echo t('admin_swl_log_count_prefix', '（共 '); ?><span id="log-count"><?php echo $total; ?></span><?php echo t('admin_swl_log_count_suffix', ' 条）'); ?></span></h2>
         <div class="swl-live-indicator">
             <span class="swl-live-dot" id="live-indicator"></span>
             <span id="live-status"><?php echo e(t('admin_swl_live_refresh_5s', '每 5 秒自动刷新')); ?></span>
@@ -713,7 +657,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
             var pct = total > 0 ? Math.round(t.count / total * 100) : 0;
             var color = colors[i % colors.length];
             var label = contentTypeLabels[t.type] || t.type;
-            html += '<div class="swl-top-item" style="margin-bottom:0.5rem;">' +
+            html += '<div class="swl-top-item mb-2">' +
                 '<span class="swl-top-rank" style="background:' + color + ';color:#fff;width:auto;padding:0 8px;border-radius:var(--radius-full);font-size:var(--text-xs);">' + escapeHtml(label) + '</span>' +
                 '<span class="swl-top-word">' + t.count + <?php echo json_encode(t('admin_swl_js_times', ' 次')); ?> + '</span>' +
                 '<span class="swl-top-bar"><span class="swl-top-bar-fill" style="width:' + pct + '%;background:' + color + ';"></span></span>' +

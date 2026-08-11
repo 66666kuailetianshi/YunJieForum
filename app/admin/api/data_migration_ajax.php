@@ -32,6 +32,12 @@ if (!is_admin()) {
     exit;
 }
 
+// 细粒度门禁：数据迁移仅超级管理员可用
+if (!is_super_admin()) {
+    echo safeJsonEncode(['success' => false, 'error' => t('common_super_admin_only', '该功能仅最高管理员可用。')]);
+    exit;
+}
+
 /**
  * 安全 JSON 编码：失败时返回兜底 JSON，避免前端收到空响应导致「网络错误」。
  */
@@ -63,12 +69,12 @@ $MIGRATABLE_TABLES = [
 
 $MIGRATION_FORMAT = 'yunjie-data-migration';
 
-$action = $_POST['action'] ?? $_GET['action'] ?? '';
+$action = $_SERVER['REQUEST_METHOD'] === 'POST' ? (string)($_POST['action'] ?? '') : '';
 
 try {
     switch ($action) {
         case 'list_tables':
-            // GET 请求也需校验 CSRF token，防止跨站攻击
+            // CSRF 校验（POST body 中的 csrf_token）
             if (!validate_csrf()) {
                 echo safeJsonEncode(['success' => false, 'error' => t('admin_ajax_csrf_failed', 'CSRF 校验失败')]);
                 exit;

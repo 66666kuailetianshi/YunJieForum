@@ -35,8 +35,43 @@ if (!is_logged_in()) {
 
 $userId = (int)$_SESSION['user_id'];
 
-// 直接查询数据库最新状态（绕过 session 缓存）
-if (is_user_banned($userId)) {
+// 直接查询数据库最新状态（绕过 session 缓存）：
+// 单条查询同时覆盖封禁与禁言判定（不修改 functions.php 原函数）；
+// 3 秒文件缓存合并高频轮询，封禁态不写缓存以保证踢下线副作用立即执行
+$banRow = realtime_cache('ban_status_' . $userId, 3, function () use ($userId) {
+    $db = get_db();
+    $stmt = $db->prepare("SELECT status, banned_until, muted_until, status_reason FROM users WHERE id = :id");
+    $stmt->execute([':id' => $userId]);
+    $r = $stmt->fetch();
+    if ($r && $r['status'] === 'banned') {
+        // 封禁态不缓存：确保每次命中都执行踢下线副作用
+        throw new \RuntimeException('banned');
+    }
+    return $r ? [
+        'status'        => $r['status'],
+        'banned_until'  => $r['banned_until'],
+        'muted_until'   => $r['muted_until'],
+        'status_reason' => $r['status_reason'],
+    ] : null;
+});
+
+if ($banRow === null) {
+    // 缓存被跳过（封禁态）或查询失败：回退为无缓存直查
+    try {
+        $db = get_db();
+        $stmt = $db->prepare("SELECT status, banned_until, muted_until, status_reason FROM users WHERE id = :id");
+        $stmt->execute([':id' => $userId]);
+        $banRow = $stmt->fetch();
+    } catch (Exception $e) {
+        $banRow = null;
+    }
+}
+
+$banned = is_array($banRow)
+    && $banRow['status'] === 'banned'
+    && (empty($banRow['banned_until']) || db_time($banRow['banned_until']) > time());
+
+if ($banned) {
     // 取封禁详情，由前端用于展示并跳转
     try {
         $db = get_db();
@@ -94,22 +129,20 @@ if (is_user_banned($userId)) {
     exit;
 }
 
-// 未被封禁：继续检测禁言状态
+// 未被封禁：继续检测禁言状态（复用上方单条查询结果，不再二次查库）
 // ===================== 禁言状态实时检测 =====================
 // 与封禁检测合并于同一轮询端点：管理员禁言/解禁后，被禁言用户
 // 无需刷新页面即可在界面上看到禁言提示（不踢下线，仅拦截发帖/回帖）。
-$muted = is_user_muted($userId);
+$muted = is_array($banRow)
+    && $banRow['status'] === 'muted'
+    && (empty($banRow['muted_until']) || db_time($banRow['muted_until']) > time());
 if (!$muted) {
     echo json_encode(['banned' => false, 'muted' => false], JSON_UNESCAPED_UNICODE);
     exit;
 }
 
-$db = get_db();
-$stmt = $db->prepare("SELECT muted_until, status_reason FROM users WHERE id = :id LIMIT 1");
-$stmt->execute([':id' => $userId]);
-$muteRow = $stmt->fetch();
-$muteUntilRaw = ($muteRow && !empty($muteRow['muted_until'])) ? $muteRow['muted_until'] : null;
-$muteReason = ($muteRow && !empty($muteRow['status_reason'])) ? $muteRow['status_reason'] : '';
+$muteUntilRaw = !empty($banRow['muted_until']) ? $banRow['muted_until'] : null;
+$muteReason = !empty($banRow['status_reason']) ? $banRow['status_reason'] : '';
 $untilText = $muteUntilRaw ? date('Y-m-d H:i', db_time($muteUntilRaw)) : '永久';
 
 echo json_encode([

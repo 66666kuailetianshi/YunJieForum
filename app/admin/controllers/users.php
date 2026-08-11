@@ -8,58 +8,81 @@
 
 require_once dirname(__DIR__) . '/layout/admin-init.php';
 
+// 权限门禁：用户管理（列表查看 + 封禁/禁言/解封/解禁言/解锁处置）
+// 超管天然通过；社区管理员需 manage_user_dispose 权限。
+// 删除/编辑/CSV 导出为超管专属，在对应分支与入口单独拦截。
+require_permission('manage_user_dispose');
+
+// 当前操作者是否超级管理员（控制删除/编辑/导出等超管专属入口的渲染）
+$isSuperAdmin = is_super_admin();
+
 $db = get_db();
 $action = $_GET['action'] ?? 'list';
 $userId = (int)($_GET['user_id'] ?? 0);
 
-// 所有需要 CSRF 的操作（删除/解封/解除禁言）统一先校验，失败时明确提示
-// 避免 token 过期（如多标签页操作、登录 token 轮换）时静默失败造成"点了没反应"
-if (in_array($action, ['delete', 'unban', 'unmute'], true) && $userId > 0 && !validate_csrf()) {
-    set_flash(t('admin_users_csrf_failed', '安全校验失败（链接已过期），请刷新页面后重新操作。'), 'error');
-    redirect('/admin/users');
+// 登录锁定列探测（任务 #10 添加，旧库可能缺失）
+$hasLoginLockCols = false;
+try {
+    $db->query("SELECT login_fails, login_locked_until FROM users LIMIT 1");
+    $hasLoginLockCols = true;
+} catch (\Throwable $e) {
+    $hasLoginLockCols = false;
 }
 
-// 删除用户
-if ($action === 'delete' && $userId > 0) {
-    $stmt = $db->prepare("SELECT role FROM users WHERE id = :id");
-    $stmt->execute([':id' => $userId]);
-    $target = $stmt->fetchColumn();
-    if ($target === 'admin') {
-        set_flash(t('admin_users_cannot_delete_admin', '不能删除管理员账号。'), 'error');
-    } else {
-        $db->prepare("DELETE FROM users WHERE id = :id")->execute([':id' => $userId]);
-        set_flash(t('admin_users_deleted', '用户已删除。'), 'success');
+// 写操作动作：仅接受 POST（CSRF 由 admin-init.php 对所有 POST 统一校验）
+$userWriteActions = ['delete', 'unban', 'unmute', 'unlock_login'];
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['action'] ?? '', $userWriteActions, true)) {
+    $postUserAction = $_POST['action'];
+    $postUserId = (int)($_POST['user_id'] ?? 0);
+    // 删除用户为超管专属动作（服务端硬拦截，不依赖前端隐藏）
+    if ($postUserAction === 'delete') {
+        require_super_admin();
+    }
+    if ($postUserId > 0) {
+        if ($postUserAction === 'unlock_login') {
+            // 层级保护：社区管理员不得对 role=admin 或社区管理员执行解锁
+            if (!is_super_admin() && admin_dispose_target_blocked($postUserId)) {
+                set_flash(t('admin_users_cannot_operate_community_admin', '不能对社区管理员执行该操作。'), 'error');
+                redirect('/admin/users');
+            }
+            // 解锁登录：清除失败计数与锁定时间（非破坏性操作，对管理员同样可用）
+            if ($hasLoginLockCols) {
+                $db->prepare("UPDATE users SET login_fails = 0, login_locked_until = NULL WHERE id = :id")
+                    ->execute([':id' => $postUserId]);
+                set_flash(t('admin_users_login_unlocked', '已清除该用户的登录失败计数与锁定。'), 'success');
+            } else {
+                set_flash(t('admin_users_unlock_login_missing_cols', '当前数据库缺少登录锁定字段，无法执行解锁。'), 'error');
+            }
+            redirect('/admin/users');
+        }
+        $stmt = $db->prepare("SELECT role FROM users WHERE id = :id");
+        $stmt->execute([':id' => $postUserId]);
+        $target = $stmt->fetchColumn();
+        if ($target === 'admin') {
+            set_flash($postUserAction === 'delete'
+                ? t('admin_users_cannot_delete_admin', '不能删除管理员账号。')
+                : t('admin_users_cannot_operate_admin', '不能对管理员执行该操作。'), 'error');
+        } elseif (!is_super_admin() && admin_user_has_role($postUserId, 'community_admin')) {
+            // 层级保护：社区管理员不得处置 role=admin 或拥有 community_admin 角色的用户
+            set_flash(t('admin_users_cannot_operate_community_admin', '不能对社区管理员执行该操作。'), 'error');
+        } elseif ($postUserAction === 'delete') {
+            $db->prepare("DELETE FROM users WHERE id = :id")->execute([':id' => $postUserId]);
+            set_flash(t('admin_users_deleted', '用户已删除。'), 'success');
+        } elseif ($postUserAction === 'unban') {
+            $db->prepare("UPDATE users SET status = 'active', banned_until = NULL, status_reason = '' WHERE id = :id")
+                ->execute([':id' => $postUserId]);
+            set_flash(t('admin_users_unbanned', '用户已解封。'), 'success');
+        } elseif ($postUserAction === 'unmute') {
+            $db->prepare("UPDATE users SET status = 'active', muted_until = NULL, status_reason = '' WHERE id = :id")
+                ->execute([':id' => $postUserId]);
+            set_flash(t('admin_users_unmuted', '用户已解除禁言。'), 'success');
+        }
     }
     redirect('/admin/users');
 }
-
-// 解封用户
-if ($action === 'unban' && $userId > 0) {
-    $stmt = $db->prepare("SELECT role FROM users WHERE id = :id");
-    $stmt->execute([':id' => $userId]);
-    $target = $stmt->fetchColumn();
-    if ($target === 'admin') {
-        set_flash(t('admin_users_cannot_operate_admin', '不能对管理员执行该操作。'), 'error');
-    } else {
-        $db->prepare("UPDATE users SET status = 'active', banned_until = NULL, status_reason = '' WHERE id = :id")
-            ->execute([':id' => $userId]);
-        set_flash(t('admin_users_unbanned', '用户已解封。'), 'success');
-    }
-    redirect('/admin/users');
-}
-
-// 解除禁言
-if ($action === 'unmute' && $userId > 0) {
-    $stmt = $db->prepare("SELECT role FROM users WHERE id = :id");
-    $stmt->execute([':id' => $userId]);
-    $target = $stmt->fetchColumn();
-    if ($target === 'admin') {
-        set_flash(t('admin_users_cannot_operate_admin', '不能对管理员执行该操作。'), 'error');
-    } else {
-        $db->prepare("UPDATE users SET status = 'active', muted_until = NULL, status_reason = '' WHERE id = :id")
-            ->execute([':id' => $userId]);
-        set_flash(t('admin_users_unmuted', '用户已解除禁言。'), 'success');
-    }
+// 旧 GET 写操作链接命中：不执行写操作，提示刷新
+if (in_array($action, $userWriteActions, true)) {
+    set_flash(t('post_flash_method_changed', '操作方式已变更，请刷新页面重试。'), 'error');
     redirect('/admin/users');
 }
 
@@ -71,14 +94,15 @@ if (!isset($allowedStatus[$filterStatus])) {
     $filterStatus = '';
 }
 
-// 角色筛选（users.role 白名单，避免注入）
-$allowedRoles = [];
-try {
-    $roleRows = $db->query("SELECT DISTINCT role FROM users WHERE role IS NOT NULL AND role <> ''")->fetchAll(PDO::FETCH_COLUMN);
-    foreach ($roleRows as $r) { $allowedRoles[$r] = 1; }
-} catch (\Throwable $e) { /* 忽略 */ }
+// 角色筛选（两级管理员体系分级：超级管理员 / 社区管理员 / 普通用户）
+// 按白名单值校验防注入；community_admin 为 roles 表内置角色，经 user_roles 关联匹配
+$roleFilterOptions = [
+    'super_admin'     => t('admin_users_filter_super_admin', '超级管理员'),
+    'community_admin' => t('admin_users_filter_community_admin', '社区管理员'),
+    'user'            => t('admin_users_filter_user', '普通用户'),
+];
 $filterRole = $_GET['role'] ?? '';
-if (!isset($allowedRoles[$filterRole])) { $filterRole = ''; }
+if (!isset($roleFilterOptions[$filterRole])) { $filterRole = ''; }
 
 // 用户组（积分等级）筛选：读取所有组，用于下拉与区间匹配
 $userGroups = [];
@@ -118,11 +142,17 @@ if ($sortDir !== 'asc' && $sortDir !== 'desc') { $sortDir = 'desc'; }
 $conditions = [];
 $params = [];
 if ($search !== '') {
+    // 隐私控制：邮箱仅超管可搜索（社区管理员看不到用户邮箱，避免按邮箱旁路检索）
+    $searchEmailOk = $isSuperAdmin;
     if (ctype_digit($search)) {
-        $conditions[] = "(u.username LIKE :search1 OR u.email LIKE :search2 OR u.uid = :uidExact)";
+        $conditions[] = $searchEmailOk
+            ? "(u.username LIKE :search1 OR u.email LIKE :search2 OR u.uid = :uidExact)"
+            : "(u.username LIKE :search1 OR u.uid = :uidExact)";
         $params[':uidExact'] = (int)$search;
     } else {
-        $conditions[] = "(u.username LIKE :search1 OR u.email LIKE :search2)";
+        $conditions[] = $searchEmailOk
+            ? "(u.username LIKE :search1 OR u.email LIKE :search2)"
+            : "(u.username LIKE :search1)";
     }
     $params[':search1'] = '%' . $search . '%';
     $params[':search2'] = '%' . $search . '%';
@@ -132,8 +162,10 @@ if ($filterStatus !== '') {
     $params[':status'] = $filterStatus;
 }
 if ($filterRole !== '') {
-    $conditions[] = "u.role = :role";
-    $params[':role'] = $filterRole;
+    $roleCond = admin_role_filter_sql($filterRole);
+    if ($roleCond !== '') {
+        $conditions[] = $roleCond;
+    }
 }
 if ($groupRange !== null) {
     // 注意：PDO 在 EMULATE_PREPARES=false 时不允许同一命名参数出现多次，
@@ -155,7 +187,6 @@ if ($dateTo !== '') {
 }
 $where = $conditions ? 'WHERE ' . implode(' AND ', $conditions) : '';
 $orderBy = $sortField !== '' ? "ORDER BY " . $allowedSort[$sortField] . " " . $sortDir : "ORDER BY u.created_at DESC";
-
 
 $page = max(1, (int)($_GET['page'] ?? 1));
 $perPage = 15;
@@ -189,7 +220,9 @@ $stmt = $db->prepare("
            (SELECT COUNT(*) FROM sensitive_word_logs WHERE user_id = u.id) AS sensitive_hit_count,
            (SELECT COUNT(*) FROM sensitive_word_logs WHERE user_id = u.id AND action IN ('review','block')) AS sensitive_review_count,
            (SELECT COUNT(*) FROM sensitive_word_logs WHERE user_id = u.id AND action = 'replace') AS sensitive_replace_count,
-           (SELECT COUNT(*) FROM ban_appeals WHERE user_id = u.id AND status = 'rejected') AS rejected_appeal_count
+           (SELECT COUNT(*) FROM ban_appeals WHERE user_id = u.id AND status = 'rejected') AS rejected_appeal_count,
+           EXISTS (SELECT 1 FROM user_roles ur JOIN roles rr ON rr.id = ur.role_id
+               WHERE ur.user_id = u.id AND rr.name = 'community_admin') AS is_community_admin
     FROM users u
     LEFT JOIN posts p ON p.user_id = u.id
     LEFT JOIN replies r ON r.user_id = u.id
@@ -212,73 +245,52 @@ $activeMenu = 'users';
 require_once dirname(__DIR__) . '/layout/header.php';
 ?>
 
-<style>
-.sort-th { cursor: pointer; user-select: none; white-space: nowrap; }
-.sort-th:hover { color: var(--primary); }
-.sort-th.sort-active { color: var(--primary); }
-.col-check { width: 36px; text-align: center; }
-.bulk-bar { background: var(--surface-2); }
-.bulk-bar-inner { display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap; }
-.bulk-count strong { color: var(--primary); }
-.bulk-actions { display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap; }
-.drawer-head { display:flex; align-items:center; gap:0.75rem; margin-bottom:1rem; }
-.drawer-stat-row { display:grid; grid-template-columns: repeat(4, 1fr); gap:0.5rem; margin-bottom:0.75rem; }
-.drawer-stat { background: var(--surface-2); border-radius:0.5rem; padding:0.5rem; text-align:center; }
-.ds-value { font-weight:700; font-size:1rem; }
-.ds-label { font-size:0.7rem; color:var(--text-muted); }
-.drawer-section { display:flex; gap:0.75rem; padding:0.4rem 0; border-bottom:1px solid var(--border); font-size:0.875rem; }
-.drawer-section .ds-k { color:var(--text-muted); min-width:5rem; }
-.drawer-section .ds-v { flex:1; word-break:break-word; }
-.drawer-subtitle { font-weight:600; margin:1rem 0 0.5rem; }
-.drawer-list-item { display:flex; justify-content:space-between; gap:0.5rem; padding:0.35rem 0; border-bottom:1px solid var(--border); font-size:0.85rem; }
-.toolbar-actions { display:flex; gap:0.5rem; align-items:center; margin-left:0.5rem; }
-.detail-link { display:inline-flex; align-items:center; justify-content:center; padding:0.25rem 0.6rem; font-size:0.75rem; border-radius:0.375rem; border:1px solid var(--border-strong); color:var(--brand); background:transparent; cursor:pointer; text-decoration:none; transition:background var(--transition), border-color var(--transition), color var(--transition); }
-.detail-link:hover { background:var(--brand-soft); border-color:var(--brand); color:var(--brand); }
-</style>
-
 <div class="page-header">
     <h1 class="page-title"><?php echo e(t('admin_users_page_title', '用户管理')); ?></h1>
     <div class="page-tools">
+        <?php if ($isSuperAdmin): ?>
+        <a href="<?php echo site_url('admin/user_create'); ?>" class="btn btn-primary"><?php echo e(t('admin_users_tool_create', '创建账号')); ?></a>
         <a href="<?php echo site_url('admin/user_groups'); ?>" class="btn btn-secondary"><?php echo e(t('admin_users_tool_user_groups', '用户组')); ?></a>
         <a href="<?php echo site_url('admin/roles'); ?>" class="btn btn-secondary"><?php echo e(t('admin_users_tool_roles', '权限组')); ?></a>
         <a href="<?php echo site_url('admin/medals'); ?>" class="btn btn-secondary"><?php echo e(t('admin_users_tool_medals', '勋章')); ?></a>
+        <?php endif; ?>
     </div>
 </div>
 
 <!-- 概览卡片：复用后台 .stats-grid/.stat-card，加 compact 修饰避免过于 bulky -->
 <div class="stats-grid stats-grid-compact">
     <div class="stat-card">
-        <div class="stat-card-icon" style="color:var(--primary);"><?php echo ui_icon('users', 22); ?></div>
+        <div class="stat-card-icon"><?php echo ui_icon('users', 22); ?></div>
         <div class="stat-card-body">
             <div class="stat-card-value"><?php echo number_format($statTotal); ?></div>
             <div class="stat-card-label"><?php echo e(t('admin_users_stat_total', '总用户')); ?></div>
         </div>
     </div>
     <div class="stat-card">
-        <div class="stat-card-icon" style="color:var(--error);"><?php echo ui_icon('lock', 22); ?></div>
+        <div class="stat-card-icon"><?php echo ui_icon('lock', 22); ?></div>
         <div class="stat-card-body">
-            <div class="stat-card-value" style="color:var(--error);"><?php echo number_format($statBanned); ?></div>
+            <div class="stat-card-value"><?php echo number_format($statBanned); ?></div>
             <div class="stat-card-label"><?php echo e(t('admin_users_stat_banned', '已封禁')); ?></div>
         </div>
     </div>
     <div class="stat-card">
-        <div class="stat-card-icon" style="color:var(--warning);"><?php echo ui_icon('message', 22); ?></div>
+        <div class="stat-card-icon"><?php echo ui_icon('message', 22); ?></div>
         <div class="stat-card-body">
-            <div class="stat-card-value" style="color:var(--warning);"><?php echo number_format($statMuted); ?></div>
+            <div class="stat-card-value"><?php echo number_format($statMuted); ?></div>
             <div class="stat-card-label"><?php echo e(t('admin_users_stat_muted', '已禁言')); ?></div>
         </div>
     </div>
     <div class="stat-card">
-        <div class="stat-card-icon" style="color:var(--info);"><?php echo ui_icon('bell', 22); ?></div>
+        <div class="stat-card-icon"><?php echo ui_icon('bell', 22); ?></div>
         <div class="stat-card-body">
-            <div class="stat-card-value" style="color:var(--info);"><?php echo number_format($statPending); ?></div>
+            <div class="stat-card-value"><?php echo number_format($statPending); ?></div>
             <div class="stat-card-label"><?php echo e(t('admin_users_stat_pending', '待处理举报')); ?></div>
         </div>
     </div>
 </div>
 
-<!-- 筛选工具条 -->
-<div class="card card-toolbar mb-2">
+<!-- 筛选工具条（统一 .toolbar 布局） -->
+<div class="toolbar card-toolbar">
     <form method="GET" action="<?php echo site_url('admin/users'); ?>" class="admin-toolbar-form" id="user-filter-form">
         <!-- 隐藏 route 字段：保证 GET 提交时路由不丢失（即使 action 被重写/副本未同步也不会跳回首页） -->
         <input type="hidden" name="route" value="admin/users">
@@ -296,8 +308,8 @@ require_once dirname(__DIR__) . '/layout/header.php';
         <div class="toolbar-field toolbar-field-select">
             <select name="role" id="role-filter" class="form-control">
                 <option value=""><?php echo e(t('admin_users_filter_all_role', '全部角色')); ?></option>
-                <?php foreach ($allowedRoles as $r => $_): ?>
-                    <option value="<?php echo e($r); ?>"<?php echo $filterRole === $r ? ' selected' : ''; ?>><?php echo e($r); ?></option>
+                <?php foreach ($roleFilterOptions as $rv => $rl): ?>
+                    <option value="<?php echo e($rv); ?>"<?php echo $filterRole === $rv ? ' selected' : ''; ?>><?php echo e($rl); ?></option>
                 <?php endforeach; ?>
             </select>
         </div>
@@ -322,18 +334,20 @@ require_once dirname(__DIR__) . '/layout/header.php';
     </form>
 </div>
 
-<!-- 批量操作工具条（选中用户后显示） -->
-<div class="card bulk-bar" id="bulk-bar" style="display:none;margin-bottom:1rem;">
+<!-- 批量操作工具条（选中用户后显示，JS 以 style.display='block' 切换） -->
+<div class="toolbar bulk-bar" id="bulk-bar" style="display:none;">
     <div class="bulk-bar-inner">
         <span class="bulk-count"><?php echo e(t('admin_users_bulk_selected', '已选')); ?> <strong id="bulk-count">0</strong> <?php echo e(t('admin_users_bulk_selected_items', '项')); ?></span>
         <div class="bulk-actions">
-            <select id="bulk-action-select" class="form-control" style="width:auto;display:inline-block;">
+            <select id="bulk-action-select" class="form-control bulk-select">
                 <option value=""><?php echo e(t('admin_users_bulk_select', '选择批量操作…')); ?></option>
                 <option value="ban"><?php echo e(t('admin_users_bulk_ban', '封禁')); ?></option>
                 <option value="mute"><?php echo e(t('admin_users_bulk_mute', '禁言')); ?></option>
                 <option value="unban_unmute"><?php echo e(t('admin_users_bulk_unban_unmute', '解封 / 解除禁言')); ?></option>
+                <?php if ($isSuperAdmin): ?>
                 <option value="set_role"><?php echo e(t('admin_users_bulk_set_role', '设置角色')); ?></option>
                 <option value="delete"><?php echo e(t('admin_users_bulk_delete', '删除')); ?></option>
+                <?php endif; ?>
             </select>
             <span id="bulk-extra-fields" style="display:none;"></span>
             <button type="button" id="bulk-apply-btn" class="btn btn-primary"><?php echo e(t('admin_users_bulk_apply', '应用')); ?></button>
@@ -346,8 +360,10 @@ require_once dirname(__DIR__) . '/layout/header.php';
     <div class="card-header user-list-header">
         <h2 class="card-title"><?php echo e(t('admin_users_list_title', '用户列表')); ?></h2>
         <div class="user-list-actions">
+            <?php if ($isSuperAdmin): ?>
             <a href="#" id="export-csv-btn" class="btn btn-secondary btn-sm"><?php echo ui_icon('file-text', 16); ?> <?php echo e(t('admin_users_export_csv', '导出 CSV')); ?></a>
             <button type="button" id="bulk-notify-btn" class="btn btn-secondary btn-sm"><?php echo ui_icon('message', 16); ?> <?php echo e(t('admin_users_bulk_notify', '批量通知')); ?></button>
+            <?php endif; ?>
         </div>
     </div>
     <div class="table-responsive">
@@ -388,7 +404,9 @@ require_once dirname(__DIR__) . '/layout/header.php';
                     $lastActive = !empty($u['last_active']) ? time_ago($u['last_active']) : t('admin_users_never','从未');
                     // 兼容迁移导入产生的「用户名/邮箱为空」记录，避免列表出现空白行
                     $displayName  = !empty($u['username']) ? $u['username'] : ('UID ' . ($u['uid'] ?? '?'));
-                    $displayEmail = !empty($u['email']) ? $u['email'] : '—';
+                    // 隐私控制：非超管（社区管理员）默认隐藏用户邮箱，申请披露经超管审核通过后可见
+                    $emailVisible = $isSuperAdmin || admin_can_view_email((int)$u['id']);
+                    $displayEmail = $emailVisible ? (!empty($u['email']) ? $u['email'] : '—') : t('admin_users_email_hidden', '已隐藏');
                     $avatarName   = !empty($u['username']) ? $u['username'] : ('UID' . ($u['uid'] ?? '?'));
                     $statusClass = $u['status'] === 'banned' ? 'badge-soft-danger' : ($u['status'] === 'muted' ? 'badge-soft-warning' : 'badge-soft-success');
                     $statusTitle = '';
@@ -411,13 +429,13 @@ require_once dirname(__DIR__) . '/layout/header.php';
                         <td class="col-uid">
                             <code class="uid-code"><?php echo e((string)($u['uid'] ?? '-')); ?></code>
                         </td>
-                        <td data-open-drawer="<?php echo (int)$u['id']; ?>" style="cursor:pointer;" title="<?php echo e(t('admin_users_view_detail', '点击查看用户详情')); ?>">
+                        <td data-open-drawer="<?php echo (int)$u['id']; ?>" class="cell-clickable" title="<?php echo e(t('admin_users_view_detail', '点击查看用户详情')); ?>">
                             <div class="user-cell">
                                 <img src="<?php echo avatar_url($u['avatar'] ?? null, $avatarName); ?>" alt="" class="avatar avatar-sm">
                                 <div class="user-cell-info">
                                     <div class="user-cell-name">
                                         <?php echo e($displayName); ?>
-                                        <?php if ($u['role'] === 'admin'): ?><span class="badge badge-danger text-xs"><?php echo e(t('admin_users_admin_badge', '管理员')); ?></span><?php endif; ?>
+                                        <?php if ($u['role'] === 'admin'): ?><span class="badge badge-danger text-xs"><?php echo e(t('admin_users_super_admin_badge', '超级管理员')); ?></span><?php elseif (!empty($u['is_community_admin'])): ?><span class="badge badge-warning text-xs"><?php echo e(t('common_community_admin', '社区管理员')); ?></span><?php endif; ?>
                                     </div>
                                     <div class="user-cell-email"><?php echo e($displayEmail); ?></div>
                                 </div>
@@ -428,7 +446,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
                                 <?php echo format_user_status($u['status']); ?>
                             </span>
                             <?php if (($u['status'] === 'banned' || $u['status'] === 'muted') && $remainingSecondsInit > 0): ?>
-                                <div class="text-muted text-xs remaining-text" data-remaining-for="<?php echo (int)$u['id']; ?>" style="font-size:0.6875rem;margin-top:0.125rem;"></div>
+                                <div class="text-muted text-xs remaining-text" data-remaining-for="<?php echo (int)$u['id']; ?>"></div>
                             <?php endif; ?>
                         </td>
                         <td class="col-risk">
@@ -442,7 +460,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
                                         <?php echo e($risk['label']); ?> · <?php echo (int)$risk['score']; ?>
                                     </span>
                                 <?php endif; ?>
-                                <a href="javascript:void(0);" class="detail-link" data-open-drawer="<?php echo (int)$u['id']; ?>" title="<?php echo e(t('admin_users_view_detail', '点击查看用户详情')); ?>"><?php echo e(t('admin_users_view_detail', '详情')); ?></a>
+                                <a href="javascript:void(0);" class="detail-link" data-open-drawer="<?php echo (int)$u['id']; ?>" title="<?php echo e(t('admin_users_view_detail', '点击查看用户详情')); ?>"><?php echo e(t('admin_users_detail_link', '详情')); ?></a>
                             </div>
                         </td>
                         <td class="col-group">
@@ -458,23 +476,30 @@ require_once dirname(__DIR__) . '/layout/header.php';
                         <td class="col-time"><?php echo e($lastActive); ?></td>
                         <td class="col-actions">
                             <div class="action-btns">
+                                <?php if ($isSuperAdmin): ?>
                                 <a href="<?php echo site_url('admin/user_edit', ['user_id' => (int)$u['id']]); ?>" class="btn btn-sm btn-primary" title="<?php echo e(t('admin_users_edit_title', '编辑')); ?>"><?php echo e(t('admin_users_edit', '编辑')); ?></a>
+                                <?php endif; ?>
                                 <div class="dropdown action-dropdown">
                                     <button type="button" class="btn btn-sm btn-secondary dropdown-toggle" data-toggle-dropdown><?php echo e(t('admin_users_more', '更多')); ?></button>
                                     <div class="dropdown-menu dropdown-menu-right">
                                         <a href="<?php echo site_url('profile', ['user_id' => (int)$u['id']]); ?>" target="_blank" class="dropdown-item"><?php echo e(t('admin_users_frontend_detail', '前台详情')); ?></a>
                                         <?php if ($u['role'] !== 'admin'): ?>
                                             <?php if ($u['status'] === 'banned'): ?>
-                                                <a href="<?php echo site_url('admin/users', ['action' => 'unban', 'user_id' => (int)$u['id'], 'csrf_token' => csrf_token()]); ?>" class="dropdown-item" data-confirm="<?php echo e(t('admin_users_confirm_unban', '确定解封该用户吗？')); ?>"><?php echo e(t('admin_users_unban', '解封')); ?></a>
+                                                <?php echo admin_action_form(site_url('admin/users'), 'unban', ['user_id' => (int)$u['id']], t('admin_users_unban', '解封'), ['class' => 'dropdown-item', 'confirm' => t('admin_users_confirm_unban', '确定解封该用户吗？')]); ?>
                                             <?php elseif ($u['status'] === 'muted'): ?>
-                                                <a href="<?php echo site_url('admin/users', ['action' => 'unmute', 'user_id' => (int)$u['id'], 'csrf_token' => csrf_token()]); ?>" class="dropdown-item" data-confirm="<?php echo e(t('admin_users_confirm_unmute', '确定解除该用户的禁言吗？')); ?>"><?php echo e(t('admin_users_unmute', '解除禁言')); ?></a>
+                                                <?php echo admin_action_form(site_url('admin/users'), 'unmute', ['user_id' => (int)$u['id']], t('admin_users_unmute', '解除禁言'), ['class' => 'dropdown-item', 'confirm' => t('admin_users_confirm_unmute', '确定解除该用户的禁言吗？')]); ?>
                                                 <a href="<?php echo site_url('admin/user_ban', ['user_id' => (int)$u['id']]); ?>" class="dropdown-item text-danger"><?php echo e(t('admin_users_ban', '封号')); ?></a>
                                             <?php else: ?>
                                                 <a href="<?php echo site_url('admin/user_ban', ['user_id' => (int)$u['id']]); ?>" class="dropdown-item text-danger"><?php echo e(t('admin_users_ban', '封号')); ?></a>
                                                 <a href="<?php echo site_url('admin/user_mute', ['user_id' => (int)$u['id']]); ?>" class="dropdown-item text-warning"><?php echo e(t('admin_users_mute', '禁言')); ?></a>
                                             <?php endif; ?>
+                                            <?php if ($hasLoginLockCols && !empty($u['login_locked_until']) && db_time($u['login_locked_until']) > time()): ?>
+                                                <?php echo admin_action_form(site_url('admin/users'), 'unlock_login', ['user_id' => (int)$u['id']], t('admin_users_unlock_login', '解锁登录'), ['class' => 'dropdown-item text-warning', 'confirm' => t('admin_users_confirm_unlock_login', '确定清除该用户的登录失败计数与锁定吗？')]); ?>
+                                            <?php endif; ?>
+                                            <?php if ($isSuperAdmin): ?>
                                             <div class="dropdown-divider"></div>
-                                            <a href="<?php echo site_url('admin/users', ['action' => 'delete', 'user_id' => (int)$u['id'], 'csrf_token' => csrf_token()]); ?>" class="dropdown-item text-danger" data-confirm="<?php echo e(t('admin_users_confirm_delete', '确定删除该用户吗？&#10;该用户的所有帖子、回复与签到记录将被一并删除，且无法恢复。')); ?>"><?php echo e(t('admin_users_delete', '删除')); ?></a>
+                                            <?php echo admin_action_form(site_url('admin/users'), 'delete', ['user_id' => (int)$u['id']], t('admin_users_delete', '删除'), ['class' => 'dropdown-item text-danger', 'confirm' => t('admin_users_confirm_delete', '确定删除该用户吗？&#10;该用户的所有帖子、回复与签到记录将被一并删除，且无法恢复。')]); ?>
+                                            <?php endif; ?>
                                         <?php endif; ?>
                                     </div>
                                 </div>
@@ -489,7 +514,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
         <div class="empty-state">
             <div class="empty-state-icon"><?php echo ui_icon('search', 28); ?></div>
             <p class="mb-0"><?php echo e(t('admin_users_no_users_found', '未找到匹配的用户')); ?></p>
-            <p class="text-muted" style="font-size:0.8125rem;margin-top:0.25rem;"><?php echo e(t('admin_users_no_users_hint', '试试调整搜索关键词或筛选条件')); ?></p>
+            <p class="text-muted empty-state-hint"><?php echo e(t('admin_users_no_users_hint', '试试调整搜索关键词或筛选条件')); ?></p>
         </div>
     <?php endif; ?>
     <?php
@@ -505,42 +530,62 @@ require_once dirname(__DIR__) . '/layout/header.php';
     ?>
 </div>
 
-<!-- 风险详情弹层 -->
-<div class="modal-overlay" id="risk-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center;padding:1rem;">
-    <div class="card" style="max-width:680px;width:100%;max-height:90vh;overflow-y:auto;">
+<!-- 风险详情弹层（静态布局见 admin.css #risk-modal） -->
+<div class="modal-overlay" id="risk-modal" style="display:none;">
+    <div class="card">
         <div class="card-header">
             <h2 class="card-title"><?php echo e(t('admin_users_risk_detail_modal', '风险详情')); ?></h2>
             <button type="button" class="btn btn-sm btn-secondary" data-close-risk-modal><?php echo e(t('admin_users_close', '关闭')); ?></button>
         </div>
-        <div style="padding:0 1.5rem 1.5rem;" id="risk-modal-body"><?php echo e(t('admin_users_loading', '加载中…')); ?></div>
+        <div id="risk-modal-body"><?php echo e(t('admin_users_loading', '加载中…')); ?></div>
     </div>
 </div>
 
-<!-- 用户详情抽屉 -->
-<div class="drawer-overlay" id="user-drawer-overlay" style="display:none;position:fixed;top:0;right:0;bottom:0;left:0;background:rgba(0,0,0,0.45);z-index:1100;">
-    <div class="drawer-panel" style="position:absolute;top:0;right:0;bottom:0;width:420px;max-width:92vw;background:var(--surface);box-shadow:-4px 0 24px rgba(0,0,0,0.18);overflow-y:auto;padding:1.25rem;">
-        <div style="padding:0 0 1rem;" id="user-drawer-body"><?php echo e(t('admin_users_loading', '加载中…')); ?></div>
+<!-- 用户详情抽屉（静态布局见 admin.css #user-drawer-overlay） -->
+<div class="drawer-overlay" id="user-drawer-overlay" style="display:none;">
+    <div class="drawer-panel">
+        <div id="user-drawer-body"><?php echo e(t('admin_users_loading', '加载中…')); ?></div>
     </div>
 </div>
 
-<!-- 批量通知弹窗 -->
-<div class="modal-overlay" id="notify-overlay" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:1200;align-items:center;justify-content:center;padding:1rem;">
-    <div class="card" style="max-width:520px;width:100%;">
+<!-- 批量通知弹窗（静态布局见 admin.css #notify-overlay） -->
+<div class="modal-overlay" id="notify-overlay" style="display:none;">
+    <div class="card">
         <div class="card-header">
             <h2 class="card-title"><?php echo e(t('admin_users_bulk_notify_title', '批量发送站内信')); ?></h2>
             <button type="button" class="btn btn-sm btn-secondary" data-close-notify><?php echo e(t('admin_users_close', '关闭')); ?></button>
         </div>
-        <div style="padding:1.25rem;">
-            <p class="text-muted" style="font-size:0.85rem;margin-bottom:0.75rem;">
+        <div class="notify-body">
+            <p class="text-muted notify-desc">
                 <?php echo e(t('admin_users_notify_desc_prefix', '将向')); ?> <strong id="notify-target-text"><?php echo e(t('admin_users_notify_selected_users', '已勾选的用户')); ?></strong> <?php echo e(t('admin_users_notify_desc_suffix', '发送一条站内信。勾选“发送给当前筛选结果”可群发给当前筛选条件下的全部用户（管理员除外）。')); ?>
             </p>
-            <label class="form-check" style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.75rem;">
+            <label class="form-check notify-check">
                 <input type="checkbox" id="notify-scope-filter"> <?php echo e(t('admin_users_notify_scope_filter', '发送给当前筛选结果（忽略勾选）')); ?>
             </label>
-            <textarea id="notify-content" class="form-control" rows="5" placeholder="<?php echo e(t('admin_users_notify_placeholder', '输入站内信内容…')); ?>" style="margin-bottom:0.75rem;"></textarea>
-            <div style="text-align:right;">
+            <textarea id="notify-content" class="form-control notify-textarea" rows="5" placeholder="<?php echo e(t('admin_users_notify_placeholder', '输入站内信内容…')); ?>"></textarea>
+            <div class="notify-actions">
                 <button type="button" class="btn btn-secondary" data-close-notify><?php echo e(t('admin_users_cancel', '取消')); ?></button>
                 <button type="button" class="btn btn-primary" id="notify-send-btn"><?php echo e(t('admin_users_send', '发送')); ?></button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 邮箱披露申请弹窗（隐私控制：非超管申请查看用户邮箱） -->
+<div class="modal-overlay" id="email-disclosure-overlay" style="display:none;">
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title"><?php echo e(t('admin_users_edr_modal_title', '申请披露邮箱')); ?></h2>
+            <button type="button" class="btn btn-sm btn-secondary" data-close-email-disclosure><?php echo e(t('admin_users_close', '关闭')); ?></button>
+        </div>
+        <div class="notify-body">
+            <p class="text-muted notify-desc">
+                <?php echo e(t('admin_users_edr_modal_desc_prefix', '目标用户：')); ?> <strong id="edr-target-name">-</strong>
+            </p>
+            <textarea id="edr-reason" class="form-control notify-textarea" rows="4" maxlength="200" placeholder="<?php echo e(t('admin_users_edr_reason_placeholder', '请说明申请原因（至少 5 个字），例如：该用户涉嫌违规，需要联系核实。')); ?>"></textarea>
+            <div class="notify-actions">
+                <button type="button" class="btn btn-secondary" data-close-email-disclosure><?php echo e(t('admin_users_cancel', '取消')); ?></button>
+                <button type="button" class="btn btn-primary" id="edr-submit-btn" onclick="submitEmailDisclosure()"><?php echo e(t('admin_users_edr_submit', '提交申请')); ?></button>
             </div>
         </div>
     </div>
@@ -575,6 +620,32 @@ require_once dirname(__DIR__) . '/layout/header.php';
     var detailUrl = '<?php echo site_url('admin/api/user_detail_ajax'); ?>';
     var exportUrl = '<?php echo site_url('admin/api/users_export_csv'); ?>';
     var csrfToken = '<?php echo csrf_token(); ?>';
+    var usersPageUrl = '<?php echo site_url('admin/users'); ?>';
+    // 超管专属入口（编辑/删除）的渲染开关：与服务端门禁保持一致
+    var IS_SUPER = <?php echo $isSuperAdmin ? 'true' : 'false'; ?>;
+    // 写操作按钮文案（JS 动态行生成 POST 表单用）
+    var UA_LABELS = {
+        unban: <?php echo json_encode(t('admin_users_unban', '解封')); ?>,
+        unmute: <?php echo json_encode(t('admin_users_unmute', '解除禁言')); ?>,
+        unlock_login: <?php echo json_encode(t('admin_users_unlock_login', '解锁登录')); ?>,
+        del: <?php echo json_encode(t('admin_users_delete', '删除')); ?>
+    };
+    var UA_CONFIRMS = {
+        unban: <?php echo json_encode(t('admin_users_confirm_unban', '确定解封该用户吗？')); ?>,
+        unmute: <?php echo json_encode(t('admin_users_confirm_unmute', '确定解除该用户的禁言吗？')); ?>,
+        unlock_login: <?php echo json_encode(t('admin_users_confirm_unlock_login', '确定清除该用户的登录失败计数与锁定吗？')); ?>,
+        del: <?php echo json_encode(t('admin_users_confirm_delete', '确定删除该用户吗？&#10;该用户的所有帖子、回复与签到记录将被一并删除，且无法恢复。')); ?>
+    };
+    // 生成下拉菜单内的内联 POST 动作表单（确认框走 data-confirm 事件委托）
+    function userActionFormItem(act, uid, label, extraCls, confirmMsg) {
+        var h = '<form method="post" action="' + usersPageUrl + '" class="inline-action-form" data-confirm="' + String(confirmMsg).replace(/"/g, '&quot;') + '">';
+        h += '<input type="hidden" name="csrf_token" value="' + csrfToken + '">';
+        h += '<input type="hidden" name="action" value="' + act + '">';
+        h += '<input type="hidden" name="user_id" value="' + uid + '">';
+        h += '<button type="submit" class="dropdown-item' + (extraCls ? ' ' + extraCls : '') + '">' + escapeHtml(label) + '</button>';
+        h += '</form>';
+        return h;
+    }
     var POLL_INTERVAL = 2000;  // 2 秒轮询；配合签名比对，仅数据真正变化时才重绘，消除整表闪烁
     var TICK_INTERVAL = 1000;  // 1 秒递减一次计数器
     var listChecking = false;  // 请求去重：上一请求未返回时跳过本次轮询，避免堆积
@@ -663,33 +734,42 @@ require_once dirname(__DIR__) . '/layout/header.php';
 
         // 操作按钮
         var actions = '<div class="action-btns">';
-        actions += '<a href="<?php echo site_url('admin/user_edit'); ?>&user_id=' + u.id + <?php echo json_encode(t('admin_users_js_edit_link','" class="btn btn-sm btn-primary" title="编辑">编辑</a> ')); ?>;
+        if (IS_SUPER) {
+            actions += '<a href="<?php echo site_url('admin/user_edit'); ?>?user_id=' + u.id + <?php echo json_encode(t('admin_users_js_edit_link','" class="btn btn-sm btn-primary" title="编辑">编辑</a> ')); ?>;
+        }
         actions += '<div class="dropdown action-dropdown">';
         actions += '<?php echo json_encode(t('admin_users_js_more_btn','<button type="button" class="btn btn-sm btn-secondary dropdown-toggle" data-toggle-dropdown>更多</button>')); ?>';
         actions += '<div class="dropdown-menu dropdown-menu-right">';
         actions += '<a href="<?php echo site_url('profile', ['user_id' => '']); ?>' + u.id + <?php echo json_encode(t('admin_users_js_frontend_detail','" target="_blank" class="dropdown-item">前台详情</a>')); ?>;
         if (u.role !== 'admin') {
             if (u.status === 'banned') {
-                actions += '<a href="<?php echo site_url('admin/users'); ?>&action=unban&user_id=' + u.id + '&csrf_token=' + csrfToken + <?php echo json_encode(t('admin_users_js_unban_link','" class="dropdown-item" data-confirm="确定解封该用户吗？">解封</a>')); ?>;
+                actions += userActionFormItem('unban', u.id, UA_LABELS.unban, '', UA_CONFIRMS.unban);
             } else if (u.status === 'muted') {
-                actions += '<a href="<?php echo site_url('admin/users'); ?>&action=unmute&user_id=' + u.id + '&csrf_token=' + csrfToken + <?php echo json_encode(t('admin_users_js_unmute_link','" class="dropdown-item" data-confirm="确定解除该用户的禁言吗？">解除禁言</a>')); ?>;
+                actions += userActionFormItem('unmute', u.id, UA_LABELS.unmute, '', UA_CONFIRMS.unmute);
                 actions += '<a href="<?php echo site_url('admin/user_ban'); ?>&user_id=' + u.id + <?php echo json_encode(t('admin_users_js_ban_link','" class="dropdown-item text-danger">封号</a>')); ?>;
             } else {
                 actions += '<a href="<?php echo site_url('admin/user_ban'); ?>&user_id=' + u.id + <?php echo json_encode(t('admin_users_js_ban_link','" class="dropdown-item text-danger">封号</a>')); ?>;
                 actions += '<a href="<?php echo site_url('admin/user_mute'); ?>&user_id=' + u.id + <?php echo json_encode(t('admin_users_js_mute_link','" class="dropdown-item text-warning">禁言</a>')); ?>;
             }
-            actions += '<div class="dropdown-divider"></div>';
-            actions += '<a href="<?php echo site_url('admin/users'); ?>&action=delete&user_id=' + u.id + '&csrf_token=' + csrfToken + <?php echo json_encode(t('admin_users_js_delete_link','" class="dropdown-item text-danger" data-confirm="确定删除该用户吗？&#10;该用户的所有帖子、回复与签到记录将被一并删除，且无法恢复。">删除</a>')); ?>;
+            if (u.login_locked) {
+                actions += userActionFormItem('unlock_login', u.id, UA_LABELS.unlock_login, 'text-warning', UA_CONFIRMS.unlock_login);
+            }
+            if (IS_SUPER) {
+                actions += '<div class="dropdown-divider"></div>';
+                actions += userActionFormItem('delete', u.id, UA_LABELS.del, 'text-danger', UA_CONFIRMS.del);
+            }
         }
         actions += '</div></div></div>';
 
-        var adminBadge = u.role === 'admin' ? <?php echo json_encode(t('admin_users_js_admin_badge',' <span class="badge badge-danger text-xs">管理员</span>')); ?> : '';
+        // 角色徽标：超级管理员（red）> 社区管理员（warning），与主页面 PHP 渲染保持一致
+        // 注意：必须与 PHP 初始渲染共用 admin_users_super_admin_badge，避免 JS 重绘后显示不一致
+        var adminBadge = u.role === 'admin' ? ' <span class="badge badge-danger text-xs">' + <?php echo json_encode(t('admin_users_super_admin_badge','超级管理员')); ?> + '</span>' : (u.is_community_admin ? <?php echo json_encode(t('admin_users_js_community_admin_badge',' <span class="badge badge-warning text-xs">社区管理员</span>')); ?> : '');
 
         var checked = selectedIds.has(u.id) ? ' checked' : '';
         return '<tr data-user-id="' + u.id + '">' +
             '<td class="col-check"><input type="checkbox" class="row-check" value="' + u.id + '"' + checked + '></td>' +
             '<td class="col-uid"><code class="uid-code">' + escapeHtml(u.uid || '-') + '</code></td>' +
-            '<td data-open-drawer="' + u.id + '" style="cursor:pointer;" title="点击查看用户详情"><div class="user-cell"><img src="' + escapeHtml(u.avatar_url || '') + '" alt="" class="avatar avatar-sm"><div class="user-cell-info"><div class="user-cell-name">' + escapeHtml(u.username || ('UID ' + (u.uid != null ? u.uid : '?'))) + adminBadge + '</div><div class="user-cell-email">' + escapeHtml(u.email || '—') + '</div></div></div></td>' +
+            '<td data-open-drawer="' + u.id + '" style="cursor:pointer;" title="点击查看用户详情"><div class="user-cell"><img src="' + escapeHtml(u.avatar_url || '') + '" alt="" class="avatar avatar-sm"><div class="user-cell-info"><div class="user-cell-name">' + escapeHtml(u.username || ('UID ' + (u.uid != null ? u.uid : '?'))) + adminBadge + '</div><div class="user-cell-email">' + (u.email_visible ? escapeHtml(u.email || '—') : <?php echo json_encode(t('admin_users_email_hidden','已隐藏')); ?>) + '</div></div></div></td>' +
             '<td class="col-status">' + statusBadge + remainingHtml + '</td>' +
             '<td class="col-risk">' + riskHtml + '</td>' +
             '<td class="col-group">' + groupBadge + '</td>' +
@@ -707,7 +787,8 @@ require_once dirname(__DIR__) . '/layout/header.php';
         return users.map(function (u) {
             return [u.id, u.status, u.risk_score, u.remaining_seconds, u.points,
                     u.post_count, u.reply_count, u.resolved_report_count,
-                    u.pending_report_count, u.sensitive_hit_count, u.rejected_appeal_count].join(':');
+                    u.pending_report_count, u.sensitive_hit_count, u.rejected_appeal_count,
+                    u.role, u.is_community_admin ? 1 : 0].join(':');
         }).join('|');
     }
 
@@ -812,7 +893,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
         var html = '';
         html += '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:1rem;">';
         html += '<div><div style="font-weight:700;font-size:1.05rem;">' + escapeHtml(u.username || ('UID ' + (u.uid != null ? u.uid : '?'))) + ' <span class="text-muted" style="font-weight:400;">(UID ' + escapeHtml(u.uid) + ')</span></div>';
-        html += '<div class="text-muted" style="font-size:0.8rem;">' + escapeHtml(u.email) + <?php echo json_encode(t('admin_users_js_registered_at',' · 注册于 ')); ?> + escapeHtml(u.created_at) + <?php echo json_encode(t('admin_users_js_post_count',' · 帖子 ')); ?> + u.post_count + <?php echo json_encode(t('admin_users_js_reply_count',' · 回复 ')); ?> + u.reply_count + '</div></div>';
+        html += '<div class="text-muted" style="font-size:0.8rem;">' + (u.email_visible ? escapeHtml(u.email) : <?php echo json_encode(t('admin_users_email_hidden','已隐藏')); ?>) + <?php echo json_encode(t('admin_users_js_registered_at',' · 注册于 ')); ?> + escapeHtml(u.created_at) + <?php echo json_encode(t('admin_users_js_post_count',' · 帖子 ')); ?> + u.post_count + <?php echo json_encode(t('admin_users_js_reply_count',' · 回复 ')); ?> + u.reply_count + '</div></div>';
         html += '<span class="badge" style="background:' + escapeHtml(risk.color) + ';color:#fff;">' + escapeHtml(u.status_fmt) + <?php echo json_encode(t('admin_users_js_risk_label',' · 风险 ')); ?> + escapeHtml(risk.label) + <?php echo json_encode(t('admin_users_left_paren','（')); ?> + (parseInt(risk.score, 10) || 0) + <?php echo json_encode(t('admin_users_score_close',' 分）')); ?> + '</span>';
         html += '</div>';
 
@@ -890,8 +971,8 @@ require_once dirname(__DIR__) . '/layout/header.php';
 
     // 事件委托（轮询重绘后依然有效）：打开详情 / 关闭弹层
     document.addEventListener('click', function (e) {
-        // data-confirm 确认框（事件委托，兼容 AJAX 动态生成的操作链接）
-        var confirmLink = e.target.closest('a[data-confirm]');
+        // data-confirm 确认框（事件委托，兼容 AJAX 动态生成的操作链接与内联动作表单）
+        var confirmLink = e.target.closest('a[data-confirm], form[data-confirm]');
         if (confirmLink) {
             var message = confirmLink.getAttribute('data-confirm');
             if (!window.confirm(message)) {
@@ -1059,7 +1140,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
         html += '<div class="drawer-head">';
         html += '<img src="' + escapeHtml(u.avatar) + '" alt="" class="avatar" style="width:48px;height:48px;border-radius:50%;">';
         html += '<div style="flex:1;"><div style="font-weight:700;font-size:1.05rem;">' + escapeHtml(u.username || ('UID ' + (u.uid != null ? u.uid : '?'))) + ' <span class="text-muted" style="font-weight:400;">(UID ' + escapeHtml(u.uid != null ? String(u.uid) : '-') + ')</span></div>';
-        html += '<div class="text-muted" style="font-size:0.8rem;">' + escapeHtml(u.email) + '</div></div>';
+        html += '<div class="text-muted" style="font-size:0.8rem;">' + (u.email_visible ? escapeHtml(u.email) : <?php echo json_encode(t('admin_users_email_hidden','已隐藏')); ?>) + '</div></div>';
         html += <?php echo json_encode(t('admin_users_js_drawer_close_btn','<button type="button" class="btn btn-sm btn-secondary" data-close-drawer>关闭</button></div>')); ?>;
 
         html += '<div class="drawer-stat-row">';
@@ -1070,7 +1151,9 @@ require_once dirname(__DIR__) . '/layout/header.php';
         html += '</div>';
 
         html += '<div class="drawer-section"><div class="ds-k">' + <?php echo json_encode(t('admin_users_drawer_risk_score','风险评分')); ?> + '</div><div class="ds-v"><span class="badge" style="background:' + escapeHtml(u.risk.color) + ';color:#fff;">' + escapeHtml(u.risk.label) + <?php echo json_encode(t('admin_users_left_paren','（')); ?> + (parseInt(u.risk.score,10)||0) + <?php echo json_encode(t('admin_users_score_close',' 分）')); ?> + '</span></div></div>';
-        html += <?php echo json_encode(t('admin_users_js_drawer_role','<div class="drawer-section"><div class="ds-k">角色</div><div class="ds-v">')); ?> + escapeHtml(u.role) + '</div></div>';
+        // 角色分级文本：超级管理员 / 社区管理员 / 普通用户（两级管理员体系）
+        var roleText = u.role === 'admin' ? <?php echo json_encode(t('admin_users_super_admin_badge','超级管理员')); ?> : (u.is_community_admin ? <?php echo json_encode(t('common_community_admin','社区管理员')); ?> : <?php echo json_encode(t('admin_users_filter_user','普通用户')); ?>);
+        html += <?php echo json_encode(t('admin_users_js_drawer_role','<div class="drawer-section"><div class="ds-k">角色</div><div class="ds-v">')); ?> + escapeHtml(roleText) + '</div></div>';
         if (u.signature) html += <?php echo json_encode(t('admin_users_js_drawer_signature','<div class="drawer-section"><div class="ds-k">签名</div><div class="ds-v">')); ?> + escapeHtml(u.signature) + '</div></div>';
         html += '<div class="drawer-section"><div class="ds-k">' + <?php echo json_encode(t('admin_users_th_created_at','注册时间')); ?> + '</div><div class="ds-v">' + escapeHtml(u.created_at_fmt) + <?php echo json_encode(t('admin_users_left_paren','（')); ?> + (u.reg_days||0) + <?php echo json_encode(t('admin_users_js_drawer_days_ago',' 天前）</div></div>')); ?>;
         html += <?php echo json_encode(t('admin_users_js_drawer_last_active','<div class="drawer-section"><div class="ds-k">最后活跃</div><div class="ds-v">')); ?> + escapeHtml(u.last_active_txt) + '</div></div>';
@@ -1112,6 +1195,16 @@ require_once dirname(__DIR__) . '/layout/header.php';
                 html += '<div class="drawer-list-item"><span>' + escapeHtml(ap.reason || '') + '</span><span class="text-muted" style="font-size:0.72rem;">' + escapeHtml(st) + '</span></div>';
             });
         }
+        // 邮箱披露申请入口：非超管且该用户邮箱不可见时显示（隐私控制）
+        if (!IS_SUPER && !u.email_visible) {
+            html += '<div class="drawer-actions" style="margin-top:1rem;">';
+            if (u.edr_locked) {
+                html += '<p class="text-muted" style="font-size:0.8rem;">' + <?php echo json_encode(t('admin_users_edr_locked_hint','已提交过披露申请，请等待管理员审核。')); ?> + '</p>';
+            } else {
+                html += '<button type="button" class="btn btn-primary btn-sm" data-edr-user-id="' + u.id + '" data-edr-user-name="' + escapeHtml(u.username || '') + '" onclick="openEmailDisclosure(this)">' + <?php echo json_encode(t('admin_users_js_apply_email_disclosure','申请披露邮箱')); ?> + '</button>';
+            }
+            html += '</div>';
+        }
         return html;
     }
 
@@ -1129,6 +1222,81 @@ require_once dirname(__DIR__) . '/layout/header.php';
         var overlay = document.getElementById('notify-overlay');
         if (overlay) overlay.style.display = 'none';
     }
+
+    // 邮箱披露申请：非超管在抽屉中申请查看用户邮箱（需超管审核）
+    var edrTargetId = 0;
+    function openEmailDisclosure(btn) {
+        edrTargetId = parseInt(btn.getAttribute('data-edr-user-id'), 10) || 0;
+        var nameEl = document.getElementById('edr-target-name');
+        if (nameEl) nameEl.textContent = btn.getAttribute('data-edr-user-name') || '';
+        var reasonEl = document.getElementById('edr-reason');
+        if (reasonEl) reasonEl.value = '';
+        // 先关闭用户详情抽屉，避免弹窗与抽屉叠加显示
+        closeDrawer();
+        var overlay = document.getElementById('email-disclosure-overlay');
+        if (overlay) overlay.style.display = 'flex';
+    }
+    function closeEmailDisclosure() {
+        var overlay = document.getElementById('email-disclosure-overlay');
+        if (overlay) overlay.style.display = 'none';
+    }
+    function submitEmailDisclosure() {
+        if (!edrTargetId) return;
+        var reasonEl = document.getElementById('edr-reason');
+        var reason = reasonEl ? reasonEl.value.trim() : '';
+        if (reason.length < 5) { alert(<?php echo json_encode(t('admin_users_edr_reason_short','请填写申请原因（至少 5 个字）。')); ?>); return; }
+        if (reason.length > 200) { alert(<?php echo json_encode(t('admin_users_edr_reason_long','申请原因不能超过 200 字。')); ?>); return; }
+        var btn = document.getElementById('edr-submit-btn');
+        if (btn) btn.disabled = true;
+        var fd = new FormData();
+        fd.append('csrf_token', csrfToken);
+        fd.append('action', 'apply');
+        fd.append('ajax', '1');
+        fd.append('target_user_id', edrTargetId);
+        fd.append('reason', reason);
+        fetch('<?php echo site_url('admin/email_disclosure'); ?>', { method: 'POST', body: fd, credentials: 'same-origin' })
+            .then(function (r) { return r.text(); })
+            .then(function (txt) {
+                if (btn) btn.disabled = false;
+                // 服务端返回 JSON：成功则提示并刷新页面（抽屉状态同步为已申请），失败则展示具体原因
+                var parsed = null;
+                try { parsed = JSON.parse(txt); } catch (e) { parsed = null; }
+                if (parsed && typeof parsed.ok === 'boolean') {
+                    if (parsed.ok) {
+                        alert(parsed.message || <?php echo json_encode(t('admin_users_edr_submitted','申请已提交，等待管理员审核，审核结果将通过站内通知告知。')); ?>);
+                        location.reload();
+                    } else {
+                        alert(parsed.message || <?php echo json_encode(t('admin_users_edr_failed','申请提交失败，请稍后重试。')); ?>);
+                    }
+                    return;
+                }
+                closeEmailDisclosure();
+                // 兜底：非 JSON 响应（重定向页面），含错误提示时告知用户，否则视为提交成功
+                if (txt.indexOf('alert alert-error') !== -1) {
+                    alert(<?php echo json_encode(t('admin_users_edr_failed','申请提交失败，请稍后重试。')); ?>);
+                } else {
+                    alert(<?php echo json_encode(t('admin_users_edr_submitted','申请已提交，等待管理员审核，审核结果将通过站内通知告知。')); ?>);
+                    location.reload();
+                }
+            })
+            .catch(function () {
+                if (btn) btn.disabled = false;
+                alert(<?php echo json_encode(t('admin_users_edr_network_error','网络错误，请重试。')); ?>);
+            });
+    }
+    // 弹窗关闭按钮绑定
+    var edrOverlay = document.getElementById('email-disclosure-overlay');
+    if (edrOverlay) {
+        edrOverlay.addEventListener('click', function (e) {
+            if (e.target && (e.target.getAttribute('data-close-email-disclosure') !== null || e.target === edrOverlay)) {
+                closeEmailDisclosure();
+            }
+        });
+    }
+
+    // 抽屉/弹窗按钮使用内联 onclick，函数须在全局作用域可见；IIFE 内声明需显式挂载到 window
+    window.openEmailDisclosure = openEmailDisclosure;
+    window.submitEmailDisclosure = submitEmailDisclosure;
 
     // 初始化：绑定事件
     initFromDom();
@@ -1165,7 +1333,8 @@ require_once dirname(__DIR__) . '/layout/header.php';
                 html = <?php echo json_encode(t('admin_users_js_bulk_reason_input','<input type="text" id="bulk-reason" class="form-control" placeholder="原因（可选）" style="width:150px;">')); ?> +
                        <?php echo json_encode(t('admin_users_js_bulk_days_input','<input type="number" id="bulk-days" class="form-control" placeholder="天数(0=永久)" style="width:120px;" min="0" value="0">')); ?>;
             } else if (a === 'set_role') {
-                html = <?php echo json_encode(t('admin_users_js_bulk_role_select','<select id="bulk-role" class="form-control" style="width:auto;"><option value="user">普通用户</option><option value="moderator">版主</option></select>')); ?>;
+                // 两级管理员体系：仅允许批量设为「普通用户 / 社区管理员」，管理员不可批量指定
+                html = <?php echo json_encode(t('admin_users_js_bulk_role_select','<select id="bulk-role" class="form-control" style="width:auto;"><option value="user">普通用户</option><option value="community_admin">社区管理员</option></select>')); ?>;
             }
             extra.innerHTML = html;
             extra.style.display = html ? 'inline-block' : 'none';

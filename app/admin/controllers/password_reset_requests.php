@@ -5,6 +5,9 @@
 
 require_once dirname(__DIR__) . '/layout/admin-init.php';
 
+// 权限门禁：密码重置审核仅超级管理员可用
+require_super_admin();
+
 $db = get_db();
 $action = $_GET['action'] ?? 'list';
 $requestId = (int)($_GET['request_id'] ?? 0);
@@ -83,16 +86,19 @@ if (in_array($action, ['approve', 'reject'], true) && $requestId > 0 && $_SERVER
     redirect('/admin/password_reset_requests');
 }
 
-// CSRF 统一校验：涉及状态变更的 GET 操作必须先通过校验，失败时明确提示（避免静默失败）
-if ($action === 'delete' && !validate_csrf()) {
-    set_flash(t('admin_pwdreset_csrf_failed', '安全校验失败（链接已过期），请刷新页面后重新操作。'), 'error');
+// 删除申请记录：仅接受 POST（CSRF 由 admin-init.php 对所有 POST 统一校验）
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete') {
+    $delRequestId = (int)($_POST['request_id'] ?? 0);
+    if ($delRequestId > 0) {
+        $db->prepare("DELETE FROM password_reset_requests WHERE id = :id")
+            ->execute([':id' => $delRequestId]);
+        set_flash(t('admin_pwdreset_flash_deleted', '申请记录已删除。'), 'success');
+    }
     redirect('/admin/password_reset_requests');
 }
-
-if ($action === 'delete' && $requestId > 0) {
-    $db->prepare("DELETE FROM password_reset_requests WHERE id = :id")
-        ->execute([':id' => $requestId]);
-    set_flash(t('admin_pwdreset_flash_deleted', '申请记录已删除。'), 'success');
+// 旧 GET 删除链接命中：不执行删除，提示刷新
+if ($action === 'delete') {
+    set_flash(t('post_flash_method_changed', '操作方式已变更，请刷新页面重试。'), 'error');
     redirect('/admin/password_reset_requests');
 }
 
@@ -149,7 +155,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
         <strong><?php echo t('admin_pwdreset_alert_temp_prefix', '新密码（仅显示一次，'); ?><span id="reset-password-countdown">60</span><?php echo t('admin_pwdreset_alert_temp_suffix', ' 秒后自动隐藏）：'); ?></strong>
         <code id="reset-temp-password" autocomplete="off" data-once="true" style="font-size:1.1em;padding:0.25rem 0.5rem;user-select:all;"><?php echo e($tempPassword); ?></code>
         <button type="button" class="btn btn-sm btn-secondary" onclick="var t=document.getElementById('reset-temp-password');navigator.clipboard.writeText(t.innerText).then(function(){alert(<?php echo json_encode(t('admin_pwdreset_js_copied', '已复制新密码')); ?>);});" style="margin-left:0.5rem;"><?php echo e(t('admin_pwdreset_btn_copy', '复制')); ?></button>
-        <p class="mt-1 mb-0" style="font-size:0.875rem;"><?php echo e(t('admin_pwdreset_alert_smtp_notice', '站点未启用 SMTP，无法自动发送邮件，请通过 QQ/微信/电话等其他渠道将该密码告知用户。用户首次登录后会被强制要求修改密码。')); ?></p>
+        <p class="mt-1 mb-0 text-base"><?php echo e(t('admin_pwdreset_alert_smtp_notice', '站点未启用 SMTP，无法自动发送邮件，请通过 QQ/微信/电话等其他渠道将该密码告知用户。用户首次登录后会被强制要求修改密码。')); ?></p>
     </div>
     <script>
     (function() {
@@ -237,12 +243,14 @@ require_once dirname(__DIR__) . '/layout/header.php';
                                     <?php if ($isHighRisk): ?>
                                         <div class="text-error text-sm mb-1"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-3px;"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><path d="M12 9v4M12 17h.01"/></svg> <?php echo e(t('admin_pwdreset_risk_notice', '该申请未通过密保验证，请谨慎审核。')); ?></div>
                                     <?php endif; ?>
-                                    <form method="POST" action="<?php echo site_url('admin/password_reset_requests', ['action' => 'approve', 'request_id' => (int)$req['id'], 'csrf_token' => csrf_token()]); ?>" style="display:inline-block;margin-bottom:0.25rem;" onsubmit="<?php echo e(t('admin_password_reset_requests_3a092d', 'return confirm(\'确定要通过该密码重置申请吗？\' + \' 注意：该申请未通过密保验证。\')')); ?>">
+                                    <form method="POST" action="<?php echo site_url('admin/password_reset_requests', ['action' => 'approve', 'request_id' => (int)$req['id']]); ?>" style="display:inline-block;margin-bottom:0.25rem;" onsubmit="<?php echo e(t('admin_password_reset_requests_3a092d', 'return confirm(\'确定要通过该密码重置申请吗？\' + \' 注意：该申请未通过密保验证。\')')); ?>">
+                                        <input type="hidden" name="csrf_token" value="<?php echo e(csrf_token()); ?>">
                                         <input type="password" name="new_password" class="form-control form-control-sm" placeholder="<?php echo e(t('admin_pwdreset_placeholder_new_password', '新密码（至少6位）')); ?>" style="width:160px;display:inline-block;margin-right:0.25rem;" required minlength="6">
                                         <input type="text" name="admin_note" class="form-control form-control-sm" placeholder="<?php echo e(t('admin_pwdreset_placeholder_note', '备注（可选）')); ?>" style="width:120px;display:inline-block;margin-right:0.25rem;">
                                         <button type="submit" class="btn btn-sm btn-success"><?php echo e(t('admin_pwdreset_btn_approve', '通过')); ?></button>
                                     </form>
-                                    <form method="POST" action="<?php echo site_url('admin/password_reset_requests', ['action' => 'reject', 'request_id' => (int)$req['id'], 'csrf_token' => csrf_token()]); ?>" style="display:inline-block;">
+                                    <form method="POST" action="<?php echo site_url('admin/password_reset_requests', ['action' => 'reject', 'request_id' => (int)$req['id']]); ?>" style="display:inline-block;">
+                                        <input type="hidden" name="csrf_token" value="<?php echo e(csrf_token()); ?>">
                                         <input type="text" name="admin_note" class="form-control form-control-sm" placeholder="<?php echo e(t('admin_pwdreset_placeholder_reject_reason', '驳回原因')); ?>" style="width:140px;display:inline-block;margin-right:0.25rem;">
                                         <button type="submit" class="btn btn-sm btn-secondary"><?php echo e(t('admin_pwdreset_btn_reject', '驳回')); ?></button>
                                     </form>
@@ -255,7 +263,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
                                             <div><?php echo e(t('admin_pwdreset_note_label', '备注：') . $req['admin_note']); ?></div>
                                         <?php endif; ?>
                                     </div>
-                                    <a href="<?php echo site_url('admin/password_reset_requests', ['action' => 'delete', 'request_id' => (int)$req['id'], 'csrf_token' => csrf_token()]); ?>" class="btn btn-sm btn-danger" data-confirm="<?php echo e(t('admin_pwdreset_confirm_delete', '确定删除该申请记录吗？')); ?>"><?php echo e(t('admin_pwdreset_btn_delete', '删除')); ?></a>
+                                    <?php echo admin_action_form(site_url('admin/password_reset_requests'), 'delete', ['request_id' => (int)$req['id']], t('admin_pwdreset_btn_delete', '删除'), ['class' => 'btn btn-sm btn-danger', 'confirm' => t('admin_pwdreset_confirm_delete', '确定删除该申请记录吗？')]); ?>
                                 <?php endif; ?>
                             </td>
                         </tr>

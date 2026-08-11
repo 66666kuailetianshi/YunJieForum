@@ -6,6 +6,9 @@
 
 require_once dirname(__DIR__) . '/layout/admin-init.php';
 
+// 权限门禁：协议页面管理仅超级管理员可用
+require_super_admin();
+
 $pageTitle = t('admin_pages_title', '协议页面管理');
 $activeMenu = 'site_pages';
 $successMsg = '';
@@ -80,7 +83,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
     </div>
 <?php else: ?>
     <!-- Tab 切换 -->
-    <div class="card" style="margin-bottom:1rem;">
+    <div class="card mb-4">
         <div style="display:flex;gap:0;padding:0.5rem 0.5rem 0 0.5rem;overflow-x:auto;">
             <?php foreach ($pages as $p): ?>
                 <a href="<?php echo site_url('admin/site_pages', ['page' => $p['slug']]); ?>"
@@ -129,7 +132,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
                     </div>
 
                     <!-- HTML 快捷插入工具栏 -->
-                    <div class="form-group" style="margin-bottom:0.5rem;">
+                    <div class="form-group mb-2">
                         <label class="form-label"><?php echo e(t('admin_pages_label_quick_insert', '快捷插入')); ?></label>
                         <div style="display:flex;flex-wrap:wrap;gap:0.4rem;">
                             <button type="button" class="btn btn-secondary btn-sm" onclick="insertTag('h2')" title="<?php echo e(t('admin_pages_tool_h2_title', '章节标题')); ?>"><?php echo e(t('admin_pages_tool_h2', 'H2 标题')); ?></button>
@@ -184,51 +187,6 @@ require_once dirname(__DIR__) . '/layout/header.php';
         </div>
     <?php endif; ?>
 <?php endif; ?>
-
-<style>
-/* Tab 激活样式 */
-.site-page-tab:hover {
-    color: var(--primary) !important;
-    background: var(--surface-hover) !important;
-}
-
-/* 预览面板样式 */
-#preview-pane h2 {
-    font-size: 1.15rem;
-    font-weight: 600;
-    margin-top: 1.5rem;
-    margin-bottom: 0.6rem;
-    color: var(--text);
-    border-bottom: 1px solid var(--border-light, #e5e7eb);
-    padding-bottom: 0.35rem;
-}
-#preview-pane ol,
-#preview-pane ul {
-    padding-left: 1.5rem;
-    margin-bottom: 0.8rem;
-}
-#preview-pane ol ul,
-#preview-pane ul ul {
-    margin-top: 0.3rem;
-    margin-bottom: 0.3rem;
-}
-#preview-pane li {
-    margin-bottom: 0.35rem;
-}
-#preview-pane p {
-    margin-bottom: 0.8rem;
-}
-#preview-pane strong {
-    font-weight: 600;
-    color: var(--text);
-}
-
-@media (max-width: 1024px) {
-    #preview-pane {
-        display: none;
-    }
-}
-</style>
 
 <script>
 (function () {

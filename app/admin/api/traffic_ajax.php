@@ -24,6 +24,15 @@ if (!is_logged_in() || !is_admin()) {
     exit;
 }
 
+// 细粒度门禁：流量监测仅超级管理员可用
+if (!is_super_admin()) {
+    ob_end_clean();
+    http_response_code(403);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode(['error' => t('common_super_admin_only', '该功能仅最高管理员可用。')], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 set_time_limit(8);
 header('Content-Type: application/json; charset=utf-8');
 

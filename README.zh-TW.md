@@ -51,6 +51,8 @@
 | 系統更新 | 「系統更新中心」支援手動/自動檢查並應用版本更新：下載 → 校驗 SHA256 雜湊 → 自動備份 → 覆蓋升級，詳見[第 10.3 節](#103-系統更新中心-update_center) |
 | 多語言 | 內置 `簡體中文 / 繁體中文 / English`，按 URL、Cookie、配置、瀏覽器語言自動識別 |
 | 主題 | 基於 CSS 變量的明暗雙主題（light / dark），可改色與換膚 |
+| 工單系統 | 前臺「意見反饋」與後臺工單系統統一處理站點問題（bug 等），支援來源篩選（用戶 / 管理員）與狀態流轉（待處理 → 處理中 → 已解決 / 已關閉），新提交自動通知管理員 |
+| 郵箱披露 | 管理員默認看不到用戶郵箱（隱私保護），可在用戶管理中發起披露申請（需說明原因），超管審核通過後可見；已有待審核/未消費申請時自動鎖定申請入口，防止重複提交 |
 - **人機驗證**：
   - 獨立模組位於 `app/captcha/`，無需第三方服務。
   - 支援「滑塊拼圖」「點選文字」與「推理交換」三種挑戰模式，可在後台一鍵切換或設定為智能混合。
@@ -94,7 +96,7 @@ index.php  ── 路由解析（route / s / REQUEST_URI）→ 分發
 
 ## 3. 目錄結構
 
-> 下方樹為**實測得**的專案佈局（`app/` 含 121 個 PHP 檔案 + 各資源檔案）。帶 `#` 註釋的為本專案實際存在的檔案。
+> 下方樹為**實測得**的專案佈局（`app/` 含 129 個 PHP 檔案 + 各資源檔案）。帶 `#` 註釋的為本專案實際存在的檔案。
 
 ```
 雲界論壇/
@@ -103,8 +105,8 @@ index.php  ── 路由解析（route / s / REQUEST_URI）→ 分發
 ├── LICENSE                    # 開源許可證文字
 ├── README.md / README.en.md / README.zh-TW.md   # 三語專案文件
 │
-├── app/                       # 應用核心（121 個 PHP）
-│   ├── controllers/           # 前臺頁面控制器（26 個，每個對應一條前臺路由）
+├── app/                       # 應用核心（129 個 PHP）
+│   ├── controllers/           # 前臺頁面控制器（27 個，每個對應一條前臺路由）
 │   │   ├── home.php           # 首頁（聚合統計/公告/版塊/熱門）
 │   │   ├── forum.php          # 版塊帖子列表
 │   │   ├── post.php           # 主題帖詳情（引用/分頁）
@@ -118,24 +120,26 @@ index.php  ── 路由解析（route / s / REQUEST_URI）→ 分發
 │   │   ├── report.php / appeal.php / banned.php   # 舉報 / 申訴 / 封禁提示
 │   │   ├── forgot_password.php / reset_password.php / force_change_password.php
 │   │   ├── send_email_code.php / send_password_change_code.php   # 郵箱驗證碼發送
-│   │   └── privacy.php / terms.php / disclaimer.php / service.php   # 站點頁面（可後臺編輯）
+│   │   ├── privacy.php / terms.php / disclaimer.php / service.php   # 站點頁面（可後臺編輯）
+│   │   └── ticket.php           # 意見反饋（提交 / 列表 / 詳情 / 回覆）
 │   │
 │   ├── admin/                 # 後臺（獨立入口前綴 /admin）
-│   │   ├── controllers/       # 後臺頁面（26 個）
+│   │   ├── controllers/       # 後臺頁面（29 個）
 │   │   │   ├── index.php              # 控制台首頁
 │   │   │   ├── system_status.php      # 系統狀態監控（CPU/記憶體/溫度/網路/磁碟/顯卡）
 │   │   │   ├── traffic_monitor.php     # 流量監控
 │   │   │   ├── site_settings.php / site_pages.php
 │   │   │   ├── forums.php / posts.php / replies.php / announcements.php
-│   │   │   ├── users.php / user_edit.php / user_groups.php / roles.php
+│   │   │   ├── users.php / user_edit.php / user_groups.php / roles.php / user_create.php
 │   │   │   ├── user_ban.php / user_mute.php
 │   │   │   ├── reports.php / ban_appeals.php / password_reset_requests.php
 │   │   │   ├── sensitive_words.php / sensitive_word_logs.php
+│   │   │   ├── tickets.php / email_disclosure.php   # 工單系統 / 郵箱披露申請審核
 │   │   │   ├── medals.php / mail_center.php / backup.php
 │   │   │   ├── data_migration.php       # 數據遷移與還原（匯出/匯入，支援 ZIP 含頭像）
 │   │   │   ├── update_center.php        # 系統更新中心（檢查/手動更新/自動更新設定）
 │   │   │   └── captcha_debug.php       # 人機驗證偵錯台
-│   │   ├── api/               # 後臺 AJAX 接口（21 個，命名 *_ajax.php）
+│   │   ├── api/               # 後臺 AJAX 接口（20 個，命名 *_ajax.php）
 │   │   │   ├── system_status_ajax.php   # 系統狀態輪詢採集（含診斷 ?diag=1）
 │   │   │   ├── traffic_ajax.php / pending_counts_ajax.php
 │   │   │   ├── posts_ajax.php / replies_ajax.php / reports_ajax.php
@@ -143,11 +147,12 @@ index.php  ── 路由解析（route / s / REQUEST_URI）→ 分發
 │   │   │   ├── user_detail_ajax.php / user_risk_detail_ajax.php
 │   │   │   ├── ban_appeals_ajax.php / sensitive_words_ajax.php / sensitive_logs_ajax.php
 │   │   │   ├── backup_ajax.php / mail_stats_ajax.php / mail_notify_ajax.php
-│   │   │   ├── bounce_ajax.php / diag_auth.php / data_migration_ajax.php
+│   │   │   ├── bounce_ajax.php / data_migration_ajax.php
 │   │   │   ├── update_ajax.php          # 系統更新中心（檢查/下載/校驗/更新）
 │   │   │   └── (其餘見第 11 節)
 │   │   └── layout/            # 後臺佈局
 │   │       ├── admin-init.php # 後臺鑑權與初始化（被各後臺頁面 require）
+│   │       ├── admin-helpers.php # 後臺公共輔助函數（帖子標誌/工單連結分流等）
 │   │       ├── header.php / footer.php
 │   │
 │   ├── includes/              # 全局支撐程式碼
@@ -185,10 +190,11 @@ index.php  ── 路由解析（route / s / REQUEST_URI）→ 分發
 │   ├── api/                   # 公共 JSON 接口（6 個，輪詢/上傳）
 │   │   ├── home_realtime.php / pm_unread.php / pm_poll.php
 │   │   ├── post_replies_count.php / check_ban_status.php / upload_image.php
-│   ├── css/                   # 樣式（8 個）
+│   ├── css/                   # 樣式（10 個）
 │   │   ├── tokens.css         # CSS 變數（顏色/圓角/間距）—— 換膚改這裡
-│   │   ├── style.css / base.css / dark.css   # 主樣式 / 基礎 / 暗色主題
+│   │   ├── style.css / base.css / dark.css / components.css   # 主樣式 / 基礎 / 暗色 / 組件
 │   │   ├── header.css / pm.css / profile.css / utilities.css
+│   │   └── admin.css        # 後臺樣式
 │   ├── js/                    # 腳本（3 個）
 │   │   ├── main.js            # 全局互動（導覽/校驗/提示/下拉）
 │   │   ├── editor.js          # 發帖編輯器（BBCode/上傳）
@@ -203,9 +209,11 @@ index.php  ── 路由解析（route / s / REQUEST_URI）→ 分發
 │   ├── error.log              # 錯誤日誌
 │   └── db_version.lock        # Schema 遷移版本鎖
 │
-└── uploads/                   # 上傳檔案（安裝時創建，需可寫）
-    ├── avatars/               # 用戶頭像
-    └── images/                # 帖子圖片
+├── uploads/                   # 上傳檔案（安裝時創建，需可寫）
+│   ├── avatars/               # 用戶頭像
+│   └── images/                # 帖子圖片
+│
+└── tools/                     # 開發輔助腳本（後臺 CSS 分段建置等）
 ```
 
 > `data/` 與 `uploads/` 在首次安裝時創建。**需對 Web 服務器進程可寫**。請確認其權限（如 `chmod 755 data uploads`）。`app/`、`public/`、`index.php`、`install.php` 無需寫權限。
@@ -259,9 +267,21 @@ location ~ \.php$ {
     include        fastcgi_params;
     fastcgi_param  SCRIPT_FILENAME $document_root$fastcgi_script_name;
 }
+
+# ===== 安全規則（必須）=====
+# data/ 目錄存放資料庫、配置憑證、備份與會話，禁止任何 Web 訪問
+location ^~ /data/ {
+    deny all;
+}
+# 封禁敏感檔案副檔名的直接下載（僅匹配這些後綴，不影響 public/ 與 uploads/ 下的圖片等正常檔案）
+location ~* \.(db|sqlite|sqlite3|sql|zip|gz|log|cache|lock)$ {
+    deny all;
+}
 ```
 
-**Apache**：系統默認兼容 `index.php?route=xxx` 方式；如需美化 URL 可放置 `.htaccess` 重寫到 `index.php`。
+> ⚠️ **安全提示**：項目自帶的 `.htaccess` 僅對 **Apache** 生效。**Nginx / 寶塔面板** 用戶不讀取 `.htaccess`，必須按上面的示例在伺服器（站點）配置中手工添加對應的 `deny` 規則，否則 `data/` 下的資料庫、配置與備份檔案可被匿名下載。
+
+**Apache**：系統默認兼容 `index.php?route=xxx` 方式；如需美化 URL 可放置 `.htaccess` 重寫到 `index.php`。項目已自帶根目錄與 `data/` 目錄的 `.htaccess` 安全封禁規則（Apache 下自動生效）。
 
 > 即使不做任何重寫配置，系統也能通過 `index.php?route=xxx`、`index.php?s=xxx`、以及 `REQUEST_URI` 兜底三種方式解析路由，詳見下一節。
 
@@ -312,6 +332,7 @@ location ~ \.php$ {
 | `notifications` | 通知 | `report` / `appeal` | 舉報 / 申訴 |
 | `forgot_password` / `reset_password` | 找回密碼 | `banned` | 封禁提示頁 |
 | `privacy` / `terms` / `disclaimer` / `service` | 站點頁面 | `logout` | 退出登錄 |
+| `ticket` | 意見反饋（提交 / 列表 / 詳情 / 回覆） | | |
 
 **後臺**：以 `/admin` 開頭 → `app/admin/controllers/*`；後臺 AJAX 以 `/admin/api` 開頭 → `app/admin/api/*_ajax.php`。
 
@@ -337,6 +358,7 @@ location ~ \.php$ {
 | `roles` / `user_roles` | 權限角色與用戶-角色關聯（RBAC） |
 | `medals` / `user_medals` | 勳章與用戶獲得記錄 |
 | `announcements` | 公告 |
+| `email_disclosure_requests` | 郵箱披露申請（申請人/目標用戶/原因/審核狀態/查看狀態） |
 | `site_pages` | 站點頁面（隱私/條款/免責/服務條款等，可後臺編輯） |
 | `site_settings` | 站點設置鍵值對（後臺可編輯） |
 | `pm_conversations` / `pm_messages` | 私信會話與消息 |
@@ -345,6 +367,7 @@ location ~ \.php$ {
 | `ban_appeals` | 封禁申訴 |
 | `password_reset_requests` | 密碼重置申請 |
 | `sensitive_words` / `sensitive_word_whitelist` / `sensitive_word_logs` / `sensitive_word_status_logs` | 敏感詞庫/白名單/命中日誌/狀態日誌 |
+| `tickets` / `ticket_replies` | 工單與跟進回覆（來源：user 前臺反饋 / admin 管理員工單） |
 | `mail_logs` / `mail_bounce_config` / `mail_bounce_logs` | 郵件發送日誌/退信配置/退信記錄 |
 | `traffic_stats` / `traffic_visitors` | 流量統計與訪客 |
 
@@ -358,6 +381,7 @@ location ~ \.php$ {
 - **發布**：發帖、回復（支持 BBCode、表情、引用、圖片上傳）、編輯資料、收藏。
 - **帳戶**：註冊（可選郵箱驗證）、登錄（記住密碼）、找回/重置密碼、強制改密、封禁申訴。
 - **互動**：私信（輪詢實時未讀）、系統通知、每日籤到、積分/金幣與等級展示、勳章牆。
+- **反饋**：意見反饋（提交問題工單、查看處理進度、跟進回覆），新工單自動通知管理員。
 
 ---
 
@@ -370,13 +394,14 @@ location ~ \.php$ {
 | 控制臺 / 系統狀態 | `index.php`、`system_status.php`、`traffic_monitor.php` |
 | 站點設置 | `site_settings.php`、`site_pages.php` |
 | 內容管理 | `forums.php`、`posts.php`、`replies.php`、`announcements.php` |
-| 用戶管理 | `users.php`、`user_edit.php`、`user_groups.php`、`roles.php`、`user_ban.php`、`user_mute.php` |
-| 審核與合規 | `reports.php`、`ban_appeals.php`、`password_reset_requests.php`、`sensitive_words.php`、`sensitive_word_logs.php` |
+| 用戶管理 | `users.php`、`user_edit.php`、`user_groups.php`、`roles.php`、`user_ban.php`、`user_mute.php`、`user_create.php` |
+| 審核與合規 | `reports.php`、`ban_appeals.php`、`password_reset_requests.php`、`sensitive_words.php`、`sensitive_word_logs.php`、`email_disclosure.php` |
+| 工單系統 | `tickets.php`（前臺反饋與管理員工單統一處理，支援來源篩選與狀態流轉） |
 | 勳章 | `medals.php` |
 | 郵件 | `mail_center.php`（日誌/統計/通知/退信配置） |
 | 運維 | `backup.php`、`data_migration.php`（數據遷移與還原）、`update_center.php`（系統更新中心） |
 
-後臺大量操作通過 `app/admin/api/*_ajax.php` 以 JSON 返回，前端異步調用，並提供待辦計數（`pending_counts_ajax.php`）、用戶風險詳情（`user_risk_detail_ajax.php`）、系統診斷（`diag_auth.php`）等輔助接口。
+後臺大量操作通過 `app/admin/api/*_ajax.php` 以 JSON 返回，前端異步調用，並提供待辦計數（`pending_counts_ajax.php`）、用戶風險詳情（`user_risk_detail_ajax.php`）等輔助接口。
 
 ### 10.1 系統狀態監控（system_status）
 
@@ -469,7 +494,7 @@ location ~ \.php$ {
 | `check_ban_status.php` | 當前用戶封禁/禁言狀態 |
 | `upload_image.php` | 圖片上傳 |
 
-**後臺接口**（`app/admin/api/`，`*_ajax.php`）：backup、ban_appeals、bounce、data_migration、update、diag_auth、mail_notify、mail_stats、pending_counts、posts、replies、reports、sensitive_logs、sensitive_words、system_status、traffic、user_detail、user_risk_detail、users、users_bulk、users_export_csv。
+**後臺接口**（`app/admin/api/`，`*_ajax.php`）：backup、ban_appeals、bounce、data_migration、update、mail_notify、mail_stats、pending_counts、posts、replies、reports、sensitive_logs、sensitive_words、system_status、traffic、user_detail、user_risk_detail、users、users_bulk、users_export_csv。
 
 > 接口普遍使用 `realtime_cache($key, $ttl, $callback)` 做短緩存，避免高頻輪詢壓垮資料庫。
 

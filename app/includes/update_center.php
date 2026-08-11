@@ -34,13 +34,13 @@ if (!function_exists('uc_get_current_version')) {
     /**
      * HTTP GET 取文本（优先 curl，回退 file_get_contents）
      *
-     * @param bool $sslVerify 是否严格校验 SSL 证书（自签名证书源应关闭）
+     * @param bool|null $sslVerify 是否严格校验 SSL 证书（自签名证书源应关闭）；传 null 时读取后台设置 update_ssl_verify，未配置默认开启校验
      */
-    function uc_http_get(string $url, int $timeout = 15, bool $sslVerify = false): array {
+    function uc_http_get(string $url, int $timeout = 15, ?bool $sslVerify = null): array {
         $ua = 'YunjieForum-Updater/' . uc_get_current_version();
-        // 优先读取后台设置，未配置时默认跳过 SSL 校验（兼容自签名证书源）
+        // 未显式传参时读取后台设置，默认开启 SSL 校验（防止更新通道被中间人篡改）
         if ($sslVerify === null) {
-            $sslVerify = uc_get_setting('update_ssl_verify', '0') === '1';
+            $sslVerify = uc_get_setting('update_ssl_verify', '1') === '1';
         }
         if (function_exists('curl_init')) {
             $ch = curl_init($url);
@@ -79,13 +79,13 @@ if (!function_exists('uc_get_current_version')) {
     /**
      * HTTP 下载二进制到文件（优先 curl 流式写入）
      *
-     * @param bool $sslVerify 是否严格校验 SSL 证书
+     * @param bool|null $sslVerify 是否严格校验 SSL 证书；传 null 时读取后台设置 update_ssl_verify，未配置默认开启校验
      * @param callable|null $progressCallback 进度回调 function($downloadedBytes, $totalBytes): void
      */
-    function uc_http_download(string $url, string $dest, int $timeout = 600, bool $sslVerify = false, $progressCallback = null): array {
+    function uc_http_download(string $url, string $dest, int $timeout = 600, ?bool $sslVerify = null, $progressCallback = null): array {
         $ua = 'YunjieForum-Updater/' . uc_get_current_version();
         if ($sslVerify === null) {
-            $sslVerify = uc_get_setting('update_ssl_verify', '0') === '1';
+            $sslVerify = uc_get_setting('update_ssl_verify', '1') === '1';
         }
         if (function_exists('curl_init')) {
             $fp = @fopen($dest, 'wb');
@@ -126,7 +126,8 @@ if (!function_exists('uc_get_current_version')) {
             }
             return ['ok' => true, 'code' => $code];
         }
-        $res = uc_http_get($url, $timeout);
+        // curl 不可用时的回退：继承当前已解析的 SSL 校验策略，保持行为一致
+        $res = uc_http_get($url, $timeout, $sslVerify);
         if (!$res['ok']) {
             return $res;
         }
@@ -540,7 +541,8 @@ if (!function_exists('uc_get_current_version')) {
         uc_progress_write(['stage' => 'downloading', 'stage_label' => 'downloading', 'progress' => 1, 'total' => ($check['size'] > 0 ? (int)$check['size'] : 0), 'downloaded' => 0, 'message' => '', 'error' => null, 'done' => false]);
         $dlTotalSize = 0;
         $dlDownloaded = 0;
-        $dl = uc_http_download($check['package_url'], $pkgPath, 600, false, function ($downloaded, $total) use (&$dlDownloaded, &$dlTotalSize) {
+        // SSL 校验策略传 null：继承后台 update_ssl_verify 设置（默认开启），与元数据通道保持一致
+        $dl = uc_http_download($check['package_url'], $pkgPath, 600, null, function ($downloaded, $total) use (&$dlDownloaded, &$dlTotalSize) {
             $dlDownloaded = $downloaded;
             $dlTotalSize = $total > 0 ? $total : $dlTotalSize;
             // 下载阶段占 1%-80%

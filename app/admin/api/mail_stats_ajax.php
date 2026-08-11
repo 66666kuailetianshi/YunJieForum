@@ -10,6 +10,13 @@ require_once dirname(__DIR__) . '/layout/admin-init.php';
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-cache, no-store, must-revalidate');
 
+// 细粒度门禁：邮件统计属邮件中心，仅超级管理员可用
+if (!is_super_admin()) {
+    http_response_code(403);
+    echo json_encode(['error' => t('common_super_admin_only', '该功能仅最高管理员可用。')], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 $db = get_db();
 
 $typeLabels = [

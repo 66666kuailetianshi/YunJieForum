@@ -18,6 +18,13 @@ if (!is_logged_in() || !is_admin()) {
     exit;
 }
 
+// 细粒度门禁：举报管理需 manage_reports 权限（超管天然通过）
+if (!has_permission('manage_reports')) {
+    http_response_code(403);
+    echo json_encode(['error' => t('admin_ajax_forbidden', '无权访问')], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-cache, no-store, must-revalidate');
 
@@ -36,12 +43,18 @@ $offset = ($page - 1) * $limit;
 // 1 秒服务端缓存：合并并发轮询，避免每次请求执行 6 条 SQL（防阻塞）
 $data = realtime_cache('reports_ajax_' . $filterStatus . '_' . $page . '_' . $limit, 1, function () use ($db, $filterStatus, $limit, $page, $offset) {
 
-// 统计
+// 统计：4 项合并为单条 SUM(CASE WHEN)（标准 SQL，SQLite/MySQL/PostgreSQL 通用）
+$statsRow = $db->query("SELECT
+        COUNT(*) AS total,
+        SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending,
+        SUM(CASE WHEN status = 'resolved' THEN 1 ELSE 0 END) AS resolved,
+        SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) AS rejected
+    FROM reports")->fetch();
 $stats = [
-    'total'    => (int)$db->query("SELECT COUNT(*) FROM reports")->fetchColumn(),
-    'pending'  => (int)$db->query("SELECT COUNT(*) FROM reports WHERE status = 'pending'")->fetchColumn(),
-    'resolved' => (int)$db->query("SELECT COUNT(*) FROM reports WHERE status = 'resolved'")->fetchColumn(),
-    'rejected' => (int)$db->query("SELECT COUNT(*) FROM reports WHERE status = 'rejected'")->fetchColumn(),
+    'total'    => (int)($statsRow['total'] ?? 0),
+    'pending'  => (int)($statsRow['pending'] ?? 0),
+    'resolved' => (int)($statsRow['resolved'] ?? 0),
+    'rejected' => (int)($statsRow['rejected'] ?? 0),
 ];
 
 // 列表

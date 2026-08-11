@@ -52,6 +52,8 @@
 | Multi-language | Built-in `Simplified Chinese / Traditional Chinese / English`, auto-detected by URL, Cookie, config, and browser language |
 | Themes | Light/dark dual themes based on CSS variables (light / dark), customizable colors and skins |
 | CAPTCHA | Supports "slider jigsaw", "click text", and "reasoning swap" challenge modes with one-click switching or smart mixing; display modes include inline embedding and popup; behavioral scoring allows seamless verification for legitimate users |
+| Ticket System | Front-end "Feedback" lets users submit issue tickets; the admin ticket center handles both user feedback and internal admin tickets (source filter: user / admin), with a status workflow (pending → in progress → resolved / closed) and follow-up replies; new submissions notify admins automatically |
+| Email Disclosure | Admins cannot see user emails by default (privacy protection); they can submit a disclosure request (reason required) in User Management, visible only after super-admin approval; pending/unconsumed requests lock the apply entry to prevent duplicates |
 
 ---
 
@@ -91,7 +93,7 @@ index.php  ── 路由解析（route / s / REQUEST_URI）→ 分发
 
 ## 3. Directory Structure
 
-> The tree below is **measured from the actual project layout** (`app/` contains 121 PHP files + assets). Lines with `#` are files that actually exist in this project.
+> The tree below is **measured from the actual project layout** (`app/` contains 129 PHP files + assets). Lines with `#` are files that actually exist in this project.
 
 ```
 Cloud Forum/
@@ -100,8 +102,8 @@ Cloud Forum/
 ├── LICENSE                    # Open-source license text
 ├── README.md / README.en.md / README.zh-TW.md   # Tri-lingual project docs
 │
-├── app/                       # Application core (121 PHP files)
-│   ├── controllers/           # Front-end page controllers (26 files, each maps to one route)
+├── app/                       # Application core (129 PHP files)
+│   ├── controllers/           # Front-end page controllers (27 files, each maps to one route)
 │   │   ├── home.php           # Home (stats/announcements/forums/trending)
 │   │   ├── forum.php          # Forum thread list
 │   │   ├── post.php           # Topic detail (quote / pagination)
@@ -115,24 +117,26 @@ Cloud Forum/
 │   │   ├── report.php / appeal.php / banned.php   # Report / appeal / ban notice
 │   │   ├── forgot_password.php / reset_password.php / force_change_password.php
 │   │   ├── send_email_code.php / send_password_change_code.php   # Email code senders
-│   │   └── privacy.php / terms.php / disclaimer.php / service.php   # Site pages (editable in admin)
+│   │   ├── privacy.php / terms.php / disclaimer.php / service.php   # Site pages (editable in admin)
+│   │   └── ticket.php           # Feedback (submit / list / detail / reply)
 │   │
 │   ├── admin/                 # Admin panel (entry prefix /admin)
-│   │   ├── controllers/       # Admin pages (26 files)
+│   │   ├── controllers/       # Admin pages (29 files)
 │   │   │   ├── index.php              # Dashboard home
 │   │   │   ├── system_status.php      # System status monitor (CPU/memory/temp/network/disk/GPU)
 │   │   │   ├── traffic_monitor.php     # Traffic monitor
 │   │   │   ├── site_settings.php / site_pages.php
 │   │   │   ├── forums.php / posts.php / replies.php / announcements.php
-│   │   │   ├── users.php / user_edit.php / user_groups.php / roles.php
+│   │   │   ├── users.php / user_edit.php / user_groups.php / roles.php / user_create.php
 │   │   │   ├── user_ban.php / user_mute.php
 │   │   │   ├── reports.php / ban_appeals.php / password_reset_requests.php
 │   │   │   ├── sensitive_words.php / sensitive_word_logs.php
+│   │   │   ├── tickets.php / email_disclosure.php   # Ticket system / email disclosure review
 │   │   │   ├── medals.php / mail_center.php / backup.php
 │   │   │   ├── data_migration.php       # Data migration & restore (export/import, ZIP with avatars)
 │   │   │   ├── update_center.php        # System Update Center (check/manual update/auto-update settings)
 │   │   │   └── captcha_debug.php       # CAPTCHA debug console
-│   │   ├── api/               # Admin AJAX endpoints (21 files, named *_ajax.php)
+│   │   ├── api/               # Admin AJAX endpoints (20 files, named *_ajax.php)
 │   │   │   ├── system_status_ajax.php   # System status poller (with ?diag=1 diagnostics)
 │   │   │   ├── traffic_ajax.php / pending_counts_ajax.php
 │   │   │   ├── posts_ajax.php / replies_ajax.php / reports_ajax.php
@@ -140,11 +144,12 @@ Cloud Forum/
 │   │   │   ├── user_detail_ajax.php / user_risk_detail_ajax.php
 │   │   │   ├── ban_appeals_ajax.php / sensitive_words_ajax.php / sensitive_logs_ajax.php
 │   │   │   ├── backup_ajax.php / mail_stats_ajax.php / mail_notify_ajax.php
-│   │   │   ├── bounce_ajax.php / diag_auth.php / data_migration_ajax.php
+│   │   │   ├── bounce_ajax.php / data_migration_ajax.php
 │   │   │   ├── update_ajax.php          # System Update Center (check/download/verify/update)
 │   │   │   └── (others — see Section 11)
 │   │   └── layout/            # Admin layout
 │   │       ├── admin-init.php # Admin auth & init (required by each admin page)
+│   │       ├── admin-helpers.php # Shared admin helper functions (post flags / ticket link routing)
 │   │       ├── header.php / footer.php
 │   │
 │   ├── includes/              # Global support code
@@ -182,10 +187,11 @@ Cloud Forum/
 │   ├── api/                   # Public JSON endpoints (6 files; polling / upload)
 │   │   ├── home_realtime.php / pm_unread.php / pm_poll.php
 │   │   ├── post_replies_count.php / check_ban_status.php / upload_image.php
-│   ├── css/                   # Stylesheets (8 files)
+│   ├── css/                   # Stylesheets (10 files)
 │   │   ├── tokens.css         # CSS variables (colors/radius/spacing) — theme skinning here
-│   │   ├── style.css / base.css / dark.css   # Main / base / dark theme
+│   │   ├── style.css / base.css / dark.css / components.css   # Main / base / dark / components
 │   │   ├── header.css / pm.css / profile.css / utilities.css
+│   │   └── admin.css        # Admin styles
 │   ├── js/                    # Scripts (3 files)
 │   │   ├── main.js            # Global interactions (nav/validation/alerts/dropdown)
 │   │   ├── editor.js          # Post editor (BBCode/upload)
@@ -200,9 +206,11 @@ Cloud Forum/
 │   ├── error.log              # Error log
 │   └── db_version.lock        # Schema migration version lock
 │
-└── uploads/                   # Uploaded files (created on install; must be writable)
-    ├── avatars/               # User avatars
-    └── images/                # Post images
+├── uploads/                   # Uploaded files (created on install; must be writable)
+│   ├── avatars/               # User avatars
+│   └── images/                # Post images
+│
+└── tools/                     # Dev helper scripts (admin CSS segment builds, etc.)
 ```
 
 > `data/` and `uploads/` are created on first installation. **They must be writable by the web server process.** Verify permissions (e.g. `chmod 755 data uploads`). `app/`, `public/`, `index.php`, `install.php` need no write access.
@@ -256,9 +264,23 @@ location ~ \.php$ {
     include        fastcgi_params;
     fastcgi_param  SCRIPT_FILENAME $document_root$fastcgi_script_name;
 }
+
+# ===== Security rules (required) =====
+# The data/ directory holds the database, config credentials, backups and sessions —
+# deny all web access.
+location ^~ /data/ {
+    deny all;
+}
+# Block direct downloads of sensitive file extensions (matches only these suffixes;
+# does not affect images and other normal files under public/ or uploads/).
+location ~* \.(db|sqlite|sqlite3|sql|zip|gz|log|cache|lock)$ {
+    deny all;
+}
 ```
 
-**Apache**: the system is compatible with the `index.php?route=xxx` mode by default; for pretty URLs you can place a `.htaccess` rewrite to `index.php`.
+> ⚠️ **Security note**: the bundled `.htaccess` files only apply to **Apache**. **Nginx / BT Panel (宝塔)** users are not served by `.htaccess` and must manually add the corresponding `deny` rules to the server (site) configuration as shown above; otherwise the database, configuration and backup files under `data/` can be downloaded anonymously.
+
+**Apache**: the system is compatible with the `index.php?route=xxx` mode by default; for pretty URLs you can place a `.htaccess` rewrite to `index.php`. The project ships with built-in security `.htaccess` rules for the root and `data/` directories (automatically effective under Apache).
 
 > Even without any rewrite configuration, the system can resolve routes through `index.php?route=xxx`, `index.php?s=xxx`, and a `REQUEST_URI` fallback — see the next section for details.
 
@@ -309,6 +331,7 @@ The entry point `index.php` is compatible with several access modes and works wi
 | `notifications` | Notifications | `report` / `appeal` | Report / Appeal |
 | `forgot_password` / `reset_password` | Password recovery | `banned` | Ban notice page |
 | `privacy` / `terms` / `disclaimer` / `service` | Site pages | `logout` | Logout |
+| `ticket` | Feedback (submit / list / detail / reply) | | |
 
 **Admin panel**: routes starting with `/admin` → `app/admin/controllers/*`; admin AJAX endpoints starting with `/admin/api` → `app/admin/api/*_ajax.php`.
 
@@ -334,6 +357,7 @@ Core tables (SQLite dialect; PostgreSQL/MySQL are translated by the installer). 
 | `roles` / `user_roles` | Permission roles and user-role relations (RBAC) |
 | `medals` / `user_medals` | Medals and user medal records |
 | `announcements` | Announcements |
+| `email_disclosure_requests` | Email disclosure requests (applicant/target user/reason/status/viewed flag) |
 | `site_pages` | Site pages (privacy/terms/disclaimer/service, editable in admin) |
 | `site_settings` | Site settings key-value pairs (editable in admin) |
 | `pm_conversations` / `pm_messages` | PM conversations and messages |
@@ -342,6 +366,7 @@ Core tables (SQLite dialect; PostgreSQL/MySQL are translated by the installer). 
 | `ban_appeals` | Ban appeals |
 | `password_reset_requests` | Password reset requests |
 | `sensitive_words` / `sensitive_word_whitelist` / `sensitive_word_logs` / `sensitive_word_status_logs` | Sensitive-word dictionary/whitelist/hit logs/status logs |
+| `tickets` / `ticket_replies` | Tickets and follow-up replies (source: user feedback / admin tickets) |
 | `mail_logs` / `mail_bounce_config` / `mail_bounce_logs` | Mail sending logs/bounce config/bounce records |
 | `traffic_stats` / `traffic_visitors` | Traffic statistics and visitors |
 
@@ -355,6 +380,7 @@ Core tables (SQLite dialect; PostgreSQL/MySQL are translated by the installer). 
 - **Posting**: new posts, replies (supports BBCode, emoji, quotes, image uploads), profile editing, favorites.
 - **Account**: registration (optional email verification), login (remember me), forgot/reset password, forced password change, ban appeal.
 - **Interaction**: private messages (real-time unread via polling), system notifications, daily check-in, points/coins and level display, medal wall.
+- **Feedback**: feedback tickets (submit issues, track progress, follow-up replies); new tickets notify admins automatically.
 
 ---
 
@@ -367,13 +393,14 @@ Entry: `/admin` (corresponds to `app/admin/controllers/`, layout in `app/admin/l
 | Dashboard / System status | `index.php`, `system_status.php`, `traffic_monitor.php` |
 | Site settings | `site_settings.php`, `site_pages.php` |
 | Content management | `forums.php`, `posts.php`, `replies.php`, `announcements.php` |
-| User management | `users.php`, `user_edit.php`, `user_groups.php`, `roles.php`, `user_ban.php`, `user_mute.php` |
-| Review & compliance | `reports.php`, `ban_appeals.php`, `password_reset_requests.php`, `sensitive_words.php`, `sensitive_word_logs.php` |
+| User management | `users.php`, `user_edit.php`, `user_groups.php`, `roles.php`, `user_ban.php`, `user_mute.php`, `user_create.php` |
+| Review & compliance | `reports.php`, `ban_appeals.php`, `password_reset_requests.php`, `sensitive_words.php`, `sensitive_word_logs.php`, `email_disclosure.php` |
+| Ticket system | `tickets.php` (unified handling of user feedback & admin tickets; source filter & status workflow) |
 | Medals | `medals.php` |
 | Email | `mail_center.php` (logs/statistics/notifications/bounce config) |
 | Ops | `backup.php`, `data_migration.php` (data migration & restore), `update_center.php` (System Update Center) |
 
-Many admin operations are handled through `app/admin/api/*_ajax.php`, returning JSON for asynchronous frontend calls, with auxiliary endpoints for pending counts (`pending_counts_ajax.php`), user risk details (`user_risk_detail_ajax.php`), and system diagnostics (`diag_auth.php`).
+Many admin operations are handled through `app/admin/api/*_ajax.php`, returning JSON for asynchronous frontend calls, with auxiliary endpoints for pending counts (`pending_counts_ajax.php`) and user risk details (`user_risk_detail_ajax.php`).
 
 ### 10.1 System Status Monitor (system_status)
 
@@ -466,7 +493,7 @@ Both a manual "Update now" click and an automatic trigger go through the same at
 | `check_ban_status.php` | Current user's ban/mute status |
 | `upload_image.php` | Image upload |
 
-**Admin endpoints** (`app/admin/api/`, `*_ajax.php`): backup, ban_appeals, bounce, data_migration, update, diag_auth, mail_notify, mail_stats, pending_counts, posts, replies, reports, sensitive_logs, sensitive_words, system_status, traffic, user_detail, user_risk_detail, users, users_bulk, users_export_csv.
+**Admin endpoints** (`app/admin/api/`, `*_ajax.php`): backup, ban_appeals, bounce, data_migration, update, mail_notify, mail_stats, pending_counts, posts, replies, reports, sensitive_logs, sensitive_words, system_status, traffic, user_detail, user_risk_detail, users, users_bulk, users_export_csv.
 
 > Endpoints generally use `realtime_cache($key, $ttl, $callback)` for short caching, avoiding high-frequency polling from overwhelming the database.
 

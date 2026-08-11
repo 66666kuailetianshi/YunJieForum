@@ -7,6 +7,10 @@
 
 require_once dirname(__DIR__) . '/layout/admin-init.php';
 
+// 权限门禁：用户编辑（角色/权限组/密码修改）仅超级管理员可用，
+// 整页门禁已覆盖保存分支，防止社区管理员自我提权。
+require_super_admin();
+
 $db = get_db();
 $userId = (int)($_GET['user_id'] ?? 0);
 $errors = [];
@@ -35,6 +39,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && validate_csrf()) {
     $signature = trim($_POST['signature'] ?? '');
     $points = (int)($_POST['points'] ?? 0);
     $role = trim($_POST['role'] ?? 'user');
+    // 两级管理员体系角色白名单：user / community_admin / admin（防注入）
+    if (!in_array($role, ['user', 'community_admin', 'admin'], true)) { $role = 'user'; }
     $roleIds = array_map('intval', $_POST['roles'] ?? []);
     $medalIds = array_map('intval', $_POST['medals'] ?? []);
     $password = trim($_POST['password'] ?? '');
@@ -65,14 +71,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && validate_csrf()) {
     if (empty($errors)) {
         $db->beginTransaction();
         try {
-            // 更新用户基本信息
+            // community_admin 为内置角色（user_roles 关联）；role 下拉为两级体系主导，权限组勾选不再重复管理它
+            // 内置角色可能被误删：先兑底重建再取 ID，避免授权静默失效（保存后仍为普通用户）
+            $communityRoleId = ensure_builtin_role('community_admin', '社区管理员', 'admin_access,manage_posts,manage_replies,manage_reports,manage_ban_appeals,manage_user_dispose');
+            $roleIds = array_values(array_filter($roleIds, function ($rid) use ($communityRoleId) {
+                return $rid !== $communityRoleId;
+            }));
+
+            // 更新用户基本信息（社区管理员 users.role 保持 'user'，经 user_roles 关联）
             $sql = "UPDATE users SET username = :username, email = :email, signature = :signature, points = :points, role = :role";
             $params = [
                 ':username' => $username,
                 ':email' => $email,
                 ':signature' => $signature,
                 ':points' => max(0, $points),
-                ':role' => in_array($role, ['user', 'admin'], true) ? $role : 'user',
+                ':role' => $role === 'admin' ? 'admin' : 'user',
                 ':id' => $userId,
             ];
             if ($password !== '') {
@@ -85,13 +98,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && validate_csrf()) {
             $sql .= " WHERE id = :id";
             $db->prepare($sql)->execute($params);
 
-            // 更新权限组
+            // 更新权限组（community_admin 已从勾选集中剔除，由上方角色下拉决定）
             $db->prepare("DELETE FROM user_roles WHERE user_id = :user_id")->execute([':user_id' => $userId]);
             $roleStmt = $db->prepare("INSERT INTO user_roles (user_id, role_id) VALUES (:user_id, :role_id)");
             foreach ($roleIds as $rid) {
                 if ($rid > 0) {
                     $roleStmt->execute([':user_id' => $userId, ':role_id' => $rid]);
                 }
+            }
+            // 角色下拉选择「社区管理员」时补关联（users.role 保持 'user'）
+            if ($role === 'community_admin' && $communityRoleId > 0) {
+                $roleStmt->execute([':user_id' => $userId, ':role_id' => $communityRoleId]);
             }
 
             // 更新勋章
@@ -117,6 +134,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && validate_csrf()) {
 $stmt = $db->prepare("SELECT role_id FROM user_roles WHERE user_id = :user_id");
 $stmt->execute([':user_id' => $userId]);
 $userRoleIds = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+// 当前角色分级（两级管理员体系）：超级管理员 > 社区管理员 > 普通用户
+$currentRoleLevel = $user['role'] === 'admin' ? 'admin' : (admin_user_has_role($userId, 'community_admin') ? 'community_admin' : 'user');
 
 $stmt = $db->prepare("SELECT medal_id FROM user_medals WHERE user_id = :user_id");
 $stmt->execute([':user_id' => $userId]);
@@ -179,8 +199,9 @@ require_once dirname(__DIR__) . '/layout/header.php';
                 <div class="form-group form-group-half">
                     <label class="form-label"><?php echo e(t('admin_useredit_label_role', '角色')); ?></label>
                     <select class="form-control" name="role" <?php echo $isSelf ? 'disabled' : ''; ?>>
-                        <option value="user" <?php echo $user['role'] === 'user' ? 'selected' : ''; ?>><?php echo e(t('admin_useredit_role_user', '普通用户')); ?></option>
-                        <option value="admin" <?php echo $user['role'] === 'admin' ? 'selected' : ''; ?>><?php echo e(t('admin_useredit_role_admin', '管理员')); ?></option>
+                        <option value="user" <?php echo $currentRoleLevel === 'user' ? 'selected' : ''; ?>><?php echo e(t('admin_useredit_role_user', '普通用户')); ?></option>
+                        <option value="community_admin" <?php echo $currentRoleLevel === 'community_admin' ? 'selected' : ''; ?>><?php echo e(t('admin_useredit_role_community_admin', '社区管理员')); ?></option>
+                        <option value="admin" <?php echo $currentRoleLevel === 'admin' ? 'selected' : ''; ?>><?php echo e(t('admin_useredit_role_admin', '超级管理员')); ?></option>
                     </select>
                     <?php if ($isSelf): ?>
                         <p class="form-hint text-error"><?php echo e(t('admin_useredit_hint_self_role', '不能修改当前登录账号的角色。')); ?></p>
@@ -239,12 +260,11 @@ require_once dirname(__DIR__) . '/layout/header.php';
             <?php else: ?>
                 <div class="checkbox-grid">
                     <?php foreach ($roles as $role): ?>
+                        <?php if ($role['name'] === 'community_admin') continue; // 社区管理员由上方「角色」下拉统一管理，此处不重复勾选 ?>
                         <label class="checkbox-card">
                             <input type="checkbox" name="roles[]" value="<?php echo $role['id']; ?>" <?php echo in_array($role['id'], $userRoleIds) ? 'checked' : ''; ?>>
                             <span class="checkbox-label"><?php echo e($role['display_name']); ?></span>
-                            <?php if ($role['permissions']): ?>
-                                <span class="checkbox-hint"><?php echo e($role['permissions']); ?></span>
-                            <?php endif; ?>
+                            <?php // 权限点不在此页面展示（与权限组管理页一致，权限由系统内置管理） ?>
                         </label>
                     <?php endforeach; ?>
                 </div>

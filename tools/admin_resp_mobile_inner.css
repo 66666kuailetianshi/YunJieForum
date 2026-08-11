@@ -1,0 +1,18 @@
+    .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    /* 表格操作列内联表单在窄屏纵向堆叠，避免撑宽 */
+    .data-table td form[style*="inline-block"] {
+        display: block !important;
+        margin-bottom: 0.5rem !important;
+    }
+    .data-table td form[style*="inline-block"] .form-control {
+        display: block !important;
+        width: 100% !important;
+        margin-right: 0 !important;
+        margin-bottom: 0.375rem;
+    }
+    .data-table td form[style*="inline-block"] .btn {
+        width: 100%;
+    }

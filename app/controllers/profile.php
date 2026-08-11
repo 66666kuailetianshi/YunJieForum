@@ -70,25 +70,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $tab === 'profile') {
             } elseif ($file['size'] > 2 * 1024 * 1024) {
                 $errors[] = t('profile_avatar_too_large', '头像文件大小不能超过 2MB。');
             } else {
-                if (!is_dir(AVATAR_PATH)) {
-                    if (!mkdir(AVATAR_PATH, 0755, true) && !is_dir(AVATAR_PATH)) {
-                        $errors[] = t('profile_avatar_dir_failed', '无法创建头像上传目录。');
-                    }
+                // 服务端读取真实文件头校验图片内容，防止伪造扩展名/声明 MIME 的非图片文件
+                $imageInfo = @getimagesize($file['tmp_name']);
+                if ($imageInfo === false) {
+                    $errors[] = t('profile_avatar_unrecognized', '无法识别的图片文件，请上传有效的头像图片。');
+                } elseif (!in_array(strtolower(image_type_to_mime_type($imageInfo[2])), $allowedTypes, true)) {
+                    $errors[] = t('profile_avatar_type_invalid', '头像仅支持 JPG、PNG、GIF、WEBP 格式。');
                 }
                 if (empty($errors)) {
-                    $filename = 'avatar_' . $user['id'] . '_' . bin2hex(random_bytes(8)) . '.' . $ext;
-                    $destPath = AVATAR_PATH . $filename;
-                    if (move_uploaded_file($file['tmp_name'], $destPath)) {
-                        // 删除旧头像文件
-                        if (!empty($user['avatar']) && preg_match('#^uploads/avatars/#i', $user['avatar'])) {
-                            $oldPath = ROOT_PATH . str_replace('/', DIRECTORY_SEPARATOR, $user['avatar']);
-                            if (is_file($oldPath)) {
-                                @unlink($oldPath);
-                            }
+                    if (!is_dir(AVATAR_PATH)) {
+                        if (!mkdir(AVATAR_PATH, 0755, true) && !is_dir(AVATAR_PATH)) {
+                            $errors[] = t('profile_avatar_dir_failed', '无法创建头像上传目录。');
                         }
-                        $uploadedAvatar = AVATAR_URL . $filename;
-                    } else {
-                        $errors[] = t('profile_avatar_save_failed', '头像保存失败，请重试。');
+                    }
+                    if (empty($errors)) {
+                        $filename = 'avatar_' . $user['id'] . '_' . bin2hex(random_bytes(8)) . '.' . $ext;
+                        $destPath = AVATAR_PATH . $filename;
+                        if (move_uploaded_file($file['tmp_name'], $destPath)) {
+                            // 删除旧头像文件
+                            if (!empty($user['avatar']) && preg_match('#^uploads/avatars/#i', $user['avatar'])) {
+                                $oldPath = ROOT_PATH . str_replace('/', DIRECTORY_SEPARATOR, $user['avatar']);
+                                if (is_file($oldPath)) {
+                                    @unlink($oldPath);
+                                }
+                            }
+                            $uploadedAvatar = AVATAR_URL . $filename;
+                        } else {
+                            $errors[] = t('profile_avatar_save_failed', '头像保存失败，请重试。');
+                        }
                     }
                 }
             }
@@ -302,7 +311,7 @@ include APP_ROOT . 'app/includes/header.php';
     <div class="profile-hero-top">
         <div class="profile-avatar-wrap">
             <img src="<?php echo avatar_url($user['avatar'], $user['username']); ?>" alt="" class="profile-avatar">
-            <span class="profile-level-badge" style="background: <?php echo e($userGroup['color']); ?>;">
+            <span class="profile-level-badge" style="--profile-level-color: <?php echo e($userGroup['color']); ?>;">
                 <?php echo ui_icon($userGroup['icon'], 12); ?>
                 <?php echo e($userGroup['title']); ?>
             </span>
@@ -322,7 +331,7 @@ include APP_ROOT . 'app/includes/header.php';
                         <span class="profile-tag"><?php echo e($roleName); ?></span>
                     <?php endforeach; ?>
                     <?php foreach ($medals as $medal): ?>
-                        <span class="profile-medal" style="color: <?php echo e($medal['color']); ?>; border-color: <?php echo e($medal['color']); ?>" title="<?php echo e($medal['description']); ?>">
+                        <span class="profile-medal" style="--medal-color: <?php echo e($medal['color']); ?>" title="<?php echo e($medal['description']); ?>">
                             <?php echo ui_icon($medal['icon'], 12); ?>
                             <?php echo e($medal['display_name']); ?>
                         </span>
@@ -336,7 +345,10 @@ include APP_ROOT . 'app/includes/header.php';
             <?php endif; ?>
             <?php if ($isOwnProfile): ?>
                 <?php if ($user['last_checkin'] !== date('Y-m-d')): ?>
-                    <a href="<?php echo site_url('checkin', ['csrf_token' => csrf_token()]); ?>" class="btn btn-primary"><?php echo e(t('profile_daily_checkin', '每日签到')); ?></a>
+                    <form method="post" action="<?php echo site_url('checkin'); ?>" class="inline-action-form">
+                        <input type="hidden" name="csrf_token" value="<?php echo e(csrf_token()); ?>">
+                        <button type="submit" class="btn btn-primary"><?php echo e(t('profile_daily_checkin', '每日签到')); ?></button>
+                    </form>
                 <?php else: ?>
                     <span class="btn btn-checked-in"><?php echo e(t('profile_checked_in_today', '今日已签到')); ?></span>
                 <?php endif; ?>
@@ -408,9 +420,9 @@ include APP_ROOT . 'app/includes/header.php';
                 </div>
                 <div class="form-group">
                     <label class="form-label"><?php echo e(t('profile_label_avatar', '头像')); ?></label>
-                    <div class="avatar-preview" style="margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.75rem;">
+                    <div class="avatar-preview">
                         <img id="avatar-preview-img" src="<?php echo avatar_url($user['avatar'], $user['username']); ?>" alt="" class="avatar avatar-md">
-                        <span class="text-muted" style="font-size: 0.875rem;"><?php echo e(t('profile_current_avatar', '当前头像')); ?></span>
+                        <span class="text-muted text-base"><?php echo e(t('profile_current_avatar', '当前头像')); ?></span>
                     </div>
                     <input type="file" class="form-control" id="avatar_file" name="avatar_file" accept="image/jpeg,image/png,image/gif,image/webp">
                     <p class="form-hint"><?php echo e(t('profile_avatar_hint', '支持 JPG、PNG、GIF、WEBP，大小不超过 2MB。上传新头像会替换当前头像。')); ?></p>
@@ -434,7 +446,7 @@ include APP_ROOT . 'app/includes/header.php';
                 </div>
                 <div class="form-group">
                     <label class="form-label"><?php echo e(t('profile_label_avatar', '头像')); ?></label>
-                    <div class="avatar-preview" style="display: flex; align-items: center; gap: 0.75rem;">
+                    <div class="avatar-preview">
                         <img src="<?php echo avatar_url($user['avatar'], $user['username']); ?>" alt="" class="avatar avatar-md">
                     </div>
                 </div>
@@ -498,9 +510,9 @@ include APP_ROOT . 'app/includes/header.php';
             <?php if (email_verification_enabled()): ?>
                 <div class="form-group">
                     <label class="form-label" for="pwd_verification_code"><?php echo e(t('profile_label_verification_code', '邮箱验证码')); ?></label>
-                    <div style="display: flex; gap: 0.5rem;">
-                        <input type="text" class="form-control" id="pwd_verification_code" name="verification_code" placeholder="<?php echo e(t('profile_code_placeholder', '6 位数字验证码')); ?>" maxlength="6" pattern="\d{6}" inputmode="numeric" style="flex: 1;">
-                        <button type="button" class="btn btn-secondary" id="pwdSendCodeBtn" style="white-space: nowrap;"><?php echo e(t('profile_get_code', '获取验证码')); ?></button>
+                    <div class="code-input-group">
+                        <input type="text" class="form-control" id="pwd_verification_code" name="verification_code" placeholder="<?php echo e(t('profile_code_placeholder', '6 位数字验证码')); ?>" maxlength="6" pattern="\d{6}" inputmode="numeric">
+                        <button type="button" class="btn btn-secondary" id="pwdSendCodeBtn"><?php echo e(t('profile_get_code', '获取验证码')); ?></button>
                     </div>
                     <p class="form-hint" id="pwdCodeHint"><?php echo e(t('profile_code_hint', '验证码将发送至您的绑定邮箱。')); ?></p>
                 </div>
@@ -628,7 +640,7 @@ include APP_ROOT . 'app/includes/header.php';
         $myPosts = $stmt->fetchAll();
         ?>
         <?php if (empty($myPosts)): ?>
-            <div class="empty-state" style="padding: 2rem 1rem;">
+            <div class="empty-state">
                 <div class="empty-state-icon"><?php echo ui_icon('file-text', 48); ?></div>
                 <p><?php echo e(t('profile_no_posts', '还没有发布过帖子。')); ?></p>
             </div>
@@ -639,8 +651,8 @@ include APP_ROOT . 'app/includes/header.php';
                         <h3 class="post-title"><a href="<?php echo site_url('post', ['id' => (int)$p['id']]); ?>"><?php echo e(strip_bbcode($p['title'])); ?></a></h3>
                         <div class="post-meta">
                             <span><?php echo time_ago($p['created_at']); ?></span>
-                            <span class="post-stat"><?php echo ui_icon('eye', 14); ?> <?php echo $p['views']; ?></span>
-                            <span class="post-stat"><?php echo ui_icon('message', 14); ?> <?php echo $p['replies_count']; ?></span>
+                            <span class="post-stat"><?php echo ui_icon('eye', 14); ?> <?php echo e($p['views']); ?></span>
+                            <span class="post-stat"><?php echo ui_icon('message', 14); ?> <?php echo e($p['replies_count']); ?></span>
                         </div>
                     </div>
                 <?php endforeach; ?>
@@ -667,7 +679,7 @@ include APP_ROOT . 'app/includes/header.php';
         $myReplies = $stmt->fetchAll();
         ?>
         <?php if (empty($myReplies)): ?>
-            <div class="empty-state" style="padding: 2rem 1rem;">
+            <div class="empty-state">
                 <div class="empty-state-icon"><?php echo ui_icon('message', 48); ?></div>
                 <p><?php echo e(t('profile_no_replies', '还没有回复过任何帖子。')); ?></p>
             </div>
@@ -677,7 +689,7 @@ include APP_ROOT . 'app/includes/header.php';
                     <div class="reply-body">
                         <div class="reply-header">
                             <span class="author-name"><?php echo e(t('profile_replied_to', '回复了')); ?> <a href="<?php echo site_url('post', ['id' => (int)$r['post_id']]); ?>"><?php echo e($r['post_title']); ?></a></span>
-                            <span class="text-muted" style="font-size: 0.875rem;"><?php echo time_ago($r['created_at']); ?></span>
+                            <span class="text-muted text-base"><?php echo time_ago($r['created_at']); ?></span>
                         </div>
                         <div class="reply-content">
                             <?php echo nl2br(linkify($r['content']), false); ?>
@@ -707,7 +719,7 @@ include APP_ROOT . 'app/includes/header.php';
         $myFavorites = $stmt->fetchAll();
         ?>
         <?php if (empty($myFavorites)): ?>
-            <div class="empty-state" style="padding: 2rem 1rem;">
+            <div class="empty-state">
                 <div class="empty-state-icon"><?php echo ui_icon('star', 48); ?></div>
                 <p><?php echo e(t('profile_no_favorites', '还没有收藏过帖子。')); ?></p>
             </div>
@@ -719,7 +731,11 @@ include APP_ROOT . 'app/includes/header.php';
                         <div class="post-meta">
                             <span><?php echo t('profile_fav_author', '作者: {name}', ['name' => e($p['username'])]); ?></span>
                             <span><?php echo time_ago($p['created_at']); ?></span>
-                            <a href="<?php echo site_url('post', ['id' => (int)$p['id'], 'fav_action' => 'remove', 'csrf_token' => csrf_token()]); ?>" class="text-muted" style="font-size: 0.8125rem;" data-confirm="<?php echo e(t('profile_fav_remove_confirm', '确定取消收藏？')); ?>"><?php echo e(t('profile_fav_remove', '取消收藏')); ?></a>
+                            <form method="post" action="<?php echo e(site_url('post', ['id' => (int)$p['id']])); ?>" class="inline-form">
+                                <input type="hidden" name="csrf_token" value="<?php echo e(csrf_token()); ?>">
+                                <input type="hidden" name="fav_action" value="remove">
+                                <button type="submit" class="btn btn-sm btn-text btn-fav-remove" data-confirm="<?php echo e(t('profile_fav_remove_confirm', '确定取消收藏？')); ?>"><?php echo e(t('profile_fav_remove', '取消收藏')); ?></button>
+                            </form>
                         </div>
                     </div>
                 <?php endforeach; ?>
@@ -737,7 +753,7 @@ include APP_ROOT . 'app/includes/header.php';
         $checkins = $stmt->fetchAll();
         ?>
         <?php if (empty($checkins)): ?>
-            <div class="empty-state" style="padding: 2rem 1rem;">
+            <div class="empty-state">
                 <div class="empty-state-icon"><?php echo ui_icon('calendar', 48); ?></div>
                 <p><?php echo e(t('profile_no_checkins', '还没有签到记录。')); ?></p>
             </div>
@@ -770,7 +786,7 @@ include APP_ROOT . 'app/includes/header.php';
         <h2 class="profile-card-title"><?php echo e(t('profile_tab_points', '积分记录')); ?></h2>
         <p class="text-muted mb-2"><?php echo e(t('profile_points_desc', '展示最近 50 条积分与金币变动记录。')); ?></p>
         <?php if (empty($pointsLog)): ?>
-            <div class="empty-state" style="padding: 2rem 1rem;">
+            <div class="empty-state">
                 <div class="empty-state-icon"><?php echo ui_icon('activity', 48); ?></div>
                 <p><?php echo e(t('profile_no_points_log', '暂无积分记录。')); ?></p>
             </div>

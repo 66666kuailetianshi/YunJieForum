@@ -35,25 +35,53 @@ if (!$post) {
 }
 
 // 管理操作 / 收藏操作参数（提前取出，用于判断本次请求是否为“真实浏览”）
-$action = isset($_GET['action']) ? $_GET['action'] : '';
+// 写操作统一走 POST（GET 分支仅作旧链接兼容提示，不执行任何写入）
+$action = isset($_REQUEST['action']) ? $_REQUEST['action'] : '';
 $adminActions = ['pin', 'unpin', 'essence', 'unessence', 'lock', 'unlock', 'delete'];
-$favAction = isset($_GET['fav_action']) ? $_GET['fav_action'] : '';
+$favAction = isset($_REQUEST['fav_action']) ? $_REQUEST['fav_action'] : '';
+
+// 兼容旧 GET 书签/链接：不再通过 GET 执行管理操作，提示用户刷新页面
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && has_permission('manage_posts') && in_array($action, $adminActions, true)) {
+    set_flash(t('post_flash_method_changed', '操作方式已变更，请刷新页面重试。'), 'error');
+    redirect('/post?id=' . $postId);
+}
+
+// 兼容旧 GET 书签/链接：不再通过 GET 执行收藏操作
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && is_logged_in() && in_array($favAction, ['add', 'remove'], true)) {
+    set_flash(t('post_flash_method_changed', '操作方式已变更，请刷新页面重试。'), 'error');
+    redirect('/post?id=' . $postId);
+}
 
 // 增加浏览量：仅在“真实查看帖子”时计入。
 // 置顶 / 加精 / 锁定 / 删除等管理操作、收藏 / 取消收藏本身只是动作请求，不应算作浏览量——
 // 否则每次操作会 +1，且操作完成后内部 redirect 回帖子页还会再 +1，造成浏览量虚高。
-$isManagementAction = (is_admin() && in_array($action, $adminActions, true))
+$isManagementAction = (has_permission('manage_posts') && in_array($action, $adminActions, true))
     || (is_logged_in() && in_array($favAction, ['add', 'remove'], true));
 if (!$isManagementAction) {
-    $stmt = $db->prepare("UPDATE posts SET views = views + 1 WHERE id = :id");
-    $stmt->execute([':id' => $postId]);
-    $post['views'] = (int)$post['views'] + 1;
+    // 同一会话同一帖子 60 秒内只计一次浏览量
+    if (!isset($_SESSION['_viewed_posts']) || !is_array($_SESSION['_viewed_posts'])) {
+        $_SESSION['_viewed_posts'] = [];
+    }
+    // 条目过多时清理过期记录，避免 session 膨胀
+    if (count($_SESSION['_viewed_posts']) > 100) {
+        $now = time();
+        $_SESSION['_viewed_posts'] = array_filter($_SESSION['_viewed_posts'], function ($ts) use ($now) {
+            return ($now - (int)$ts) < 60;
+        });
+    }
+    $lastViewed = isset($_SESSION['_viewed_posts'][$postId]) ? (int)$_SESSION['_viewed_posts'][$postId] : 0;
+    if ((time() - $lastViewed) >= 60) {
+        $stmt = $db->prepare("UPDATE posts SET views = views + 1 WHERE id = :id");
+        $stmt->execute([':id' => $postId]);
+        $post['views'] = (int)$post['views'] + 1;
+        $_SESSION['_viewed_posts'][$postId] = time();
+    }
 }
 
-// 管理操作（管理员可见，GET + csrf_token）
-if (is_admin() && in_array($action, $adminActions, true)) {
+// 管理操作（拥有帖子管理权限者可见，POST + csrf_token）
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && has_permission('manage_posts') && in_array($action, $adminActions, true)) {
     // CSRF 校验失败不静默：明确提示并返回帖子页
-    if (!validate_csrf(isset($_GET['csrf_token']) ? $_GET['csrf_token'] : '')) {
+    if (!validate_csrf(isset($_POST['csrf_token']) ? $_POST['csrf_token'] : '')) {
         set_flash(t('post_flash_csrf_expired', '安全校验失败（链接已过期），请刷新页面后重新操作。'), 'error');
         redirect('/post?id=' . $postId);
     }
@@ -92,8 +120,8 @@ if (is_admin() && in_array($action, $adminActions, true)) {
     redirect('/post?id=' . $postId);
 }
 
-// 收藏 / 取消收藏（GET + csrf_token）
-if (is_logged_in() && in_array($favAction, ['add', 'remove'], true) && validate_csrf(isset($_GET['csrf_token']) ? $_GET['csrf_token'] : '')) {
+// 收藏 / 取消收藏（POST + csrf_token）
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && is_logged_in() && in_array($favAction, ['add', 'remove'], true) && validate_csrf(isset($_POST['csrf_token']) ? $_POST['csrf_token'] : '')) {
     if ($favAction === 'add') {
         // 查询是否已收藏（防止重复收藏刷积分）
         $stmt = $db->prepare("SELECT COUNT(*) FROM favorites WHERE user_id = :uid AND post_id = :pid");
@@ -373,31 +401,55 @@ include APP_ROOT . 'app/includes/header.php';
         </span>
         <?php echo e(strip_bbcode($post['title'])); ?>
     </h1>
-    <div class="page-header-actions">
+    <div class="page-header-actions action-bar">
         <?php if (is_logged_in()): ?>
-            <?php if ($favorited): ?>
-                <a href="<?php echo site_url('post', ['id' => $postId, 'fav_action' => 'remove', 'csrf_token' => csrf_token()]); ?>" class="btn btn-sm btn-secondary"><?php echo e(t('post_unfavorite', '取消收藏')); ?></a>
-            <?php else: ?>
-                <a href="<?php echo site_url('post', ['id' => $postId, 'fav_action' => 'add', 'csrf_token' => csrf_token()]); ?>" class="btn btn-sm btn-secondary"><?php echo e(t('post_favorite', '收藏')); ?></a>
-            <?php endif; ?>
+            <form method="post" action="<?php echo e(site_url('post', ['id' => $postId])); ?>" class="inline-form">
+                <input type="hidden" name="csrf_token" value="<?php echo e(csrf_token()); ?>">
+                <?php if ($favorited): ?>
+                    <input type="hidden" name="fav_action" value="remove">
+                    <button type="submit" class="btn btn-sm btn-secondary"><?php echo e(t('post_unfavorite', '取消收藏')); ?></button>
+                <?php else: ?>
+                    <input type="hidden" name="fav_action" value="add">
+                    <button type="submit" class="btn btn-sm btn-secondary"><?php echo e(t('post_favorite', '收藏')); ?></button>
+                <?php endif; ?>
+            </form>
         <?php endif; ?>
-        <?php if (is_admin()): ?>
-            <?php if ((int)$post['is_pinned'] === 1): ?>
-                <a href="<?php echo site_url('post', ['id' => $postId, 'action' => 'unpin', 'csrf_token' => csrf_token()]); ?>" class="btn btn-sm btn-secondary"><?php echo e(t('post_unpin', '取消置顶')); ?></a>
-            <?php else: ?>
-                <a href="<?php echo site_url('post', ['id' => $postId, 'action' => 'pin', 'csrf_token' => csrf_token()]); ?>" class="btn btn-sm btn-secondary"><?php echo e(t('post_pin', '置顶')); ?></a>
-            <?php endif; ?>
-            <?php if ((int)$post['is_essence'] === 1): ?>
-                <a href="<?php echo site_url('post', ['id' => $postId, 'action' => 'unessence', 'csrf_token' => csrf_token()]); ?>" class="btn btn-sm btn-secondary"><?php echo e(t('post_unessence', '取消加精')); ?></a>
-            <?php else: ?>
-                <a href="<?php echo site_url('post', ['id' => $postId, 'action' => 'essence', 'csrf_token' => csrf_token()]); ?>" class="btn btn-sm btn-secondary"><?php echo e(t('post_essence', '加精')); ?></a>
-            <?php endif; ?>
-            <?php if ((int)$post['is_locked'] === 1): ?>
-                <a href="<?php echo site_url('post', ['id' => $postId, 'action' => 'unlock', 'csrf_token' => csrf_token()]); ?>" class="btn btn-sm btn-secondary"><?php echo e(t('post_unlock', '解锁')); ?></a>
-            <?php else: ?>
-                <a href="<?php echo site_url('post', ['id' => $postId, 'action' => 'lock', 'csrf_token' => csrf_token()]); ?>" class="btn btn-sm btn-secondary"><?php echo e(t('post_lock', '锁定')); ?></a>
-            <?php endif; ?>
-            <a href="<?php echo site_url('post', ['id' => $postId, 'action' => 'delete', 'csrf_token' => csrf_token()]); ?>" class="btn btn-sm btn-danger" data-confirm="<?php echo e(t('post_delete_confirm', '确定删除该帖子吗？此操作不可撤销。')); ?>"><?php echo e(t('post_delete', '删除')); ?></a>
+        <?php if (has_permission('manage_posts')): ?>
+            <form method="post" action="<?php echo e(site_url('post', ['id' => $postId])); ?>" class="inline-form">
+                <input type="hidden" name="csrf_token" value="<?php echo e(csrf_token()); ?>">
+                <?php if ((int)$post['is_pinned'] === 1): ?>
+                    <input type="hidden" name="action" value="unpin">
+                    <button type="submit" class="btn btn-sm btn-secondary"><?php echo e(t('post_unpin', '取消置顶')); ?></button>
+                <?php else: ?>
+                    <input type="hidden" name="action" value="pin">
+                    <button type="submit" class="btn btn-sm btn-secondary"><?php echo e(t('post_pin', '置顶')); ?></button>
+                <?php endif; ?>
+            </form>
+            <form method="post" action="<?php echo e(site_url('post', ['id' => $postId])); ?>" class="inline-form">
+                <input type="hidden" name="csrf_token" value="<?php echo e(csrf_token()); ?>">
+                <?php if ((int)$post['is_essence'] === 1): ?>
+                    <input type="hidden" name="action" value="unessence">
+                    <button type="submit" class="btn btn-sm btn-secondary"><?php echo e(t('post_unessence', '取消加精')); ?></button>
+                <?php else: ?>
+                    <input type="hidden" name="action" value="essence">
+                    <button type="submit" class="btn btn-sm btn-secondary"><?php echo e(t('post_essence', '加精')); ?></button>
+                <?php endif; ?>
+            </form>
+            <form method="post" action="<?php echo e(site_url('post', ['id' => $postId])); ?>" class="inline-form">
+                <input type="hidden" name="csrf_token" value="<?php echo e(csrf_token()); ?>">
+                <?php if ((int)$post['is_locked'] === 1): ?>
+                    <input type="hidden" name="action" value="unlock">
+                    <button type="submit" class="btn btn-sm btn-secondary"><?php echo e(t('post_unlock', '解锁')); ?></button>
+                <?php else: ?>
+                    <input type="hidden" name="action" value="lock">
+                    <button type="submit" class="btn btn-sm btn-secondary"><?php echo e(t('post_lock', '锁定')); ?></button>
+                <?php endif; ?>
+            </form>
+            <form method="post" action="<?php echo e(site_url('post', ['id' => $postId])); ?>" class="inline-form action-bar-right">
+                <input type="hidden" name="csrf_token" value="<?php echo e(csrf_token()); ?>">
+                <input type="hidden" name="action" value="delete">
+                <button type="submit" class="btn btn-sm btn-danger-ghost" data-confirm="<?php echo e(t('post_delete_confirm', '确定删除该帖子吗？此操作不可撤销。')); ?>"><?php echo e(t('post_delete', '删除')); ?></button>
+            </form>
         <?php endif; ?>
     </div>
 </div>
@@ -460,7 +512,7 @@ include APP_ROOT . 'app/includes/header.php';
     </div>
 
     <?php if (empty($replies)): ?>
-        <div class="empty-state" style="padding: 2rem 1rem;">
+        <div class="empty-state post-replies-empty">
             <div class="empty-state-icon">
                 <svg viewBox="0 0 24 24" width="64" height="64" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
             </div>
@@ -534,7 +586,7 @@ include APP_ROOT . 'app/includes/header.php';
                     </div>
 
                     <div class="floor-actions">
-                        <div class="floor-actions-left"><button type="button" class="btn btn-sm btn-secondary" onclick="replyTo(<?php echo (int)$reply['id']; ?>, <?php echo $displayFloor; ?>, <?php echo htmlspecialchars(json_encode($reply['username'], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT), ENT_QUOTES, 'UTF-8'); ?>, <?php echo htmlspecialchars(json_encode(mb_substr(strip_tags(bbcode($reply['content'])), 0, 120, 'UTF-8'), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT), ENT_QUOTES, 'UTF-8'); ?>)" aria-label="<?php echo e(t('post_reply_to_user', '回复 {name}', ['name' => $reply['username']])); ?>"><?php echo e(t('post_reply_btn', '回复')); ?></button>
+                        <div class="floor-actions-left"><?php if (is_logged_in()): ?><button type="button" class="btn btn-sm btn-secondary" onclick="replyTo(<?php echo (int)$reply['id']; ?>, <?php echo $displayFloor; ?>, <?php echo htmlspecialchars(json_encode($reply['username'], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT), ENT_QUOTES, 'UTF-8'); ?>, <?php echo htmlspecialchars(json_encode(mb_substr(strip_tags(bbcode($reply['content'])), 0, 120, 'UTF-8'), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT), ENT_QUOTES, 'UTF-8'); ?>)" aria-label="<?php echo e(t('post_reply_to_user', '回复 {name}', ['name' => $reply['username']])); ?>"><?php echo e(t('post_reply_btn', '回复')); ?></button><?php endif; ?>
                         <?php if (is_logged_in() && (int)$_SESSION['user_id'] !== (int)$reply['user_id']): ?>
                             <a href="<?php echo site_url('pm', ['action' => 'new', 'to' => (int)$reply['user_id']]); ?>" class="btn btn-sm btn-secondary" title="<?php echo e(t('post_send_pm_to', '给 {name} 发私信', ['name' => $reply['username']])); ?>"><?php echo e(t('post_send_pm', '发私信')); ?></a>
                         <?php endif; ?>
@@ -550,7 +602,7 @@ include APP_ROOT . 'app/includes/header.php';
             </article>
         <?php endforeach; ?>
 
-        <div class="new-replies-banner" id="new-replies-banner" style="display:none;" role="status" aria-live="polite">
+        <div class="new-replies-banner" id="new-replies-banner" role="status" aria-live="polite">
             <span id="new-replies-text"><?php echo e(t('post_content_updated', '内容有更新，点击刷新')); ?></span>
             <button type="button" class="btn btn-sm btn-primary" onclick="location.reload()"><?php echo e(t('post_refresh', '刷新')); ?></button>
         </div>
@@ -573,7 +625,7 @@ include APP_ROOT . 'app/includes/header.php';
 <?php elseif (is_logged_in() && ($muteMessage = get_user_mute_message((int)$_SESSION['user_id'])) !== null): ?>
     <div class="card text-center">
         <p class="text-error mb-0"><?php echo e($muteMessage); ?><?php echo e(t('post_error_muted_suffix', '无法回复。')); ?></p>
-        <p class="mb-0" style="margin-top:0.5rem;">
+        <p class="mb-0 mt-2">
             <a href="<?php echo site_url('appeal'); ?>"><?php echo e(t('post_appeal_link', '对处罚有异议？申请申诉')); ?></a>
         </p>
     </div>
@@ -589,7 +641,7 @@ include APP_ROOT . 'app/includes/header.php';
             <input type="hidden" name="csrf_token" value="<?php echo csrf_token(); ?>">
             <input type="hidden" name="reply_to" id="reply-to" value="">
             <input type="hidden" name="quote_content" id="quote-content" value="">
-            <div id="quote-indicator" class="quote-indicator" style="display: none;">
+            <div id="quote-indicator" class="quote-indicator">
                 <span id="quote-text"></span>
                 <button type="button" class="btn btn-sm btn-secondary" onclick="clearQuote()"><?php echo e(t('post_cancel_quote', '取消回复')); ?></button>
             </div>
@@ -637,12 +689,12 @@ include APP_ROOT . 'app/includes/header.php';
             <!-- 工具栏内联输入面板（替代 prompt） -->
             <div class="toolbar-input-panel" id="toolbar-input-panel">
                 <input type="text" class="form-control" id="toolbar-input-main" placeholder="">
-                <input type="text" class="form-control" id="toolbar-input-extra" placeholder="" style="display:none;">
+                <input type="text" class="form-control" id="toolbar-input-extra" placeholder="">
                 <div class="toolbar-input-actions">
                     <button type="button" class="btn btn-sm btn-primary" onclick="submitToolbarInput()"><?php echo e(t('post_confirm', '确定')); ?></button>
                     <button type="button" class="btn btn-sm btn-secondary" onclick="cancelToolbarInput()"><?php echo e(t('post_cancel', '取消')); ?></button>
                 </div>
-                <div class="toolbar-input-error" id="toolbar-input-error" style="display:none;"></div>
+                <div class="toolbar-input-error" id="toolbar-input-error"></div>
             </div>
 
             <!-- 表情选择面板 -->

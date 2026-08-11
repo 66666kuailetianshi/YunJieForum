@@ -6,10 +6,8 @@
 require_once APP_ROOT . 'app/includes/functions.php';
 
 if (!is_forum_installed()) {
-    // 清除残留的安装锁文件，确保下次会重定向到安装向导
-    if (file_exists(INSTALLED_FILE)) {
-        @unlink(INSTALLED_FILE);
-    }
+    // 可能是数据库瞬时故障，不删除安装锁文件，避免将站点打回安装向导；仅记录原因并跳转
+    error_log(t('home_install_check_failed', '首页安装状态校验失败（数据库可能不可用），已跳转安装向导。'));
     redirect('/install');
 }
 
@@ -50,19 +48,22 @@ include APP_ROOT . 'app/includes/header.php';
     <?php endforeach; ?>
 <?php endif; ?>
 
-<!-- 统计条 -->
+<!-- 统计条（卡片内 flex 布局，gap 分隔；.home-stat strong 为 JS 轮询钩子，勿改名） -->
 <div class="home-stats-bar">
     <div class="home-stats-main">
         <span class="home-stat">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M8 14h.01M8 2v4M16 2v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
             <?php echo e(t('home_stat_posts', '帖子：')); ?><strong><?php echo (int)$stats['posts']; ?></strong>
         </span>
-        <span class="home-stat-sep">|</span>
-        <span class="home-stat"><?php echo e(t('home_stat_users', '会员：')); ?><strong><?php echo (int)$stats['users']; ?></strong></span>
-        <span class="home-stat-sep">|</span>
-        <span class="home-stat"><?php echo e(t('home_stat_today', '今日：')); ?><strong><?php echo (int)$stats['today_posts']; ?></strong></span>
+        <span class="home-stat">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            <?php echo e(t('home_stat_users', '会员：')); ?><strong><?php echo (int)$stats['users']; ?></strong>
+        </span>
+        <span class="home-stat">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+            <?php echo e(t('home_stat_today', '今日：')); ?><strong><?php echo (int)$stats['today_posts']; ?></strong>
+        </span>
         <?php if (!empty($stats['newest_user'])): ?>
-            <span class="home-stat-sep">|</span>
             <span class="home-stat"><?php echo e(t('home_stat_welcome', '欢迎：')); ?><a href="<?php echo e(site_url('profile', ['user_id' => (int)$stats['newest_user']['id']])); ?>"><strong><?php echo e($stats['newest_user']['username']); ?></strong></a></span>
         <?php endif; ?>
     </div>
@@ -72,7 +73,6 @@ include APP_ROOT . 'app/includes/header.php';
         <?php else: ?>
             <a href="<?php echo site_url('login'); ?>"><?php echo e(t('home_my_posts', '我的帖子')); ?></a>
         <?php endif; ?>
-        <span class="home-stats-links-sep">|</span>
         <a href="<?php echo site_url('home', ['sort' => 'latest_reply']); ?>"><?php echo e(t('home_latest_reply', '最新回复')); ?></a>
     </div>
 </div>
@@ -142,9 +142,11 @@ include APP_ROOT . 'app/includes/header.php';
                 <h2 class="card-title"><?php echo e(t('home_latest_posts', '最新帖子')); ?></h2>
                 <a href="/" class="btn btn-sm btn-secondary"><?php echo e(t('home_view_all', '查看全部')); ?></a>
             </div>
-            <div id="new-latest-banner" style="display:none; align-items:center; justify-content:space-between; gap:0.5rem; background:rgba(37,99,235,0.08); color:var(--primary,#2563eb); padding:8px 12px; border-radius:6px; margin-bottom:10px;" role="status" aria-live="polite">
-                <span><?php echo e(t('home_new_posts_tip', '有新的帖子，点击刷新')); ?></span>
-                <button type="button" class="btn btn-sm btn-primary" onclick="location.reload()"><?php echo e(t('home_refresh', '刷新')); ?></button>
+            <div id="new-latest-banner" class="banner-update" role="status" aria-live="polite">
+                <span class="banner-update-title"><?php echo e(t('home_new_posts_tip', '有新的帖子，点击刷新')); ?></span>
+                <div class="banner-update-actions">
+                    <button type="button" class="btn btn-sm btn-primary" onclick="location.reload()"><?php echo e(t('home_refresh', '刷新')); ?></button>
+                </div>
             </div>
             <div class="latest-list">
                 <?php foreach ($latestPosts as $post): ?>
@@ -165,7 +167,7 @@ include APP_ROOT . 'app/includes/header.php';
 <?php endif; ?>
 
 <script>
-// 首页实时刷新（1 秒轮询）：统计条 + 版块卡片 + 新帖检测
+// 首页实时刷新（5 秒轮询，页面隐藏时暂停）：统计条 + 版块卡片 + 新帖检测
 // setTimeout 链 + 请求去重：响应慢时不堆积请求，不阻塞页面
 var HOME_FORUM_COUNT_TPL = <?php echo json_encode(t('home_forum_count', '{threads} 主题 / {posts} 帖子')); ?>;
 (function () {
@@ -182,9 +184,11 @@ var HOME_FORUM_COUNT_TPL = <?php echo json_encode(t('home_forum_count', '{thread
     });
 
     var checking = false;
+    var POLL_INTERVAL = 5000; // 5 秒轮询一次
+    var pollTimer = null;
 
-    function poll() {
-        setTimeout(function () {
+    function doPoll() {
+        pollTimer = setTimeout(function () {
             if (!checking) {
                 checking = true;
                 fetch('<?php echo site_url('api/home_realtime'); ?>&_=' + Date.now(), { cache: 'no-store', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
@@ -232,10 +236,22 @@ var HOME_FORUM_COUNT_TPL = <?php echo json_encode(t('home_forum_count', '{thread
                     .catch(function () {})
                     .then(function () { checking = false; });
             }
-            poll();
-        }, 1000);
+            doPoll();
+        }, POLL_INTERVAL);
     }
-    poll();
+
+    // 页面可见时轮询，隐藏时暂停（节省资源）；重新可见时立即轮询一次并恢复
+    function start() { if (!pollTimer) doPoll(); }
+    function stop() { if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; } }
+    document.addEventListener('visibilitychange', function () {
+        if (document.hidden) {
+            stop();
+        } else {
+            stop();
+            start();
+        }
+    });
+    start();
 })();
 </script>
 

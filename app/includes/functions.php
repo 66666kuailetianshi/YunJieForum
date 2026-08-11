@@ -5,7 +5,8 @@
 
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/db.php';
-require_once APP_ROOT . 'app/includes/mailer.php';
+// mailer.php 已改为懒加载：仅在真正发送邮件的函数内 require_once，
+// 避免 99% 不发邮件的请求白白加载 17KB 邮件模块。
 
 /**
  * HTML 实体转义，防止 XSS（接受 null，避免 PHP 8 TypeError）
@@ -122,15 +123,11 @@ function csrf_token(): string {
 
 /**
  * 验证 CSRF Token
- * 支持显式传入 token，或自动从 POST/GET 中读取
+ * 支持显式传入 token，或自动从 POST 中读取（不再接受 GET 传参，防止链接泄露与 CSRF 绕过）
  */
 function validate_csrf(?string $token = null): bool {
-    if ($token === null) {
-        if (isset($_POST['csrf_token'])) {
-            $token = $_POST['csrf_token'];
-        } elseif (isset($_GET['csrf_token'])) {
-            $token = $_GET['csrf_token'];
-        }
+    if ($token === null && isset($_POST['csrf_token'])) {
+        $token = $_POST['csrf_token'];
     }
     return isset($_SESSION['csrf_token']) && hash_equals($_SESSION['csrf_token'], (string)$token);
 }
@@ -264,6 +261,26 @@ function try_cookie_login(): void {
         $userId = $stmt->fetchColumn();
         if ($userId) {
             $_SESSION['user_id'] = (int)$userId;
+            // 命中 remember token 后轮换 token：即使旧 token 泄漏也即刻失效。
+            // 轮换失败不阻断本次自动登录，仅记录日志。
+            try {
+                if (!headers_sent()) {
+                    $newToken = bin2hex(random_bytes(32));
+                    $newHash = hash('sha256', $newToken);
+                    $upd = $db->prepare("UPDATE users SET remember_token = :hash WHERE id = :id");
+                    $upd->execute([':hash' => $newHash, ':id' => (int)$userId]);
+                    // 沿用 login.php 下发 cookie 的参数（expires/secure/httponly/samesite）
+                    setcookie('forum_remember', $newToken, [
+                        'expires'  => time() + COOKIE_REMEMBER_DAYS * 86400,
+                        'path'     => '/',
+                        'secure'   => COOKIE_SECURE,
+                        'httponly' => true,
+                        'samesite' => 'Lax',
+                    ]);
+                }
+            } catch (\Throwable $e) {
+                error_log('[remember] token 轮换失败: ' . $e->getMessage());
+            }
             return;
         }
         // 未匹配则清除 cookie
@@ -349,7 +366,9 @@ function user_permissions(?int $userId = null): array {
 
     $permissions = [];
     if ($role === 'admin') {
-        $permissions[] = 'admin_access';
+        // 超级管理员天然拥有全部权限（含白名单内所有权限点），
+        // 保证 has_permission('manage_posts') 等细粒度判断对超管始终通过。
+        $permissions = ADMIN_PERMISSION_WHITELIST;
     }
 
     $stmt = $db->prepare("SELECT r.permissions FROM roles r JOIN user_roles ur ON r.id = ur.role_id WHERE ur.user_id = :user_id");
@@ -377,6 +396,198 @@ function has_permission(string $permission): bool {
  */
 function is_admin(): bool {
     return has_permission('admin_access');
+}
+
+// ---------------------------------------------------------------------------
+// 两级管理员体系基础层：超级管理员（users.role='admin'）+ 社区管理员
+// （内置角色 community_admin，带 admin_access 但 users.role 仍为 'user'）。
+// ---------------------------------------------------------------------------
+
+/**
+ * 后台管理权限点白名单。
+ *
+ * 用途：供后续 roles.php 权限编辑页白名单化使用——
+ * 渲染复选框、校验提交的权限串时，只允许此列表内的权限点，
+ * 防止任意构造权限（如写入 admin_access 实现提权）。
+ * 其中 manage_settings 等为超管专属占位项：社区管理员角色不应被授予，
+ * 仅超级管理员（users.role='admin'）天然拥有全部权限。
+ */
+if (!defined('ADMIN_PERMISSION_WHITELIST')) {
+    define('ADMIN_PERMISSION_WHITELIST', [
+        // 后台总闸
+        'admin_access',
+        // 内容管理
+        'manage_posts',
+        'manage_replies',
+        'manage_reports',
+        'manage_ban_appeals',
+        'manage_user_dispose',
+        'manage_users',
+        'manage_forums',
+        'manage_medals',
+        'manage_announcements',
+        'manage_sensitive_words',
+        // 超管专属（社区管理员不应勾选）
+        'manage_settings',
+        'manage_roles',
+        'manage_backup',
+        'manage_update',
+        'manage_mail',
+        'manage_system_status',
+        'manage_data_migration',
+    ]);
+}
+
+/**
+ * 检查当前用户是否为超级管理员（users.role === 'admin'）。
+ *
+ * 注意：不能只看 has_permission('admin_access')——
+ * 社区管理员角色（community_admin）也带 admin_access，
+ * 但其 users.role 仍为 'user'，不属于超级管理员。
+ */
+function is_super_admin(): bool {
+    $userId = isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : 0;
+    if ($userId <= 0) {
+        return false;
+    }
+    // 请求内 static 缓存：同一请求内多次调用只查一次库（与 user_permissions 同模式）
+    static $cache = [];
+    if (isset($cache[$userId])) {
+        return $cache[$userId];
+    }
+    try {
+        $db = get_db();
+        $stmt = $db->prepare("SELECT role FROM users WHERE id = :id LIMIT 1");
+        $stmt->execute([':id' => $userId]);
+        $role = $stmt->fetchColumn();
+    } catch (Exception $e) {
+        // 数据库异常时不放行，按非超管处理
+        return false;
+    }
+    $cache[$userId] = ($role === 'admin');
+    return $cache[$userId];
+}
+
+/**
+ * 要求当前用户拥有指定权限，否则提示并跳转后台首页。
+ * （写法仿 app/admin/layout/admin-init.php 的门禁）
+ */
+function require_permission(string $permission): void {
+    if (!has_permission($permission)) {
+        set_flash(t('common_no_permission_page', '你没有权限访问该页面。'), 'error');
+        redirect('/admin/');
+    }
+}
+
+/**
+ * 要求当前用户为超级管理员，否则提示并跳转后台首页。
+ */
+function require_super_admin(): void {
+    if (!is_super_admin()) {
+        set_flash(t('common_super_admin_only', '该功能仅最高管理员可用。'), 'error');
+        redirect('/admin/');
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 账号级登录锁定基础层（login.php 接入由任务 #11 负责）。
+// 锁定提示文案应复用「账号或密码错误」同一文案，防止账号枚举。
+// ---------------------------------------------------------------------------
+
+// 连续失败阈值与锁定时长（分钟）
+if (!defined('LOGIN_MAX_FAILS')) {
+    define('LOGIN_MAX_FAILS', 5);
+}
+if (!defined('LOGIN_LOCK_MINUTES')) {
+    define('LOGIN_LOCK_MINUTES', 15);
+}
+
+/**
+ * 按账号定位用户（用户名或邮箱，不区分大小写，与 login.php 查询条件一致）。
+ * 返回 ['id', 'login_fails', 'login_locked_until'] 或 null（不存在/异常）。
+ */
+function login_lock_find_user(string $account): ?array {
+    $account = strtolower(trim($account));
+    if ($account === '') {
+        return null;
+    }
+    try {
+        $db = get_db();
+        $stmt = $db->prepare("SELECT id, login_fails, login_locked_until FROM users WHERE LOWER(username) = LOWER(:a1) OR LOWER(email) = LOWER(:a2) LIMIT 1");
+        $stmt->execute([':a1' => $account, ':a2' => $account]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $row ? $row : null;
+    } catch (Exception $e) {
+        error_log('[login_lock] 查询失败: ' . $e->getMessage());
+        return null;
+    }
+}
+
+/**
+ * 检查账号是否处于登录锁定状态。
+ * 锁定未过期返回 true；锁定已过期则自动清零计数并返回 false。
+ * 任何异常均不阻断登录（返回 false）。
+ */
+function login_lock_check(string $account): bool {
+    $user = login_lock_find_user($account);
+    if (!$user || empty($user['login_locked_until'])) {
+        return false;
+    }
+    if (db_time($user['login_locked_until']) > time()) {
+        return true;
+    }
+    // 锁定已过期：自动清零计数与锁定时间
+    try {
+        $db = get_db();
+        $db->prepare("UPDATE users SET login_fails = 0, login_locked_until = NULL WHERE id = :id")
+            ->execute([':id' => (int)$user['id']]);
+    } catch (Exception $e) {
+        error_log('[login_lock] 过期清零失败: ' . $e->getMessage());
+    }
+    return false;
+}
+
+/**
+ * 记录一次登录失败：计数 +1，达到阈值（LOGIN_MAX_FAILS）时写入锁定期
+ * （LOGIN_LOCK_MINUTES 分钟，沿用 banned_until 的 gmdate UTC 写法），
+ * 并清零失败计数（锁到期后重新获得完整尝试次数）。
+ */
+function login_lock_hit(string $account): void {
+    $user = login_lock_find_user($account);
+    if (!$user) {
+        return;
+    }
+    try {
+        $db = get_db();
+        $fails = (int)($user['login_fails'] ?? 0) + 1;
+        if ($fails >= LOGIN_MAX_FAILS) {
+            $lockedUntil = gmdate('Y-m-d H:i:s', time() + LOGIN_LOCK_MINUTES * 60);
+            $db->prepare("UPDATE users SET login_fails = 0, login_locked_until = :until WHERE id = :id")
+                ->execute([':until' => $lockedUntil, ':id' => (int)$user['id']]);
+        } else {
+            $db->prepare("UPDATE users SET login_fails = :fails WHERE id = :id")
+                ->execute([':fails' => $fails, ':id' => (int)$user['id']]);
+        }
+    } catch (Exception $e) {
+        error_log('[login_lock] 失败计数写入异常: ' . $e->getMessage());
+    }
+}
+
+/**
+ * 登录成功后清零失败计数与锁定状态。
+ */
+function login_lock_clear(string $account): void {
+    $user = login_lock_find_user($account);
+    if (!$user) {
+        return;
+    }
+    try {
+        $db = get_db();
+        $db->prepare("UPDATE users SET login_fails = 0, login_locked_until = NULL WHERE id = :id")
+            ->execute([':id' => (int)$user['id']]);
+    } catch (Exception $e) {
+        error_log('[login_lock] 清零失败: ' . $e->getMessage());
+    }
 }
 
 /**
@@ -851,6 +1062,8 @@ function ensure_roles_table(): void {
         $defaultRoles = [
             ['moderator', t('common_bbc6db','版主'), 'manage_posts,manage_replies,manage_users,manage_forums'],
             ['vip', t('common_a80a39','VIP用户'), ''],
+            // 与 db.php 播种保持一致：两级管理员体系内置角色
+            ['community_admin', t('common_community_admin','社区管理员'), 'admin_access,manage_posts,manage_replies,manage_reports,manage_ban_appeals,manage_user_dispose'],
         ];
         foreach ($defaultRoles as $role) {
             $stmt = ddl_prepare($db, "INSERT OR IGNORE INTO roles (name, display_name, permissions) VALUES (:name, :display_name, :permissions)");
@@ -1355,7 +1568,8 @@ function forum_stats(): array {
     // 60 秒文件缓存：论坛统计延迟 60 秒更新完全无感知，避免每次首页访问执行 3 次 COUNT/SUM
     $cacheFile = APP_ROOT . 'data/forum_stats.cache';
     if (is_file($cacheFile)) {
-        $cached = @unserialize((string)@file_get_contents($cacheFile));
+        // JSON 格式缓存；旧 serialize 格式文件 json_decode 失败返回 null，视为 miss 自然重建
+        $cached = json_decode((string)@file_get_contents($cacheFile), true);
         if (is_array($cached) && isset($cached['time']) && (time() - (int)$cached['time']) < 60) {
             return $cached['stats'];
         }
@@ -1399,7 +1613,7 @@ function forum_stats(): array {
     $stats['today_posts'] = (int)($postRow['today_posts'] ?? 0);
     $stats['yesterday_posts'] = (int)($postRow['yesterday_posts'] ?? 0);
 
-    @file_put_contents($cacheFile, serialize(['time' => time(), 'stats' => $stats]), LOCK_EX);
+    @file_put_contents($cacheFile, json_encode(['time' => time(), 'stats' => $stats], JSON_UNESCAPED_UNICODE), LOCK_EX);
     return $stats;
 }
 
@@ -2479,6 +2693,7 @@ function email_verification_enabled(): bool {
  * 返回 ['success'=>bool, 'error'=>?string, 'wait'=>int]
  */
 function send_email_verification_code(string $email): array {
+    require_once APP_ROOT . 'app/includes/mailer.php'; // 懒加载：仅实际发送时加载邮件模块
     if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
         return ['success' => false, 'error' => t('common_208e60','邮箱地址无效。'), 'wait' => 0];
     }
@@ -2562,6 +2777,7 @@ function clear_email_verification_code(): void {
  * 发送密码修改邮箱验证码（使用独立会话键，避免与注册验证码冲突）
  */
 function send_password_change_email_code(string $email): array {
+    require_once APP_ROOT . 'app/includes/mailer.php'; // 懒加载：仅实际发送时加载邮件模块
     if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
         return ['success' => false, 'error' => t('common_208e60','邮箱地址无效。'), 'wait' => 0];
     }
@@ -2926,26 +3142,17 @@ function add_notification(int $userId, string $type, string $title, string $cont
 }
 
 /**
- * 获取或创建“记住账号密码”的本地加密密钥。
- * 密钥存放在长期 cookie 中，退出登录时不清除，以便下次自动填充。
+ * 【已废弃】获取“记住账号密码”的本地加密密钥。
+ *
+ * 安全加固：原实现通过非 HttpOnly cookie 下发 AES 密钥，配合
+ * localStorage 存储明文凭据密文，任何 XSS 即可解密出账号密码。
+ * 自本版本起不再设置/下发 forum_cred_key cookie，仅保留函数壳
+ * 避免存量调用方（login.php/register.php，由后续任务移除）致命错误。
+ *
+ * @deprecated 始终返回空字符串；调用方检测到空值应跳过自动填充逻辑。
  */
 function get_remember_credentials_key(): string {
-    $cookieName = 'forum_cred_key';
-    if (!empty($_COOKIE[$cookieName]) && is_string($_COOKIE[$cookieName]) && strlen($_COOKIE[$cookieName]) >= 32) {
-        return $_COOKIE[$cookieName];
-    }
-
-    $key = bin2hex(random_bytes(32));
-    $expires = time() + (defined('CRED_KEY_COOKIE_DAYS') ? CRED_KEY_COOKIE_DAYS : 400) * 86400;
-    setcookie($cookieName, $key, [
-        'expires' => $expires,
-        'path' => '/',
-        'secure' => defined('COOKIE_SECURE') ? COOKIE_SECURE : false,
-        'httponly' => false,
-        'samesite' => 'Lax',
-    ]);
-    $_COOKIE[$cookieName] = $key;
-    return $key;
+    return '';
 }
 
 /**

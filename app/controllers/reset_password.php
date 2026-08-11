@@ -87,7 +87,7 @@ include APP_ROOT . 'app/includes/header.php';
 ?>
 
 <div class="auth-container">
-    <div class="card">
+    <div class="card auth-card">
         <div class="auth-header">
             <img src="../public/images/logo.svg" alt="" class="auth-logo">
             <h1 class="auth-title"><?php echo e(t('reset_heading', '重置密码')); ?></h1>

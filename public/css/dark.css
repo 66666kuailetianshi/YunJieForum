@@ -43,9 +43,14 @@
         --border-soft: #1f1f23;
 
         --success-light: rgba(16, 185, 129, 0.16);
-        --warning-light: rgba(37, 99, 235, 0.16);
+        --warning: #fbbf24;
+        --warning-light: rgba(245, 158, 11, 0.16);
+        --warning-dark: #fcd34d;
         --error-light: rgba(239, 68, 68, 0.16);
         --info-light: rgba(14, 165, 233, 0.16);
+
+        --header-bg: rgba(24, 24, 27, 0.82);
+        --panel-bg: rgba(39, 39, 42, 0.96);
 
         --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
         --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);
@@ -96,9 +101,14 @@
     --border-soft: #1f1f23;
 
     --success-light: rgba(16, 185, 129, 0.16);
-    --warning-light: rgba(37, 99, 235, 0.16);
+    --warning: #fbbf24;
+    --warning-light: rgba(245, 158, 11, 0.16);
+    --warning-dark: #fcd34d;
     --error-light: rgba(239, 68, 68, 0.16);
     --info-light: rgba(14, 165, 233, 0.16);
+
+    --header-bg: rgba(24, 24, 27, 0.82);
+    --panel-bg: rgba(39, 39, 42, 0.96);
 
     --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);

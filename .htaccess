@@ -1,0 +1,20 @@
+# 云界论坛 - 根目录访问控制
+# 用途：封禁敏感文件扩展名的直接下载（数据库、备份、日志、压缩包等）。
+# 说明：仅按文件扩展名匹配，不影响 index.php 路由、public/ 静态资源
+#       （css/js/images）与 uploads/ 图片的正常访问。
+# 注意：.htaccess 仅对 Apache 生效；Nginx / 宝塔用户请在服务器配置中
+#       添加对应的 deny 规则（见 README 部署小节）。
+
+<IfModule mod_authz_core.c>
+    # Apache 2.4+
+    <FilesMatch "\.(db|sqlite|sqlite3|sql|zip|gz|log|cache|lock)$">
+        Require all denied
+    </FilesMatch>
+</IfModule>
+<IfModule !mod_authz_core.c>
+    # Apache 2.2 及更早版本
+    <FilesMatch "\.(db|sqlite|sqlite3|sql|zip|gz|log|cache|lock)$">
+        Order deny,allow
+        Deny from all
+    </FilesMatch>
+</IfModule>

@@ -7,39 +7,73 @@
  */
 
 $activeMenu = $activeMenu ?? 'dashboard';
-$pendingReportCount = get_pending_report_count();
-$pendingPasswordResetCount = get_pending_password_reset_count();
-$pendingBanAppealCount = get_pending_ban_appeal_count();
+
+// 菜单可见性判定：'perm' 为 'super' 时需超级管理员；
+// 为具体权限串时按 has_permission() 检查；空值表示所有管理员可见。
+$menuIsSuperAdmin = is_super_admin();
+$menuPermVisible = function ($perm) use ($menuIsSuperAdmin) {
+    if ($perm === null || $perm === '') return true;
+    if ($menuIsSuperAdmin) return true;
+    if ($perm === 'super') return false;
+    return has_permission($perm);
+};
+
 $menuItems = [
-    'dashboard'               => ['icon' => 'dashboard',      'label' => t('menu_dashboard', '概览'),         'url' => '/admin'],
-    'system_status'           => ['icon' => 'system',         'label' => t('menu_system_status', '运行状态'),     'url' => '/admin/system_status'],
-    'traffic_monitor'         => ['icon' => 'traffic',        'label' => t('menu_traffic_monitor', '流量监测'),     'url' => '/admin/traffic_monitor'],
-    'users'                   => ['icon' => 'users',          'label' => t('menu_users', '用户管理'),     'url' => '/admin/users'],
-    'user_groups'             => ['icon' => 'user_groups',    'label' => t('menu_user_groups', '用户组'),       'url' => '/admin/user_groups'],
-    'posts'                   => ['icon' => 'posts',          'label' => t('menu_posts', '帖子管理'),     'url' => '/admin/posts'],
-    'replies'                 => ['icon' => 'replies',        'label' => t('menu_replies', '回复管理'),     'url' => '/admin/replies'],
-    'reports'                 => ['icon' => 'reports',        'label' => t('menu_reports', '举报管理'),     'url' => '/admin/reports', 'badge' => $pendingReportCount],
-    'ban_appeals'             => ['icon' => 'lock',           'label' => t('menu_ban_appeals', '申诉管理'),     'url' => '/admin/ban_appeals', 'badge' => $pendingBanAppealCount],
-    'password_reset_requests' => ['icon' => 'key',            'label' => t('menu_password_reset', '密码重置审核'), 'url' => '/admin/password_reset_requests', 'badge' => $pendingPasswordResetCount],
-    'forums'                  => ['icon' => 'forums',         'label' => t('menu_forums', '版块管理'),     'url' => '/admin/forums'],
-    'announcements'           => ['icon' => 'announcements',  'label' => t('menu_announcements', '公告管理'),     'url' => '/admin/announcements'],
-    'roles'                   => ['icon' => 'roles',          'label' => t('menu_roles', '权限组'),       'url' => '/admin/roles'],
-    'medals'                  => ['icon' => 'medals',         'label' => t('menu_medals', '勋章管理'),     'url' => '/admin/medals'],
-    'sensitive_words'         => ['icon' => 'shield',         'label' => t('menu_sensitive_words', '敏感词管理'),   'url' => '/admin/sensitive_words'],
-    'mail_center'             => ['icon' => 'mail',           'label' => t('menu_mail_center', '邮件中心'),     'url' => '/admin/mail_center'],
-    'backup'                  => ['icon' => 'backup',         'label' => t('menu_backup', '数据备份'),     'url' => '/admin/backup'],
-    'data_migration'          => ['icon' => 'migration',       'label' => t('menu_data_migration', '数据迁移'),   'url' => '/admin/data_migration'],
-    'settings'                => ['icon' => 'settings',       'label' => t('menu_settings', '站点设置'),     'url' => '/admin/site_settings'],
-    'captcha_debug'           => ['icon' => 'shield',         'label' => t('menu_captcha_debug', '验证码调试'),   'url' => '/admin/captcha_debug'],
-    'site_pages'              => ['icon' => 'document',       'label' => t('menu_site_pages', '协议页面管理'), 'url' => '/admin/site_pages'],
-    'update_center'           => ['icon' => 'update',          'label' => t('menu_update_center', '系统更新'), 'url' => '/admin/update_center'],
+    'dashboard'               => ['icon' => 'dashboard',      'label' => t('menu_dashboard', '概览'),         'url' => '/admin', 'perm' => ''],
+    'system_status'           => ['icon' => 'system',         'label' => t('menu_system_status', '运行状态'),     'url' => '/admin/system_status', 'perm' => 'super'],
+    'traffic_monitor'         => ['icon' => 'traffic',        'label' => t('menu_traffic_monitor', '流量监测'),     'url' => '/admin/traffic_monitor', 'perm' => 'super'],
+    'users'                   => ['icon' => 'users',          'label' => t('menu_users', '用户管理'),     'url' => '/admin/users', 'perm' => 'manage_user_dispose'],
+    'user_groups'             => ['icon' => 'user_groups',    'label' => t('menu_user_groups', '用户组'),       'url' => '/admin/user_groups', 'perm' => 'super'],
+    'posts'                   => ['icon' => 'posts',          'label' => t('menu_posts', '帖子管理'),     'url' => '/admin/posts', 'perm' => 'manage_posts'],
+    'replies'                 => ['icon' => 'replies',        'label' => t('menu_replies', '回复管理'),     'url' => '/admin/replies', 'perm' => 'manage_replies'],
+    'reports'                 => ['icon' => 'reports',        'label' => t('menu_reports', '举报管理'),     'url' => '/admin/reports', 'perm' => 'manage_reports'],
+    'ban_appeals'             => ['icon' => 'lock',           'label' => t('menu_ban_appeals', '申诉管理'),     'url' => '/admin/ban_appeals', 'perm' => 'manage_ban_appeals'],
+    'email_disclosure'        => ['icon' => 'lock',           'label' => t('menu_email_disclosure', '邮箱披露申请'), 'url' => '/admin/email_disclosure', 'perm' => 'super'],
+    'tickets'                 => ['icon' => 'send',            'label' => t('menu_tickets', '工单系统'),       'url' => '/admin/tickets', 'perm' => ''],
+    'password_reset_requests' => ['icon' => 'key',            'label' => t('menu_password_reset', '密码重置审核'), 'url' => '/admin/password_reset_requests', 'perm' => 'super'],
+    'forums'                  => ['icon' => 'forums',         'label' => t('menu_forums', '版块管理'),     'url' => '/admin/forums', 'perm' => 'super'],
+    'announcements'           => ['icon' => 'announcements',  'label' => t('menu_announcements', '公告管理'),     'url' => '/admin/announcements', 'perm' => 'super'],
+    'roles'                   => ['icon' => 'roles',          'label' => t('menu_roles', '权限组'),       'url' => '/admin/roles', 'perm' => 'super'],
+    'medals'                  => ['icon' => 'medals',         'label' => t('menu_medals', '勋章管理'),     'url' => '/admin/medals', 'perm' => 'super'],
+    'sensitive_words'         => ['icon' => 'shield',         'label' => t('menu_sensitive_words', '敏感词管理'),   'url' => '/admin/sensitive_words', 'perm' => 'super'],
+    'mail_center'             => ['icon' => 'mail',           'label' => t('menu_mail_center', '邮件中心'),     'url' => '/admin/mail_center', 'perm' => 'super'],
+    'backup'                  => ['icon' => 'backup',         'label' => t('menu_backup', '数据备份'),     'url' => '/admin/backup', 'perm' => 'super'],
+    'data_migration'          => ['icon' => 'migration',       'label' => t('menu_data_migration', '数据迁移'),   'url' => '/admin/data_migration', 'perm' => 'super'],
+    'settings'                => ['icon' => 'settings',       'label' => t('menu_settings', '站点设置'),     'url' => '/admin/site_settings', 'perm' => 'super'],
+    'captcha_debug'           => ['icon' => 'shield',         'label' => t('menu_captcha_debug', '验证码调试'),   'url' => '/admin/captcha_debug', 'perm' => 'super'],
+    'site_pages'              => ['icon' => 'document',       'label' => t('menu_site_pages', '协议页面管理'), 'url' => '/admin/site_pages', 'perm' => 'super'],
+    'update_center'           => ['icon' => 'update',          'label' => t('menu_update_center', '系统更新'), 'url' => '/admin/update_center', 'perm' => 'super'],
     ];
+
+// badge 按需查询：仅当对应菜单项可见时才查询待处理计数
+if ($menuPermVisible($menuItems['reports']['perm'])) {
+    $menuItems['reports']['badge'] = get_pending_report_count();
+}
+if ($menuPermVisible($menuItems['ban_appeals']['perm'])) {
+    $menuItems['ban_appeals']['badge'] = get_pending_ban_appeal_count();
+}
+if ($menuPermVisible($menuItems['password_reset_requests']['perm'])) {
+    $menuItems['password_reset_requests']['badge'] = get_pending_password_reset_count();
+}
+if ($menuPermVisible($menuItems['email_disclosure']['perm']) && $menuIsSuperAdmin) {
+    $menuItems['email_disclosure']['badge'] = get_pending_email_disclosure_count();
+}
+if ($menuPermVisible($menuItems['tickets']['perm'])) {
+    $menuItems['tickets']['badge'] = get_open_ticket_count();
+}
+
+// 过滤不可见菜单项（分组内全部不可见时，渲染阶段整组隐藏）
+foreach ($menuItems as $menuKey => $menuItem) {
+    if (!$menuPermVisible($menuItem['perm'] ?? '')) {
+        unset($menuItems[$menuKey]);
+    }
+}
 
 // 菜单分组定义：key => [组名, [菜单项 key 列表]]
 $menuGroups = [
     'overview'  => [t('menu_group_overview', '图标与状态'),   ['dashboard', 'system_status', 'traffic_monitor']],
     'users'     => [t('menu_group_users', '用户管理'),     ['users', 'user_groups', 'roles', 'medals']],
-    'content'   => [t('menu_group_content', '内容管理'),     ['posts', 'replies', 'reports', 'ban_appeals', 'password_reset_requests', 'forums', 'announcements', 'sensitive_words']],
+    'content'   => [t('menu_group_content', '内容管理'),     ['posts', 'replies', 'reports', 'ban_appeals', 'email_disclosure', 'tickets', 'password_reset_requests', 'forums', 'announcements', 'sensitive_words']],
     'mail'      => [t('menu_group_mail', '邮件中心'),     ['mail_center']],
     'settings'  => [t('menu_group_settings', '系统设置'),     ['backup', 'data_migration', 'settings', 'captcha_debug', 'site_pages', 'update_center']],
 ];
@@ -116,6 +150,8 @@ function admin_menu_icon(string $key): string {
     <link rel="stylesheet" href="/public/css/tokens.css?v=<?php echo e(APP_VERSION); ?>-ui3">
     <link rel="stylesheet" href="/public/css/base.css?v=<?php echo e(APP_VERSION); ?>-ui3">
     <link rel="stylesheet" href="/public/css/utilities.css?v=<?php echo e(APP_VERSION); ?>-ui3">
+    <link rel="stylesheet" href="/public/css/components.css?v=<?php echo e(APP_VERSION); ?>-ui3">
+    <link rel="stylesheet" href="/public/css/admin.css?v=<?php echo e(APP_VERSION); ?>-ui3">
     <link rel="stylesheet" href="/public/css/dark.css?v=<?php echo e(APP_VERSION); ?>-ui3">
     <link rel="stylesheet" href="/public/css/header.css?v=<?php echo e(APP_VERSION); ?>-ui3">
     <link rel="icon" type="image/x-icon" href="/favicon.ico">
@@ -138,7 +174,10 @@ function admin_menu_icon(string $key): string {
                         <svg class="theme-icon-moon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
                     </button>
                     <a href="/" class="nav-link"><?php echo e(t('back_to_frontend', '返回前台')); ?></a>
-                    <a href="<?php echo site_url('logout', ['csrf_token' => csrf_token()]); ?>" class="nav-link" data-confirm="<?php echo e(t('confirm_logout', '确定要退出登录吗？')); ?>"><?php echo e(t('logout', '退出')); ?></a>
+                    <form method="post" action="<?php echo site_url('logout'); ?>" class="inline-action-form" data-confirm="<?php echo e(t('confirm_logout', '确定要退出登录吗？')); ?>">
+                        <input type="hidden" name="csrf_token" value="<?php echo e(csrf_token()); ?>">
+                        <button type="submit" class="nav-link"><?php echo e(t('logout', '退出')); ?></button>
+                    </form>
                 </div>
             </div>
         </div>
@@ -157,6 +196,9 @@ function admin_menu_icon(string $key): string {
                     <?php foreach ($menuGroups as $groupKey => $groupDef): ?>
                         <?php list($groupLabel, $groupItemKeys) = $groupDef; ?>
                         <?php
+                        // 权限过滤后组内无任何可见项时整组隐藏
+                        $groupVisibleKeys = array_intersect($groupItemKeys, array_keys($menuItems));
+                        if (empty($groupVisibleKeys)) continue;
                         // 判断当前激活项是否在此组中，决定是否默认展开
                         $isGroupActive = in_array($activeMenu, $groupItemKeys, true);
                         // 默认展开"概览"组和包含当前激活项的组

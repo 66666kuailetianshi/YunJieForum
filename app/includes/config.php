@@ -134,6 +134,10 @@ if (session_status() === PHP_SESSION_NONE) {
         define('SESSION_COOKIE_SECURE', $__is_https);
     }
 
+    // 会话加固：严格模式拒绝未经服务端签发的会话 ID（防会话固定攻击），
+    // 客户端提交的未知 session id 会被丢弃并重新生成。
+    ini_set('session.use_strict_mode', '1');
+
     $sessCookieParams = [
         'lifetime' => 0,
         'path'     => '/',
@@ -244,23 +248,83 @@ if (!file_exists(INSTALLED_FILE)
 }
 
 // 加载语言包（基础包 + extras 目录下按语言拆分的分批扩展包，避免并行编辑冲突）
+// 性能优化：合并后的语言包以 var_export 预编译缓存到 data/cache/lang_{code}.php，
+// 失效键为「基础包 + 所有 extras 分片 mtime 最大值」，任一源文件更新即重建；
+// 缓存目录不存在/不可写/生成失败时静默回退逐文件加载（受限环境兼容）。
 if (!function_exists('load_language_pack')) {
     function load_language_pack(string $code): array {
         $base = APP_ROOT . 'app/includes/languages' . DIRECTORY_SEPARATOR . $code . '.php';
-        $pack = [];
+        $extraDir = APP_ROOT . 'app/includes/languages' . DIRECTORY_SEPARATOR . 'extras' . DIRECTORY_SEPARATOR . $code;
+
+        // 收集全部源分片（基础包 + extras），glob 失败/无 extras 时仅含基础包
+        $srcFiles = [];
         if (is_file($base)) {
-            $loaded = require $base;
-            if (is_array($loaded)) {
-                $pack = $loaded;
+            $srcFiles[] = $base;
+        }
+        if (is_dir($extraDir)) {
+            $extras = glob($extraDir . DIRECTORY_SEPARATOR . '*.php');
+            if (is_array($extras)) {
+                foreach ($extras as $ef) {
+                    $srcFiles[] = $ef;
+                }
             }
         }
-        $extraDir = APP_ROOT . 'app/includes/languages' . DIRECTORY_SEPARATOR . 'extras' . DIRECTORY_SEPARATOR . $code;
-        if (is_dir($extraDir)) {
-            foreach (glob($extraDir . DIRECTORY_SEPARATOR . '*.php') as $ef) {
-                $extra = require $ef;
-                if (is_array($extra)) {
-                    $pack = array_merge($pack, $extra);
+        if (empty($srcFiles)) {
+            return [];
+        }
+        $srcMtime = 0;
+        foreach ($srcFiles as $f) {
+            $mt = @filemtime($f);
+            if ($mt !== false && $mt > $srcMtime) {
+                $srcMtime = $mt;
+            }
+        }
+
+        // 1) 优先读预编译缓存：文件头声明的 mtime 不低于源文件最大值才命中
+        $cacheFile = DATA_PATH . 'cache' . DIRECTORY_SEPARATOR . 'lang_' . $code . '.php';
+        if (is_file($cacheFile) && @filemtime($cacheFile) !== false && filemtime($cacheFile) >= $srcMtime) {
+            try {
+                $cached = include $cacheFile;
+                if (is_array($cached) && !empty($cached)) {
+                    return $cached;
                 }
+            } catch (Throwable $e) {
+                // 缓存损坏：走下方回退加载并尝试重建
+            }
+        }
+
+        // 2) 回退：逐文件加载（原有逻辑，缓存不可用时永远可用）
+        $pack = [];
+        foreach ($srcFiles as $f) {
+            try {
+                $loaded = require $f;
+                if (is_array($loaded)) {
+                    $pack = array_merge($pack, $loaded);
+                }
+            } catch (Throwable $e) {
+                // 单个分片损坏不阻断整体加载
+            }
+        }
+
+        // 3) 惰性重建缓存：本次请求已回退加载，顺手尝试写缓存；失败不影响本次请求
+        if (!empty($pack)) {
+            try {
+                $cacheDir = DATA_PATH . 'cache';
+                if (!is_dir($cacheDir)) {
+                    @mkdir($cacheDir, 0755, true);
+                }
+                if (is_dir($cacheDir) && is_writable($cacheDir)) {
+                    $exported = var_export($pack, true);
+                    $content = "<?php\n// 语言包预编译缓存（自动生成，勿手工编辑）\n// lang={$code} src_max_mtime={$srcMtime}\nreturn " . $exported . ";\n";
+                    $tmp = $cacheFile . '.tmp.' . getmypid();
+                    if (@file_put_contents($tmp, $content, LOCK_EX) !== false) {
+                        // 对齐源文件最大 mtime，避免刚写入即被判失效；失败不阻断
+                        @touch($tmp, $srcMtime);
+                        @rename($tmp, $cacheFile);
+                    }
+                }
+            } catch (Throwable $e) {
+                // 静默降级：缓存写入失败不影响本次请求
             }
         }
         return $pack;

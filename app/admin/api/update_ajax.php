@@ -21,6 +21,15 @@ if (!is_logged_in() || !is_admin()) {
     exit;
 }
 
+// 细粒度门禁：系统更新仅超级管理员可用
+if (!is_super_admin()) {
+    ob_end_clean();
+    http_response_code(403);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode(['success' => false, 'error' => 'forbidden'], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 $action = (string)($_GET['action'] ?? ($_POST['action'] ?? ''));
 
 if ($action === 'check') {

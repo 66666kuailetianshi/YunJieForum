@@ -9,6 +9,10 @@
 
 $activeMenu = 'forums';
 require_once dirname(__DIR__) . '/layout/admin-init.php';
+
+// 权限门禁：版块管理仅超级管理员可用
+require_super_admin();
+
 $pageTitle = t('admin_forums_title', '版块管理');
 
 $db = get_db();
@@ -17,26 +21,31 @@ $forumId = (int)($_GET['id'] ?? 0);
 $categoryId = (int)($_GET['cat_id'] ?? 0);
 $errors = [];
 
-// CSRF 统一校验：涉及状态变更的 GET 操作必须先通过校验，失败时明确提示（避免静默失败）
-if (in_array($action, ['delete', 'delete_category'], true) && !validate_csrf()) {
-    set_flash(t('admin_forums_csrf_failed', '安全校验失败（链接已过期），请刷新页面后重新操作。'), 'error');
+// 删除动作：仅接受 POST（CSRF 由 admin-init.php 对所有 POST 统一校验）
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['action'] ?? '', ['delete', 'delete_category'], true)) {
+    if (($_POST['action'] ?? '') === 'delete') {
+        // 删除版块（先将其下帖子的 forum_id 置空，再删除版块）
+        $delForumId = (int)($_POST['id'] ?? 0);
+        if ($delForumId > 0) {
+            $db->prepare("UPDATE posts SET forum_id = NULL WHERE forum_id = :fid")->execute([':fid' => $delForumId]);
+            $db->prepare("DELETE FROM forums WHERE id = :id")->execute([':id' => $delForumId]);
+            set_flash(t('admin_forums_flash_deleted', '版块已删除，相关帖子已转为未分类。'), 'success');
+        }
+    } else {
+        // 删除分类（一并清理其下版块，相关帖子 forum_id 置空）
+        $delCatId = (int)($_POST['cat_id'] ?? 0);
+        if ($delCatId > 0) {
+            $db->prepare("UPDATE posts SET forum_id = NULL WHERE forum_id IN (SELECT id FROM forums WHERE category_id = :cid)")->execute([':cid' => $delCatId]);
+            $db->prepare("DELETE FROM forums WHERE category_id = :cid")->execute([':cid' => $delCatId]);
+            $db->prepare("DELETE FROM forum_categories WHERE id = :id")->execute([':id' => $delCatId]);
+            set_flash(t('admin_forums_flash_cat_deleted', '分类及其下版块已删除。'), 'success');
+        }
+    }
     redirect('/admin/forums');
 }
-
-// GET: 删除版块（先将其下帖子的 forum_id 置空，再删除版块）
-if ($action === 'delete' && $forumId > 0) {
-    $db->prepare("UPDATE posts SET forum_id = NULL WHERE forum_id = :fid")->execute([':fid' => $forumId]);
-    $db->prepare("DELETE FROM forums WHERE id = :id")->execute([':id' => $forumId]);
-    set_flash(t('admin_forums_flash_deleted', '版块已删除，相关帖子已转为未分类。'), 'success');
-    redirect('/admin/forums');
-}
-
-// GET: 删除分类（一并清理其下版块，相关帖子 forum_id 置空）
-if ($action === 'delete_category' && $categoryId > 0) {
-    $db->prepare("UPDATE posts SET forum_id = NULL WHERE forum_id IN (SELECT id FROM forums WHERE category_id = :cid)")->execute([':cid' => $categoryId]);
-    $db->prepare("DELETE FROM forums WHERE category_id = :cid")->execute([':cid' => $categoryId]);
-    $db->prepare("DELETE FROM forum_categories WHERE id = :id")->execute([':id' => $categoryId]);
-    set_flash(t('admin_forums_flash_cat_deleted', '分类及其下版块已删除。'), 'success');
+// 旧 GET 删除链接命中：不执行删除，提示刷新
+if (in_array($action, ['delete', 'delete_category'], true)) {
+    set_flash(t('post_flash_method_changed', '操作方式已变更，请刷新页面重试。'), 'error');
     redirect('/admin/forums');
 }
 
@@ -254,7 +263,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
                     <h2 class="card-title"><?php echo e($cat['name']); ?> <small style="color: #888; font-weight: normal; font-size: 0.85em;"><?php echo e(t('admin_forums_cat_order', '排序: {order}', ['order' => (int)$cat['display_order']])); ?></small></h2>
                     <div>
                         <a href="<?php echo site_url('admin/forums', ['action' => 'edit_category', 'cat_id' => (int)$cat['id']]); ?>" class="btn btn-sm btn-secondary"><?php echo e(t('admin_forums_edit_category', '编辑分类')); ?></a>
-                        <a href="<?php echo site_url('admin/forums', ['action' => 'delete_category', 'cat_id' => (int)$cat['id'], 'csrf_token' => csrf_token()]); ?>" class="btn btn-sm btn-danger" data-confirm="<?php echo e(t('admin_forums_confirm_delete_cat', "确定删除分类「{name}」吗？\n其下所有版块将被删除，相关帖子将转为未分类。", ['name' => $cat['name']])); ?>"><?php echo e(t('admin_forums_delete_category', '删除分类')); ?></a>
+                        <?php echo admin_action_form(site_url('admin/forums'), 'delete_category', ['cat_id' => (int)$cat['id']], t('admin_forums_delete_category', '删除分类'), ['class' => 'btn btn-sm btn-danger', 'confirm' => t('admin_forums_confirm_delete_cat', "确定删除分类「{name}」吗？\n其下所有版块将被删除，相关帖子将转为未分类。", ['name' => $cat['name']])]); ?>
                     </div>
                 </div>
                 <?php if (empty($catForums)): ?>
@@ -276,7 +285,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
                                         <td><?php echo (int)$f['threads_count']; ?></td>
                                         <td>
                                             <a href="<?php echo site_url('admin/forums', ['action' => 'edit', 'id' => (int)$f['id']]); ?>" class="btn btn-sm btn-secondary"><?php echo e(t('admin_forums_edit', '编辑')); ?></a>
-                                            <a href="<?php echo site_url('admin/forums', ['action' => 'delete', 'id' => (int)$f['id'], 'csrf_token' => csrf_token()]); ?>" class="btn btn-sm btn-danger" data-confirm="<?php echo e(t('admin_forums_confirm_delete', "确定删除版块「{name}」吗？\n该版块下的帖子将转为未分类（不会被删除）。", ['name' => $f['name']])); ?>"><?php echo e(t('admin_forums_delete', '删除')); ?></a>
+                                            <?php echo admin_action_form(site_url('admin/forums'), 'delete', ['id' => (int)$f['id']], t('admin_forums_delete', '删除'), ['class' => 'btn btn-sm btn-danger', 'confirm' => t('admin_forums_confirm_delete', "确定删除版块「{name}」吗？\n该版块下的帖子将转为未分类（不会被删除）。", ['name' => $f['name']])]); ?>
                                         </td>
                                     </tr>
                                 <?php endforeach; ?>
@@ -288,91 +297,6 @@ require_once dirname(__DIR__) . '/layout/header.php';
         <?php endforeach; ?>
     <?php endif; ?>
 <?php endif; ?>
-
-<style>
-.icon-preview {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.625rem;
-    padding: 0.5rem 0.75rem;
-    background: var(--primary-light);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    color: var(--primary);
-    margin-bottom: 0.5rem;
-}
-.icon-preview-box { display: inline-flex; align-items: center; justify-content: center; }
-.icon-preview-label { font-size: 0.875rem; color: var(--text-secondary); font-weight: 600; }
-.icon-picker {
-    margin-top: 0.5rem;
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
-    gap: 0.5rem;
-    max-height: 280px;
-    overflow-y: auto;
-    padding: 0.5rem;
-    background: var(--bg-soft);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-}
-.icon-picker-item {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 0.25rem;
-    padding: 0.5rem 0.25rem;
-    border: 1px solid var(--border);
-    background: var(--surface);
-    border-radius: var(--radius-sm);
-    color: var(--primary);
-    cursor: pointer;
-    transition: var(--transition);
-    font-family: inherit;
-}
-.icon-picker-item:hover {
-    border-color: var(--primary);
-    background: var(--primary-light);
-    transform: translateY(-1px);
-}
-.icon-picker-item.is-selected {
-    border-color: var(--primary);
-    background: var(--primary);
-    color: white;
-    box-shadow: 0 2px 8px rgba(99,102,241,0.35);
-}
-.icon-picker-svg {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-}
-.icon-picker-label {
-    font-size: 0.6875rem;
-    color: var(--text-muted);
-    text-align: center;
-    line-height: 1.2;
-}
-.icon-picker-item.is-selected .icon-picker-label {
-    color: white;
-}
-.icon-picker-item.is-recommended {
-    position: relative;
-    border-color: var(--success);
-    background: var(--success-light);
-}
-.icon-picker-item.is-recommended::after {
-    content: t('admin_forums_62b46f','推荐');
-    position: absolute;
-    top: -6px;
-    right: -4px;
-    background: var(--success);
-    color: white;
-    font-size: 0.625rem;
-    padding: 1px 5px;
-    border-radius: var(--radius-full);
-    font-weight: 600;
-}
-</style>
 
 <script>
 (function() {

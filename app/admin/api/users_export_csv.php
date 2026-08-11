@@ -7,6 +7,7 @@
  */
 
 require_once APP_ROOT . 'app/includes/functions.php';
+require_once dirname(__DIR__) . '/layout/admin-helpers.php';
 
 if (!is_logged_in() || !is_admin()) {
     http_response_code(403);
@@ -14,19 +15,34 @@ if (!is_logged_in() || !is_admin()) {
     exit;
 }
 
+// 细粒度门禁：CSV 导出含邮箱等敏感字段，仅超级管理员可用
+if (!is_super_admin()) {
+    http_response_code(403);
+    echo t('common_super_admin_only', '该功能仅最高管理员可用。');
+    exit;
+}
+
 $db = get_db();
+
+/**
+ * Excel 公式注入防护：以 = + - @ 开头的单元格值加单引号前缀，
+ * 避免导出内容在 Excel 中被当作公式执行。
+ */
+function csv_escape_formula($value): string {
+    $value = (string)$value;
+    if ($value !== '' && strpos('=+-@', $value[0]) !== false) {
+        return "'" . $value;
+    }
+    return $value;
+}
 
 // —— 复用与 users.php 一致的筛选条件 ——
 $search = trim($_GET['search'] ?? '');
 $filterStatus = $_GET['status'] ?? '';
 if (!in_array($filterStatus, ['active', 'muted', 'banned'], true)) $filterStatus = '';
 $filterRole = $_GET['role'] ?? '';
-$allowedRoles = [];
-try {
-    $roleRows = $db->query("SELECT DISTINCT role FROM users WHERE role IS NOT NULL AND role <> ''")->fetchAll(PDO::FETCH_COLUMN);
-    foreach ($roleRows as $r) { $allowedRoles[$r] = 1; }
-} catch (\Throwable $e) {}
-if (!isset($allowedRoles[$filterRole])) $filterRole = '';
+// 角色筛选（两级管理员体系分级白名单，防注入）
+if (!in_array($filterRole, ['super_admin', 'community_admin', 'user'], true)) $filterRole = '';
 $filterGroup = trim($_GET['group'] ?? '');
 $groupRange = null;
 if ($filterGroup !== '') {
@@ -55,7 +71,10 @@ if ($search !== '') {
     $params[':s2'] = '%' . $search . '%';
 }
 if ($filterStatus !== '') { $conditions[] = "u.status = :status"; $params[':status'] = $filterStatus; }
-if ($filterRole !== '') { $conditions[] = "u.role = :role"; $params[':role'] = $filterRole; }
+if ($filterRole !== '') {
+    $roleCond = admin_role_filter_sql($filterRole);
+    if ($roleCond !== '') { $conditions[] = $roleCond; }
+}
 if ($groupRange !== null) {
     $conditions[] = "u.points >= :gMin";
     $params[':gMin'] = (int)$groupRange['min_points'];
@@ -100,10 +119,10 @@ fputcsv($out, $headers);
 
 foreach ($rows as $r) {
     fputcsv($out, [
-        $r['uid'] !== null ? $r['uid'] : '',
-        $r['username'],
-        $r['email'],
-        $r['role'],
+        $r['uid'] !== null ? csv_escape_formula($r['uid']) : '',
+        csv_escape_formula($r['username']),
+        csv_escape_formula($r['email']),
+        csv_escape_formula($r['role'] ?? ''),
         format_user_status($r['status']),
         (int)$r['points'],
         (int)$r['coins'],

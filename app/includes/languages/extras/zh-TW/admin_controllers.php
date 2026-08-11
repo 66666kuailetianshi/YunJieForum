@@ -836,7 +836,7 @@
     'admin_useredit_label_signature' => '個性簽名',
     'admin_useredit_label_role' => '角色',
     'admin_useredit_role_user' => '普通使用者',
-    'admin_useredit_role_admin' => '管理員',
+    'admin_useredit_role_admin' => '超級管理員',
     'admin_useredit_hint_self_role' => '不能修改當前登入帳號的角色。',
     'admin_useredit_label_reset_password' => '重設密碼（留空則不修改）',
     'admin_useredit_placeholder_password' => '輸入新密碼',

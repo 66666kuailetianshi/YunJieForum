@@ -10,7 +10,7 @@
     'login_login_site' => 'Log in to {site}',
     'login_label_account' => 'Username or email',
     'login_label_password' => 'Password',
-    'login_remember' => 'Remember my credentials and keep me signed in',
+    'login_remember_me' => 'Keep me signed in',
     'login_agree_intro' => 'I have read and agree to the',
     'login_terms_text' => 'User Agreement',
     'login_and' => 'and',

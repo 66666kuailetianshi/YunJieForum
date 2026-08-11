@@ -8,16 +8,22 @@
     position: sticky;
     top: 0;
     z-index: var(--z-header);
-    background: rgba(255, 255, 255, 0.86);
+    background: var(--header-bg);
     border-bottom: 1px solid var(--border);
     backdrop-filter: saturate(160%) blur(12px);
     -webkit-backdrop-filter: saturate(160%) blur(12px);
     transition: background-color var(--transition), border-color var(--transition);
 }
 
-[data-theme="dark"] .site-header,
-:root:not([data-theme="light"]) .site-header {
-    background: rgba(24, 24, 27, 0.82);
+[data-theme="dark"] .site-header {
+    background: var(--header-bg);
+}
+
+/* 系统跟随深色：仅在系统偏好暗色时生效（修复浅色系统被套暗色顶栏的 Bug）*/
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .site-header {
+        background: var(--header-bg);
+    }
 }
 
 .header-top {
@@ -320,7 +326,7 @@
 .user-dropdown-panel {
     position: fixed;
     z-index: var(--z-dropdown);
-    background: rgba(255, 255, 255, 0.96);
+    background: var(--panel-bg);
     border: 1px solid var(--border);
     border-radius: var(--radius-xl);
     box-shadow: var(--shadow-xl);
@@ -336,9 +342,15 @@
     -webkit-backdrop-filter: blur(16px);
 }
 
-[data-theme="dark"] .user-dropdown-panel,
-:root:not([data-theme="light"]) .user-dropdown-panel {
-    background: rgba(39, 39, 42, 0.96);
+[data-theme="dark"] .user-dropdown-panel {
+    background: var(--panel-bg);
+}
+
+/* 系统跟随深色：仅在系统偏好暗色时生效 */
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .user-dropdown-panel {
+        background: var(--panel-bg);
+    }
 }
 
 .user-dropdown-panel.is-visible {

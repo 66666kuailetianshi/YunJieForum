@@ -19,6 +19,13 @@ if (!is_logged_in() || !is_admin()) {
     exit;
 }
 
+// 细粒度门禁：申诉管理需 manage_ban_appeals 权限（超管天然通过）
+if (!has_permission('manage_ban_appeals')) {
+    http_response_code(403);
+    echo json_encode(['error' => t('admin_ajax_forbidden', '无权访问')], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-cache, no-store, must-revalidate');
 

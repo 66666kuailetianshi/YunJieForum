@@ -9,6 +9,10 @@
  */
 
 require_once dirname(__DIR__) . '/layout/admin-init.php';
+
+// 权限门禁：系统更新中心仅超级管理员可用
+require_super_admin();
+
 require_once APP_ROOT . 'app/includes/update_center.php';
 
 $errors   = [];
@@ -18,7 +22,7 @@ $updateSourceUrl    = uc_get_setting('update_source_url', '');
 $updateChannel      = uc_get_setting('update_channel', 'stable');
 $updateAutoEnabled  = uc_get_setting('update_auto_enabled', '0') === '1';
 $updateAutoInterval = (int)uc_get_setting('update_auto_interval', '24');
-$updateSslVerify    = uc_get_setting('update_ssl_verify', '0') === '1';
+$updateSslVerify    = uc_get_setting('update_ssl_verify', '1') === '1';
 $updateSkipHash     = uc_get_setting('update_skip_hash', '0') === '1';
 $updateLastCheck    = (int)uc_get_setting('update_last_check', '0');
 $updateLastVersion  = uc_get_setting('update_last_version', '');
@@ -161,15 +165,15 @@ require_once dirname(__DIR__) . '/layout/header.php';
         </div>
 
         <div class="form-group">
-            <label class="flex items-center gap-1" style="cursor: pointer;">
+            <label class="flex items-center gap-1 cursor-pointer">
                 <input type="checkbox" id="update_ssl_verify" name="update_ssl_verify" value="1" <?php echo $updateSslVerify ? 'checked' : ''; ?>>
                 <span style="font-weight:600;"><?php echo e(t('update_ssl_verify', '严格校验 SSL 证书')); ?></span>
             </label>
-            <p class="form-hint"><?php echo e(t('update_ssl_verify_hint', '若更新源使用自签名证书（如大部分个人服务器），请保持关闭。仅在更新源由正规 CA 签发证书时才需开启。默认关闭。')); ?></p>
+            <p class="form-hint"><?php echo e(t('update_ssl_verify_hint', '默认开启校验，防止更新包在传输中被中间人篡改。若更新源使用自签名证书（如大部分个人服务器），可关闭校验。')); ?></p>
         </div>
 
         <div class="form-group">
-            <label class="flex items-center gap-1" style="cursor: pointer;">
+            <label class="flex items-center gap-1 cursor-pointer">
                 <input type="checkbox" id="update_skip_hash" name="update_skip_hash" value="1" <?php echo $updateSkipHash ? 'checked' : ''; ?>>
                 <span style="font-weight:600;"><?php echo e(t('update_skip_hash', '跳过哈希校验（不推荐）')); ?></span>
             </label>
@@ -177,12 +181,12 @@ require_once dirname(__DIR__) . '/layout/header.php';
         </div>
 
         <div class="form-group">
-            <label class="flex items-center gap-1" style="cursor: pointer;">
+            <label class="flex items-center gap-1 cursor-pointer">
                 <input type="checkbox" id="update_auto_enabled" name="update_auto_enabled" value="1" <?php echo $updateAutoEnabled ? 'checked' : ''; ?>>
                 <span style="font-weight:600;"><?php echo e(t('update_auto_enabled', '启用自动更新（自动下载并安装）')); ?></span>
             </label>
             <p class="form-hint"><?php echo e(t('update_auto_enabled_hint', '开启后，系统会按下方间隔自动检查并在发现新版本时自动下载、备份并覆盖升级。升级前会自动创建代码备份，可随时从「数据备份」恢复。')); ?></p>
-            <label class="form-label" for="update_auto_interval" style="margin-top: 0.75rem;"><?php echo e(t('update_auto_interval', '自动更新间隔（小时）')); ?></label>
+            <label class="form-label mt-3" for="update_auto_interval"><?php echo e(t('update_auto_interval', '自动更新间隔（小时）')); ?></label>
             <input type="number" class="form-control" id="update_auto_interval" name="update_auto_interval"
                    value="<?php echo e($updateAutoInterval); ?>" min="1" max="720" style="max-width: 200px;">
             <p class="form-hint"><?php echo e(t('update_auto_interval_hint', '距离上次检查/更新超过该小时数后，再次访问后台将触发自动检查与安装。建议 24（每天一次）。')); ?></p>
@@ -419,41 +423,5 @@ require_once dirname(__DIR__) . '/layout/header.php';
     });
 })();
 </script>
-
-<style>
-.update-meta { display: flex; flex-wrap: wrap; gap: 1.5rem; margin-bottom: .5rem; }
-.update-meta-item { display: flex; flex-direction: column; }
-.update-meta-label { font-size: .8rem; color: var(--muted, #888); }
-.update-meta-value { font-size: 1.1rem; font-weight: 600; }
-.update-status { margin: .75rem 0; padding: .75rem 1rem; border-radius: 8px; border: 1px solid transparent; }
-.update-status.is-ok { background: #ecfdf5; border-color: #6ee7b7; color: #065f46; }
-.update-status.is-warn { background: #fffbeb; border-color: #fcd34d; color: #92400e; }
-.update-status.is-error { background: #fef2f2; border-color: #fca5a5; color: #991b1b; }
-.update-avail { font-size: 1.05rem; }
-.update-date { color: var(--muted, #888); font-weight: 400; }
-.update-changelog { margin-top: .5rem; }
-.update-changelog pre { white-space: pre-wrap; word-break: break-word; background: rgba(0,0,0,.03); padding: .6rem; border-radius: 6px; max-height: 220px; overflow: auto; margin: 0; }
-.update-req { margin-top: .4rem; font-size: .85rem; color: #92400e; }
-.update-actions { display: flex; gap: .75rem; }
-
-/* 更新进度条 */
-.update-progress-wrap { margin: .75rem 0; padding: 1rem; border-radius: 8px; border: 1px solid var(--border, #ddd); background: var(--bg-card, #fff); }
-.update-progress-header { display: flex; align-items: center; gap: .5rem; margin-bottom: .5rem; }
-.update-progress-spinner { display: inline-block; animation: spin 1s linear infinite; font-size: 1.1rem; color: var(--primary, #3b82f6); }
-.update-progress-stage { font-size: .9rem; font-weight: 600; color: var(--text, #333); flex: 1; }
-.update-progress-stage.is-done { color: #16a34a; }
-.update-progress-stage.is-error { color: #dc2626; }
-.update-progress-pct { font-size: .85rem; color: var(--muted, #888); min-width: 36px; text-align: right; }
-.update-progress-bar-outer { width: 100%; height: 10px; background: rgba(0,0,0,.08); border-radius: 5px; overflow: hidden; }
-.update-progress-bar-inner { height: 100%; width: 0%; background: linear-gradient(90deg, #3b82f6, #60a5fa); border-radius: 5px; transition: width .3s ease; }
-.update-progress-bar-inner.is-done { background: linear-gradient(90deg, #16a34a, #22c55e); }
-.update-progress-bar-inner.is-error { background: linear-gradient(90deg, #dc2626, #ef4444); }
-.update-progress-detail { margin-top: .25rem; font-size: .78rem; color: var(--muted, #888); text-align: right; }
-@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-
-/* 更新确认对话框 */
-.update-confirm-safe { display: flex; align-items: flex-start; gap: .5rem; margin-top: .9rem; padding: .75rem .9rem; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; color: #1e40af; font-size: .85rem; line-height: 1.65; }
-.update-confirm-safe svg { flex-shrink: 0; margin-top: 2px; }
-</style>
 
 <?php require_once dirname(__DIR__) . '/layout/footer.php'; ?>

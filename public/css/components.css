@@ -1,0 +1,385 @@
+/* ====================================================================
+   云界论坛 · 组件类（Components）
+   供 PHP 模板替换内联样式使用的公共组件类。
+   全部基于 tokens.css 变量；加载顺序：utilities.css 之后、dark.css 之前。
+   视觉规范：主色 var(--brand)；间距仅用 --space-1..8；
+   卡片 = surface 背景 + border + radius-lg + shadow-xs；
+   表格行高 44px、表头 surface-2；正文 14px、辅助文字 12-13px。
+   ==================================================================== */
+
+/* ---------- 操作条 ----------
+   flex 操作条；危险按钮 / .action-bar-right 自动右移形成分隔 */
+.action-bar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    padding: var(--space-3) 0;
+}
+
+.action-bar > .btn-danger,
+.action-bar > [data-danger],
+.action-bar > .action-bar-right {
+    margin-left: auto;
+}
+
+.action-bar-title {
+    font-size: var(--text-base);
+    font-weight: 600;
+    color: var(--text);
+}
+
+.action-bar-hint {
+    font-size: var(--text-xs);
+    color: var(--text-3);
+}
+
+/* ---------- 内联表单 ----------
+   用于列表行内的 POST 操作表单，不打断行内布局 */
+.inline-form {
+    display: inline;
+    margin: 0;
+    padding: 0;
+}
+
+/* ---------- Toast 提示条 ----------
+   固定定位于视口顶部居中；JS 添加 .is-visible 显示 */
+.toast {
+    position: fixed;
+    top: calc(var(--header-height) + var(--space-4));
+    left: 50%;
+    z-index: var(--z-toast);
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    max-width: min(480px, calc(100vw - var(--space-8)));
+    padding: var(--space-3) var(--space-5);
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-md);
+    font-size: var(--text-base);
+    opacity: 0;
+    visibility: hidden;
+    transform: translate(-50%, -8px);
+    transition: opacity var(--transition), transform var(--transition), visibility var(--transition);
+    pointer-events: none;
+}
+
+.toast.is-visible {
+    opacity: 1;
+    visibility: visible;
+    transform: translate(-50%, 0);
+}
+
+.toast-success {
+    border-color: var(--success);
+    background: var(--success-light);
+    color: #065f46;
+}
+
+.toast-error {
+    border-color: var(--error);
+    background: var(--error-light);
+    color: #991b1b;
+}
+
+[data-theme="dark"] .toast-success { color: #6ee7b7; }
+[data-theme="dark"] .toast-error { color: #fca5a5; }
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .toast-success { color: #6ee7b7; }
+    :root:not([data-theme="light"]) .toast-error { color: #fca5a5; }
+}
+
+/* ---------- 禁言/封禁提示 ---------- */
+.mute-tip {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-4);
+    background: var(--warning-light);
+    color: var(--warning-dark);
+    border: 1px solid var(--warning);
+    border-radius: var(--radius-lg);
+    font-size: var(--text-sm);
+    line-height: 1.5;
+}
+
+/* 浮动变体：与 .toast 组合使用（toast 提供显隐机制，mute-tip 提供警示配色），
+   由 footer.php 封禁轮询动态创建，配合 .is-visible 切换 */
+.mute-tip--floating {
+    position: fixed;
+    top: calc(var(--header-height) + var(--space-3));
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: var(--z-toast);
+    justify-content: center;
+    max-width: min(480px, calc(100vw - var(--space-8)));
+    box-shadow: var(--shadow-md);
+    text-align: center;
+}
+
+/* ---------- 新私信提醒卡片 ----------
+   右上角纵排堆叠，10 秒后由 JS 自动移除 */
+.pm-toast-wrap {
+    position: fixed;
+    top: var(--space-4);
+    right: var(--space-4);
+    z-index: var(--z-toast);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    max-width: 340px;
+    width: calc(100vw - var(--space-8));
+}
+
+.pm-toast {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--brand);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    text-decoration: none;
+    color: inherit;
+    animation: pm-toast-in var(--transition-slow) both;
+}
+
+@keyframes pm-toast-in {
+    from { opacity: 0; transform: translateX(var(--space-4)); }
+    to   { opacity: 1; transform: translateX(0); }
+}
+
+.pm-toast-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius-full);
+    flex-shrink: 0;
+    object-fit: cover;
+    background: var(--surface-2);
+}
+
+.pm-toast-body {
+    min-width: 0;
+    flex: 1;
+}
+
+.pm-toast-title {
+    font-weight: 600;
+    font-size: var(--text-sm);
+    line-height: 1.4;
+    color: var(--text);
+}
+
+.pm-toast-content {
+    font-size: var(--text-xs);
+    color: var(--text-3);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin-top: 2px;
+}
+
+.pm-toast-close {
+    border: none;
+    background: none;
+    color: var(--text-4);
+    cursor: pointer;
+    font-size: var(--text-base);
+    line-height: 1;
+    padding: var(--space-1);
+    border-radius: var(--radius-xs);
+}
+
+.pm-toast-close:hover {
+    color: var(--text-2);
+    background: var(--surface-2);
+}
+
+/* ---------- 更新横幅 ---------- */
+.banner-update {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    background: var(--brand-soft);
+    border: 1px solid var(--brand-soft-2);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-xs);
+    color: var(--text-2);
+    font-size: var(--text-base);
+}
+
+.banner-update-title {
+    font-weight: 600;
+    color: var(--brand);
+}
+
+.banner-update-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+/* ---------- 键值表 ----------
+   两列「属性-值」信息表：行高 44px，表头 surface-2 */
+.kv-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    font-size: var(--text-base);
+}
+
+.kv-table th,
+.kv-table td {
+    height: 44px;
+    padding: 0 var(--space-4);
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+    vertical-align: middle;
+}
+
+.kv-table th {
+    background: var(--surface-2);
+    color: var(--text-2);
+    font-weight: 600;
+    font-size: var(--text-sm);
+    white-space: nowrap;
+    width: 30%;
+}
+
+.kv-table td {
+    color: var(--text);
+    word-break: break-all;
+}
+
+.kv-table tr:last-child th,
+.kv-table tr:last-child td {
+    border-bottom: none;
+}
+
+/* ---------- 卡片纵排 ----------
+   多张卡片纵向堆叠，统一 surface + border + radius-lg + shadow-xs */
+.card-stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+}
+
+.card-stack > .card,
+.card-stack .card-stack-item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-xs);
+    padding: var(--space-5);
+}
+
+/* ---------- 协议文档页 ---------- */
+.doc-page {
+    max-width: var(--container-narrow);
+    margin: 0 auto;
+    padding: var(--space-6) var(--space-4);
+    font-size: var(--text-base);
+    color: var(--text-2);
+    line-height: 1.8;
+}
+
+.doc-page h1 {
+    font-size: var(--text-3xl);
+    color: var(--text);
+    margin-bottom: var(--space-4);
+}
+
+.doc-page h2 {
+    font-size: var(--text-xl);
+    color: var(--text);
+    margin: var(--space-6) 0 var(--space-3);
+}
+
+.doc-page h3 {
+    font-size: var(--text-lg);
+    color: var(--text);
+    margin: var(--space-5) 0 var(--space-2);
+}
+
+.doc-page p {
+    margin: 0 0 var(--space-4);
+}
+
+.doc-page ul,
+.doc-page ol {
+    margin: 0 0 var(--space-4);
+    padding-left: var(--space-6);
+}
+
+.doc-page .doc-updated {
+    font-size: var(--text-xs);
+    color: var(--text-4);
+}
+
+/* 文档页头部：标题 + 更新日期，下划线分隔 */
+.doc-header {
+    padding-bottom: var(--space-4);
+    margin-bottom: var(--space-2);
+    border-bottom: 1px solid var(--border);
+}
+
+.doc-header h1 {
+    margin-bottom: var(--space-2);
+}
+
+/* 与 .card 组合时的内边距（覆盖 .doc-page 默认值，保持单一来源） */
+.card.doc-page {
+    padding: var(--space-6);
+}
+
+/* ---------- 输入框 + 按钮行 ----------
+   「验证码输入框 + 获取按钮」场景，注册/个人中心共用 */
+.code-input-group {
+    display: flex;
+    gap: var(--space-2);
+}
+
+.code-input-group .form-control {
+    flex: 1;
+    min-width: 0;
+}
+
+.code-input-group .btn {
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+/* ---------- 响应式 ---------- */
+@media (max-width: 640px) {
+    .action-bar {
+        gap: var(--space-2);
+    }
+
+    .action-bar > .btn-danger,
+    .action-bar > [data-danger],
+    .action-bar > .action-bar-right {
+        margin-left: 0;
+        width: 100%;
+    }
+
+    .kv-table th {
+        width: 40%;
+    }
+
+    .banner-update-actions {
+        margin-left: 0;
+        width: 100%;
+    }
+}

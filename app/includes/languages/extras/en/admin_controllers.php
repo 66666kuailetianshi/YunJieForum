@@ -836,7 +836,7 @@
     'admin_useredit_label_signature' => 'Signature',
     'admin_useredit_label_role' => 'Role',
     'admin_useredit_role_user' => 'User',
-    'admin_useredit_role_admin' => 'Admin',
+    'admin_useredit_role_admin' => 'Super Admin',
     'admin_useredit_hint_self_role' => 'Cannot change the role of the currently logged-in account.',
     'admin_useredit_label_reset_password' => 'Reset Password (leave blank to keep)',
     'admin_useredit_placeholder_password' => 'Enter new password',

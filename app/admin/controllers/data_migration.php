@@ -8,6 +8,9 @@
 
 require_once dirname(__DIR__) . '/layout/admin-init.php';
 
+// 权限门禁：数据迁移仅超级管理员可用
+require_super_admin();
+
 $pageTitle = t('admin_mig_title', '数据迁移');
 $activeMenu = 'data_migration';
 
@@ -147,139 +150,6 @@ if (function_exists('get_db_driver')) {
     <span id="mig-toast-text"></span>
 </div>
 
-<style>
-.mig-info-banner {
-    display: flex; gap: 0.75rem; align-items: flex-start;
-    padding: 1rem 1.25rem; margin-bottom: 1.25rem;
-    background: #eff6ff; border: 1px solid #bfdbfe; border-radius: var(--radius-lg);
-    color: #1e40af; font-size: 0.875rem; line-height: 1.6;
-}
-[data-theme="dark"] .mig-info-banner { background: rgba(59,130,246,0.12); border-color: rgba(59,130,246,0.3); color: #93c5fd; }
-.mig-info-banner b { color: inherit; }
-
-.mig-card { margin-bottom: 1.25rem; }
-.mig-header-tools { display: flex; gap: 0.5rem; }
-.mig-export-hint, .mig-import-hint { margin-top: 0; margin-bottom: 1rem; }
-
-.mig-table-grid {
-    display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 0.625rem;
-    max-height: 360px; overflow-y: auto; padding: 0.25rem; margin-bottom: 1rem;
-    border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2);
-}
-.mig-table-loading { grid-column: 1 / -1; text-align: center; padding: 2rem; color: var(--text-muted); }
-
-.mig-table-item {
-    display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.75rem;
-    background: var(--surface); border: 1px solid var(--border-soft); border-radius: var(--radius-sm);
-    cursor: pointer; transition: var(--transition); font-size: 0.875rem;
-}
-.mig-table-item:hover { border-color: var(--primary-lighter); }
-.mig-table-item input { cursor: pointer; }
-.mig-table-item .mig-tname { font-family: 'SF Mono', Monaco, Consolas, monospace; flex: 1; }
-.mig-table-item .mig-tcount { font-size: 0.75rem; color: var(--text-muted); white-space: nowrap; }
-
-.mig-export-footer, .mig-import-footer { display: flex; flex-direction: column; gap: 0.875rem; }
-.mig-export-row {
-    display: flex; align-items: center; flex-wrap: wrap; gap: 1rem;
-}
-.mig-selected-info { font-size: 0.875rem; color: var(--text-secondary); font-weight: 600; white-space: nowrap; }
-.mig-format-label {
-    display: flex; align-items: center; gap: 0.5rem;
-    font-size: 0.875rem; color: var(--text-secondary); cursor: pointer;
-}
-.mig-format-label > span { white-space: nowrap; }
-.mig-format-select {
-    font-size: 0.875rem; padding: 0.4rem 0.6rem;
-    border: 1px solid var(--border); border-radius: var(--radius-sm);
-    background: var(--surface); color: var(--text);
-    min-width: 220px; max-width: 100%;
-}
-.mig-format-select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-lighter); }
-.mig-export-btn {
-    display: inline-flex; align-items: center; gap: 0.4rem;
-    white-space: nowrap; margin-left: auto;
-}
-.mig-format-scene {
-    padding: 0.75rem 1rem; border-radius: var(--radius-sm);
-    background: #eff6ff; border: 1px solid #bfdbfe;
-    color: #1e40af; font-size: 0.8125rem; line-height: 1.6;
-}
-[data-theme="dark"] .mig-format-scene { background: rgba(59,130,246,0.12); border-color: rgba(59,130,246,0.3); color: #93c5fd; }
-.mig-format-scene:empty { display: none; }
-.mig-import-footer { flex-direction: row; justify-content: flex-end; align-items: center; }
-
-.mig-cleanup-bar {
-    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;
-    margin: 1rem 0; padding: 0.875rem 1rem;
-    background: #fffbeb; border: 1px solid #fde68a; border-radius: var(--radius-sm);
-}
-[data-theme="dark"] .mig-cleanup-bar { background: rgba(245,158,11,0.12); border-color: rgba(245,158,11,0.3); }
-.mig-cleanup-hint { margin: 0; flex: 1; min-width: 240px; color: #92400e; }
-[data-theme="dark"] .mig-cleanup-hint { color: #fcd34d; }
-
-.mig-import-form { display: flex; flex-direction: column; gap: 1.25rem; margin-bottom: 1rem; }
-.mig-mode-options { display: flex; gap: 1rem; flex-wrap: wrap; }
-.mig-radio { display: flex; flex-direction: column; gap: 0.25rem; padding: 0.75rem 1rem; border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; min-width: 200px; }
-.mig-radio input { margin-right: 0.5rem; }
-.mig-radio span { font-weight: 600; color: var(--text); }
-.mig-radio small { color: var(--text-muted); font-size: 0.75rem; }
-
-.mig-import-result {
-    margin-top: 1rem; padding: 1rem 1.25rem; border-radius: var(--radius);
-    font-size: 0.875rem; line-height: 1.7;
-}
-.mig-import-result.is-success { background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; }
-.mig-import-result.is-error { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
-[data-theme="dark"] .mig-import-result.is-success { background: rgba(16,185,129,0.12); border-color: rgba(16,185,129,0.3); color: #6ee7b7; }
-[data-theme="dark"] .mig-import-result.is-error { background: rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.3); color: #fca5a5; }
-.mig-result-table { margin-top: 0.5rem; font-family: 'SF Mono', Monaco, Consolas, monospace; font-size: 0.8125rem; }
-.mig-result-snapshot { margin-top: 0.5rem; font-size: 0.8125rem; opacity: 0.9; }
-
-.mig-toast {
-    position: fixed; top: 1.5rem; right: 1.5rem; z-index: 10000;
-    padding: 0.875rem 1.25rem; background: var(--surface); border: 1px solid var(--border);
-    border-radius: var(--radius); box-shadow: var(--shadow-lg);
-    font-size: 0.875rem; font-weight: 500; color: var(--text);
-    display: flex; align-items: center; gap: 0.5rem; transition: opacity 0.3s, transform 0.3s;
-}
-.mig-toast.is-success { border-left: 4px solid #10b981; }
-.mig-toast.is-error { border-left: 4px solid #ef4444; }
-.mig-toast.is-info { border-left: 4px solid var(--primary); }
-
-/* ===== 导入进度条 ===== */
-.mig-progress { margin-top: 1rem; padding: 1rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
-.mig-progress-bar { width: 100%; height: 8px; background: var(--border, #e5e7eb); border-radius: 4px; overflow: hidden; }
-.mig-progress-fill {
-    height: 100%; width: 0; border-radius: 4px;
-    background: linear-gradient(90deg, var(--primary, #3b82f6), #60a5fa);
-    transition: width 0.4s ease;
-}
-.mig-progress-fill.is-active {
-    width: 60%;
-    animation: mig-progress-indeterminate 2s ease-in-out infinite;
-}
-@keyframes mig-progress-indeterminate {
-    0%   { transform: translateX(-100%); }
-    50%  { transform: translateX(0%); }
-    100% { transform: translateX(400%); }
-}
-.mig-progress-stage {
-    margin-top: 0.625rem; font-size: 0.8125rem; color: var(--text-secondary);
-    display: flex; align-items: center; gap: 0.5rem;
-}
-.mig-progress-stage::before {
-    content: ''; display: inline-block; width: 14px; height: 14px;
-    border: 2px solid var(--primary, #3b82f6); border-top-color: transparent;
-    border-radius: 50%; animation: mig-spin 0.8s linear infinite; flex-shrink: 0;
-}
-@keyframes mig-spin { to { transform: rotate(360deg); } }
-.mig-progress.is-done .mig-progress-fill { width: 100% !important; animation: none; }
-.mig-progress.is-done .mig-progress-stage::before { animation: none; border-color: #10b981; border-top-color: transparent; }
-.mig-progress.is-done .mig-progress-stage { color: #065f46; font-weight: 600; }
-[data-theme="dark"] .mig-progress.is-done .mig-progress-stage { color: #6ee7b7; }
-[data-theme="dark"] .mig-progress-bar { background: rgba(255,255,255,0.08); }
-</style>
-
 <script>
 (function () {
     var csrfToken = '<?php echo csrf_token(); ?>';
@@ -311,7 +181,10 @@ if (function_exists('get_db_driver')) {
         selectedInfo.textContent = '<?php echo e(t('admin_mig_selected_count', '已选 {n} 张表')); ?>'.replace('{n}', checked);
     }
 
-    fetch(apiUrl + '&action=list_tables&csrf_token=' + encodeURIComponent(csrfToken) + '&_=' + Date.now(), { cache: 'no-store', credentials: 'same-origin' })
+    var listTablesFd = new FormData();
+        listTablesFd.append('action', 'list_tables');
+        listTablesFd.append('csrf_token', csrfToken);
+        fetch(apiUrl, { method: 'POST', body: listTablesFd, cache: 'no-store', credentials: 'same-origin' })
         .then(function (r) { return r.json(); })
         .then(function (res) {
             if (!res.success) { grid.innerHTML = '<div class="mig-table-loading">' + escapeHtml(res.error || '') + '</div>'; return; }
@@ -536,7 +409,7 @@ if (function_exists('get_db_driver')) {
                         var errOffset = (res.error && res.errors.length > 5) ? 5 : 0;
                         var restErrors = res.errors.slice(errOffset);
                         if (restErrors.length) {
-                            html += '<div class="mig-result-table" style="margin-top:0.5rem;">';
+                            html += '<div class="mig-result-table mt-2">';
                             restErrors.slice(0, 20).forEach(function (err) {
                                 html += escapeHtml(err) + '<br>';
                             });
@@ -545,7 +418,7 @@ if (function_exists('get_db_driver')) {
                     }
                     // 显示失败 SQL 原文（前 10 条），便于定位 "near ''" 被截断位置
                     if (res.failed_statements && res.failed_statements.length) {
-                        html += '<details style="margin-top:0.5rem;"><summary style="cursor:pointer;color:var(--text-muted);"><?php echo e(t('admin_mig_failed_statements', '查看失败 SQL 原文（用于诊断）')); ?></summary>';
+                        html += '<details class="mt-2"><summary style="cursor:pointer;color:var(--text-muted);"><?php echo e(t('admin_mig_failed_statements', '查看失败 SQL 原文（用于诊断）')); ?></summary>';
                         html += '<pre style="margin-top:0.5rem;padding:0.5rem;background:var(--surface-3);border-radius:4px;white-space:pre-wrap;word-break:break-all;font-size:0.75rem;">';
                         res.failed_statements.forEach(function (stmt) {
                             html += escapeHtml(stmt) + "\n\n";

@@ -7,6 +7,10 @@
 
 require_once dirname(__DIR__) . '/layout/admin-init.php';
 
+// 权限门禁：概览页对所有后台管理员（含社区管理员）开放，
+// 显式声明 admin_access 权限要求（admin-init 总闸已含同等校验，此处为矩阵完整性）。
+require_permission('admin_access');
+
 $db = get_db();
 
 // === 聚合所有关键统计 ===
@@ -271,49 +275,5 @@ require_once dirname(__DIR__) . '/layout/header.php';
         <?php endif; ?>
     </div>
 </div>
-
-<style>
-.stats-section-title {
-    font-size: 0.875rem;
-    font-weight: 600;
-    color: var(--text-muted);
-    margin: 1.25rem 0 0.5rem;
-    letter-spacing: 0.02em;
-}
-.dashboard-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 1rem;
-    margin-top: 1.25rem;
-}
-@media (max-width: 768px) {
-    .dashboard-grid {
-        grid-template-columns: 1fr;
-    }
-}
-.dashboard-todo-item {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.375rem;
-    padding: 0.375rem 0.75rem;
-    border-radius: var(--radius-full);
-    color: white !important;
-    font-size: 0.8125rem;
-    font-weight: 600;
-    text-decoration: none;
-    transition: var(--transition);
-}
-.dashboard-todo-item:hover {
-    transform: translateY(-1px);
-    box-shadow: var(--shadow-md);
-    color: white !important;
-}
-.dashboard-todo-count {
-    background: rgba(255,255,255,0.25);
-    padding: 0 0.375rem;
-    border-radius: var(--radius-full);
-    font-weight: 700;
-}
-</style>
 
 <?php require_once dirname(__DIR__) . '/layout/footer.php'; ?>

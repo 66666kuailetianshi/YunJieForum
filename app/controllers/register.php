@@ -126,7 +126,7 @@ include APP_ROOT . 'app/includes/header.php';
 ?>
 
 <div class="auth-container">
-    <div class="card">
+    <div class="card auth-card">
         <div class="auth-header">
             <img src="../public/images/logo.svg" alt="" class="auth-logo">
             <h1 class="auth-title"><?php echo e(t('register_create_account', '创建账号')); ?></h1>
@@ -156,9 +156,9 @@ include APP_ROOT . 'app/includes/header.php';
             <?php if (email_verification_enabled()): ?>
                 <div class="form-group">
                     <label class="form-label" for="verification_code"><?php echo e(t('register_label_code', '邮箱验证码')); ?></label>
-                    <div style="display: flex; gap: 0.5rem;">
-                        <input type="text" class="form-control" id="verification_code" name="verification_code" placeholder="<?php echo e(t('register_code_placeholder', '6 位数字验证码')); ?>" maxlength="6" pattern="\d{6}" inputmode="numeric" style="flex: 1;">
-                        <button type="button" class="btn btn-secondary" id="sendCodeBtn" style="white-space: nowrap;"><?php echo e(t('register_get_code', '获取验证码')); ?></button>
+                    <div class="code-input-group">
+                        <input type="text" class="form-control" id="verification_code" name="verification_code" placeholder="<?php echo e(t('register_code_placeholder', '6 位数字验证码')); ?>" maxlength="6" pattern="\d{6}" inputmode="numeric">
+                        <button type="button" class="btn btn-secondary" id="sendCodeBtn"><?php echo e(t('register_get_code', '获取验证码')); ?></button>
                     </div>
                     <p class="form-hint" id="codeHint"><?php echo e(t('register_code_hint_initial', '点击按钮发送验证码到邮箱。')); ?></p>
                 </div>
@@ -172,16 +172,16 @@ include APP_ROOT . 'app/includes/header.php';
                 <input type="password" class="form-control" id="password_confirm" name="password_confirm" autocomplete="new-password" required minlength="6">
             </div>
             <div class="form-group">
-                <label class="flex items-start gap-1" style="cursor: pointer; line-height: 1.5;">
+                <label class="flex items-start gap-1 auth-check">
                     <input type="checkbox" id="agree_terms" name="agree_terms" value="1">
-                    <span style="font-size: 0.875rem;">
+                    <span class="auth-agree-text">
                         <?php echo e(t('register_agree_intro', '我已阅读并同意')); ?>
                         <a href="<?php echo site_url('terms'); ?>" target="_blank"><?php echo e(t('register_terms_text', '用户协议')); ?></a>
                         <?php echo e(t('register_and', '和')); ?>
                         <a href="<?php echo site_url('privacy'); ?>" target="_blank"><?php echo e(t('register_privacy_text', '隐私政策')); ?></a>
                     </span>
                 </label>
-                <div id="agree-terms-error" class="form-error" style="display: none; margin-top: 0.25rem; color: var(--error); font-size: 0.875rem;"><?php echo e(t('register_agree_error', '请阅读并同意用户协议与隐私政策。')); ?></div>
+                <div id="agree-terms-error" class="form-error is-initially-hidden"><?php echo e(t('register_agree_error', '请阅读并同意用户协议与隐私政策。')); ?></div>
             </div>
             <?php if (captcha_enabled() && should_trigger_captcha('register')): ?>
                 <div class="form-group">

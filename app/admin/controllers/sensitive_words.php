@@ -4,6 +4,10 @@
  */
 
 require_once dirname(__DIR__) . '/layout/admin-init.php';
+
+// 权限门禁：敏感词管理仅超级管理员可用
+require_super_admin();
+
 require_once APP_ROOT . 'app' . DIRECTORY_SEPARATOR . 'components' . DIRECTORY_SEPARATOR . 'sensitive_filter' . DIRECTORY_SEPARATOR . 'helper.php';
 
 $db = get_db();
@@ -56,17 +60,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_word']) && valid
     }
 }
 
-// CSRF 统一校验：涉及状态变更的 GET 操作必须先通过校验，失败时明确提示（避免静默失败）
-if (in_array($action, ['delete_word', 'delete_whitelist'], true) && !validate_csrf()) {
-    set_flash(t('admin_sensitive_csrf_failed', '安全校验失败（链接已过期），请刷新页面后重新操作。'), 'error');
-    redirect('/admin/sensitive_words');
+// 删除单个敏感词：仅接受 POST（CSRF 由 admin-init.php 对所有 POST 统一校验）
+// 注意：必须置于下方批量 POST 分支之前，命中后直接 redirect
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete_word') {
+    $delWordId = (int)($_POST['id'] ?? 0);
+    if ($delWordId > 0) {
+        $db->prepare("DELETE FROM sensitive_words WHERE id = :id")->execute([':id' => $delWordId]);
+        clear_sensitive_filter_cache();
+        set_flash(t('admin_sensitive_flash_deleted', '敏感词已删除。'), 'success');
+    }
+    redirect('/admin/sensitive_words?action=words');
 }
-
-// 删除敏感词
-if ($action === 'delete_word' && isset($_GET['id'])) {
-    $db->prepare("DELETE FROM sensitive_words WHERE id = :id")->execute([':id' => (int)$_GET['id']]);
-    clear_sensitive_filter_cache();
-    set_flash(t('admin_sensitive_flash_deleted', '敏感词已删除。'), 'success');
+// 旧 GET 删除链接命中：不执行删除，提示刷新
+if ($action === 'delete_word') {
+    set_flash(t('post_flash_method_changed', '操作方式已变更，请刷新页面重试。'), 'error');
     redirect('/admin/sensitive_words?action=words');
 }
 
@@ -118,10 +125,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_whitelist']) && 
         redirect('/admin/sensitive_words?action=whitelist');
     }
 }
-if ($action === 'delete_whitelist' && isset($_GET['id'])) {
-    $db->prepare("DELETE FROM sensitive_word_whitelist WHERE id = :id")->execute([':id' => (int)$_GET['id']]);
-    clear_sensitive_filter_cache();
-    set_flash(t('admin_sensitive_flash_white_deleted', '白名单已删除。'), 'success');
+// 删除白名单：仅接受 POST（CSRF 由 admin-init.php 对所有 POST 统一校验）
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete_whitelist') {
+    $delWhiteId = (int)($_POST['id'] ?? 0);
+    if ($delWhiteId > 0) {
+        $db->prepare("DELETE FROM sensitive_word_whitelist WHERE id = :id")->execute([':id' => $delWhiteId]);
+        clear_sensitive_filter_cache();
+        set_flash(t('admin_sensitive_flash_white_deleted', '白名单已删除。'), 'success');
+    }
+    redirect('/admin/sensitive_words?action=whitelist');
+}
+// 旧 GET 删除链接命中：不执行删除，提示刷新
+if ($action === 'delete_whitelist') {
+    set_flash(t('post_flash_method_changed', '操作方式已变更，请刷新页面重试。'), 'error');
     redirect('/admin/sensitive_words?action=whitelist');
 }
 
@@ -240,330 +256,6 @@ $pageTitle = t('admin_sensitive_title', '敏感词管理');
 $activeMenu = 'sensitive_words';
 require_once dirname(__DIR__) . '/layout/header.php';
 ?>
-
-<style>
-/* ===== 统计卡片 ===== */
-.sw-stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.75rem; margin-bottom: 1.25rem; }
-.sw-stat-card { background: var(--surface); border: 1px solid var(--border-soft); border-radius: var(--radius-lg); padding: 1rem 1.125rem; position: relative; overflow: hidden; transition: var(--transition); }
-.sw-stat-card:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
-.sw-stat-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
-.sw-stat-card.sc-total::before { background: var(--primary); }
-.sw-stat-card.sc-enabled::before { background: var(--success); }
-.sw-stat-card.sc-intercept::before { background: var(--error); }
-.sw-stat-card.sc-whitelist::before { background: var(--info, #0ea5e9); }
-.sw-stat-card.sc-logs-today::before { background: var(--warning); }
-.sw-stat-card.sc-logs-total::before { background: var(--secondary); }
-.sw-stat-label { font-size: var(--text-xs); color: var(--text-3); font-weight: 500; text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 0.25rem; }
-.sw-stat-value { font-size: 1.5rem; font-weight: 700; line-height: 1.1; color: var(--text); }
-.sw-stat-sub { font-size: var(--text-xs); color: var(--text-4); margin-top: 0.125rem; }
-
-/* ===== 分类分布条 ===== */
-.sw-cat-bar-wrap { margin-bottom: 1.25rem; }
-.sw-cat-bar { display: flex; height: 28px; border-radius: var(--radius-full); overflow: hidden; background: var(--surface-2); border: 1px solid var(--border-soft); }
-.sw-cat-bar-seg { display: flex; align-items: center; justify-content: center; font-size: var(--text-xs); font-weight: 600; color: #fff; transition: var(--transition); cursor: default; white-space: nowrap; overflow: hidden; }
-.sw-cat-bar-seg:hover { filter: brightness(1.1); }
-.sw-cat-legend { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
-.sw-cat-legend-item { display: inline-flex; align-items: center; gap: 0.25rem; font-size: var(--text-xs); color: var(--text-3); }
-.sw-cat-legend-dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
-
-/* ===== 搜索 + 分类/等级筛选工具栏 ===== */
-.sw-toolbar { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; }
-.sw-toolbar .admin-search-form { flex: 1; min-width: 200px; display: flex; gap: 0.5rem; }
-.sw-toolbar .admin-search-form .form-control { flex: 1; }
-
-.sw-filter-row { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; margin-top: 0.75rem; }
-.sw-filter-group { display: inline-flex; align-items: center; gap: 0.375rem; background: var(--surface-2); border: 1px solid var(--border-soft); border-radius: var(--radius-full); padding: 0.25rem 0.25rem 0.25rem 0.75rem; }
-.sw-filter-group label { font-size: var(--text-xs); color: var(--text-3); font-weight: 500; white-space: nowrap; }
-.sw-filter-group .form-control {
-    appearance: none;
-    -webkit-appearance: none;
-    -moz-appearance: none;
-    width: auto;
-    min-width: 120px;
-    background-color: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-full);
-    padding: 0.25rem 1.25rem 0.25rem 0.65rem;
-    font-size: var(--text-xs);
-    font-weight: 500;
-    color: var(--text);
-    background-image: url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 24 24' fill='none' stroke='%23a1a1aa' stroke-width='3' stroke-linecap='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 0.4rem center;
-    cursor: pointer;
-}
-
-/* ===== 列表标题区 meta ===== */
-.sw-list-meta { font-size: var(--text-sm); color: var(--text-3); }
-.sw-list-meta strong { color: var(--text); font-weight: 600; }
-
-/* ===== 紧凑表格（重做） ===== */
-.sw-table-wrap { border: 1px solid var(--border-soft); border-radius: var(--radius-lg); background: var(--surface); overflow-x: auto; -webkit-overflow-scrolling: touch; }
-.sw-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: var(--text-sm); }
-.sw-table thead th {
-    background: var(--surface-2);
-    color: var(--text-3);
-    font-weight: 600;
-    text-align: left;
-    padding: 0.6rem 0.875rem;
-    border-bottom: 1px solid var(--border);
-    font-size: var(--text-xs);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    white-space: nowrap;
-    position: sticky;
-    top: 0;
-    z-index: 1;
-}
-.sw-table th.sortable { cursor: pointer; user-select: none; transition: color 0.15s; }
-.sw-table th.sortable:hover { color: var(--primary); }
-.sw-table th.sortable .sort-ind { margin-left: 4px; opacity: 0.4; font-size: 10px; }
-.sw-table th.sortable.active { color: var(--primary); }
-.sw-table th.sortable.active .sort-ind { opacity: 1; color: var(--primary); }
-
-.sw-table tbody tr { transition: background 0.15s, opacity 0.2s, box-shadow 0.15s; position: relative; }
-.sw-table tbody tr:hover { background: var(--surface-2); }
-/* 选中态：左侧蓝色边框 + 浅蓝背景 */
-.sw-table tbody tr.checked { background: var(--primary-lighter, rgba(99, 102, 241, 0.06)); box-shadow: inset 3px 0 0 var(--primary); }
-.sw-table tbody tr.checked:hover { background: var(--primary-light, rgba(99, 102, 241, 0.1)); }
-/* 禁用态：更柔和（删除线 + 半透明） */
-.sw-table tbody tr.disabled { opacity: 0.5; }
-.sw-table tbody tr.disabled .sw-cell-word-text { text-decoration: line-through; text-decoration-color: var(--text-4); }
-.sw-table tbody tr.disabled:hover { opacity: 0.75; }
-
-.sw-table td { padding: 0.65rem 0.875rem; vertical-align: middle; border-bottom: 1px solid var(--border-soft); line-height: 1.5; }
-.sw-table tbody tr:last-child td { border-bottom: none; }
-
-.sw-cell-word { font-weight: 500; max-width: 360px; display: flex; align-items: center; gap: 0.5rem; min-width: 120px; }
-.sw-cell-word-text { min-width: 0; word-break: keep-all; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
-/* 匹配模式徽章（贴在词旁） */
-.sw-mode-badge { display: inline-flex; align-items: center; padding: 0.1rem 0.4rem; border-radius: var(--radius-xs); background: var(--surface-3); color: var(--text-4); font-size: 10px; font-weight: 600; line-height: 1.4; flex-shrink: 0; letter-spacing: 0.02em; }
-.sw-mode-badge.mode-word { background: var(--primary-light); color: var(--primary-dark); }
-.sw-mode-badge.mode-regex { background: var(--warning-light); color: var(--warning); }
-
-/* 表格行操作按钮默认隐藏、悬停显示 */
-.sw-table tbody tr .sw-cell-actions { opacity: 0.5; transition: opacity 0.15s; }
-.sw-table tbody tr:hover .sw-cell-actions,
-.sw-table tbody tr.selected .sw-cell-actions { opacity: 1; }
-
-/* 分类 chip 风格 select（带色点） */
-.sw-cat-wrap {
-    position: relative;
-    display: inline-flex;
-    align-items: center;
-    max-width: 100%;
-}
-.sw-cat-dot {
-    position: absolute;
-    left: 0.55rem;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--cat-color, var(--text-4));
-    pointer-events: none;
-    z-index: 1;
-}
-.sw-cat-select {
-    appearance: none;
-    -webkit-appearance: none;
-    -moz-appearance: none;
-    background-color: transparent;
-    border: 1px solid transparent;
-    color: var(--text-2);
-    padding: 0.25rem 1.2rem 0.25rem 1.5rem;
-    border-radius: var(--radius-full);
-    font-size: var(--text-xs);
-    font-weight: 500;
-    cursor: pointer;
-    background-image: url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 24 24' fill='none' stroke='%23a1a1aa' stroke-width='3' stroke-linecap='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 0.35rem center;
-    transition: var(--transition);
-    max-width: 100%;
-}
-.sw-cat-select:hover { background-color: var(--surface-2); border-color: var(--border-soft); }
-.sw-cat-select:focus { border-color: var(--primary); outline: none; background-color: var(--surface-2); }
-
-/* 等级药丸（点击循环） */
-.sw-level-pill {
-    display: inline-flex; align-items: center; gap: 0.35rem;
-    padding: 0.25rem 0.6rem;
-    border-radius: var(--radius-full);
-    font-size: var(--text-xs); font-weight: 600;
-    cursor: pointer; user-select: none;
-    border: 1px solid transparent;
-    transition: var(--transition);
-    white-space: nowrap;
-}
-.sw-level-pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
-.sw-level-pill.lv-1 { color: var(--secondary); background: var(--surface-2); }
-.sw-level-pill.lv-2 { color: var(--error); background: var(--error-light); }
-.sw-level-pill.lv-3 { color: var(--warning); background: var(--warning-light); }
-.sw-level-pill:hover { filter: brightness(0.95); transform: scale(1.04); }
-.sw-level-pill:active { transform: scale(0.96); }
-
-/* 开关 */
-.sw-switch { position: relative; display: inline-block; width: 34px; height: 19px; flex-shrink: 0; vertical-align: middle; }
-.sw-switch input { opacity: 0; width: 0; height: 0; }
-.sw-switch-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: var(--surface-3); border-radius: var(--radius-full); transition: 0.2s; }
-.sw-switch-slider::before { content: ''; position: absolute; height: 15px; width: 15px; left: 2px; bottom: 2px; background: #fff; border-radius: 50%; transition: 0.2s; box-shadow: 0 1px 2px rgba(0,0,0,0.3); }
-.sw-switch input:checked + .sw-switch-slider { background: var(--success); }
-.sw-switch input:checked + .sw-switch-slider::before { transform: translateX(15px); }
-.sw-switch input:focus-visible + .sw-switch-slider { box-shadow: 0 0 0 3px var(--brand-glow); }
-
-/* 图标操作按钮 - 行悬停时淡入 */
-.sw-cell-actions { white-space: nowrap; text-align: right; }
-.sw-icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--radius-sm); background: transparent; border: none; color: var(--text-4); cursor: pointer; transition: var(--transition); text-decoration: none; padding: 0; vertical-align: middle; }
-.sw-icon-btn svg { width: 15px; height: 15px; pointer-events: none; }
-.sw-icon-btn:hover { background: var(--surface-3); }
-.sw-icon-btn.btn-edit:hover { color: var(--primary); background: var(--primary-light); }
-.sw-icon-btn.btn-delete:hover { color: var(--error); background: var(--error-light); }
-.sw-icon-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
-/* 删除按钮武装态（待确认） */
-.sw-icon-btn.armed { opacity: 1 !important; color: #fff; background: var(--error); animation: sw-arm-pulse 1s ease-in-out infinite; }
-.sw-icon-btn.armed:hover { background: var(--error); filter: brightness(1.05); }
-@keyframes sw-arm-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); } 50% { box-shadow: 0 0 0 5px rgba(239, 68, 68, 0); } }
-
-/* 行高亮动画 */
-.sw-row.flash { animation: sw-flash 1s ease; }
-@keyframes sw-flash {
-    0% { background: var(--primary-light); }
-    100% { background: transparent; }
-}
-.sw-row.deleting { opacity: 0.3; pointer-events: none; transition: opacity 0.2s; }
-
-/* 内嵌批量操作栏（表格底部） */
-.sw-batch-bar { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-top: 0; padding: 0.75rem 0.875rem; border-top: 1px solid var(--border-soft); background: var(--surface-2); border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
-.sw-batch-bar .sw-batch-info { font-size: var(--text-xs); color: var(--text-3); }
-.sw-batch-bar .sw-batch-info strong { color: var(--primary); font-weight: 600; }
-.sw-batch-bar .form-control { width: auto !important; min-width: 120px; }
-
-/* 浮动批量操作栏（选中后底部滑出） */
-.sw-floating-bar {
-    position: fixed; bottom: 1.5rem; left: 50%; transform: translateX(-50%) translateY(120%);
-    display: flex; align-items: center; gap: 0.625rem;
-    padding: 0.625rem 0.875rem;
-    background: var(--text); color: #fff;
-    border-radius: var(--radius-full);
-    box-shadow: 0 8px 24px rgba(0,0,0,0.25), 0 2px 8px rgba(0,0,0,0.15);
-    z-index: 50;
-    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.2s;
-    opacity: 0; pointer-events: none;
-    max-width: calc(100vw - 2rem);
-}
-.sw-floating-bar.visible { transform: translateX(-50%) translateY(0); opacity: 1; pointer-events: auto; }
-.sw-floating-bar .sw-fb-count { font-size: var(--text-sm); font-weight: 600; padding: 0 0.25rem; }
-.sw-floating-bar .sw-fb-count strong { color: #fff; }
-.sw-floating-bar .sw-fb-divider { width: 1px; height: 16px; background: rgba(255,255,255,0.2); }
-.sw-floating-bar .sw-fb-btn {
-    padding: 0.25rem 0.75rem; border-radius: var(--radius-full);
-    background: rgba(255,255,255,0.1); border: none; color: #fff;
-    font-size: var(--text-xs); font-weight: 500; cursor: pointer;
-    transition: var(--transition); white-space: nowrap;
-}
-.sw-floating-bar .sw-fb-btn:hover { background: rgba(255,255,255,0.2); }
-.sw-floating-bar .sw-fb-btn.danger:hover { background: var(--error); }
-.sw-floating-bar .sw-fb-close {
-    display: inline-flex; align-items: center; justify-content: center;
-    width: 22px; height: 22px; border-radius: 50%;
-    background: transparent; border: none; color: rgba(255,255,255,0.6);
-    cursor: pointer; transition: var(--transition); margin-left: 0.25rem;
-}
-.sw-floating-bar .sw-fb-close:hover { background: rgba(255,255,255,0.15); color: #fff; }
-
-.sw-empty-row td { text-align: center; padding: 3rem 1rem; color: var(--text-3); }
-.sw-empty-row .sw-empty-icon { width: 48px; height: 48px; margin: 0 auto 0.75rem; color: var(--text-4); opacity: 0.5; }
-.sw-empty-row .sw-empty-text { font-size: var(--text-sm); color: var(--text-3); margin-bottom: 0.25rem; }
-.sw-empty-row .sw-empty-hint { font-size: var(--text-xs); color: var(--text-4); }
-
-/* ===== 白名单标签云 ===== */
-.swl-cloud { display: flex; flex-wrap: wrap; gap: 0.5rem; }
-.swl-chip { display: inline-flex; align-items: center; gap: 0.375rem; padding: 0.3rem 0.5rem 0.3rem 0.75rem; background: var(--surface-2); border: 1px solid var(--border-soft); border-radius: var(--radius-full); font-size: var(--text-sm); transition: var(--transition); }
-.swl-chip:hover { border-color: var(--primary); background: var(--primary-light); }
-.swl-chip.disabled { opacity: 0.45; text-decoration: line-through; }
-.swl-chip-del { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; background: transparent; border: none; color: var(--text-4); cursor: pointer; font-size: 14px; line-height: 1; transition: var(--transition); text-decoration: none; }
-.swl-chip-del:hover { background: var(--error); color: #fff; }
-
-/* ===== 折叠面板 ===== */
-.sw-collapsible { overflow: hidden; transition: max-height 0.3s ease; }
-.sw-collapsible.collapsed { max-height: 0 !important; }
-.sw-collapse-toggle { cursor: pointer; user-select: none; display: inline-flex; align-items: center; gap: 0.375rem; }
-.sw-collapse-toggle .chevron { transition: transform 0.2s ease; }
-.sw-collapse-toggle.collapsed .chevron { transform: rotate(-90deg); }
-
-/* ===== A+D 双栏主从布局 ===== */
-.sw-master-detail { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 0.75rem; align-items: start; }
-.sw-master { min-width: 0; }
-.sw-detail { position: sticky; top: calc(var(--header-height, 60px) + 1rem); min-width: 0; }
-.sw-detail-card { background: var(--surface); border: 1px solid var(--border-soft); border-radius: var(--radius-lg); overflow: hidden; }
-.sw-detail-header { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.75rem 1rem; border-bottom: 1px solid var(--border-soft); background: var(--surface-2); }
-.sw-detail-header h3 { margin: 0; font-size: var(--text-base); font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 0.5rem; }
-.sw-detail-header .sw-detail-tag { font-size: var(--text-xs); color: var(--text-3); background: var(--surface-3); padding: 0.1rem 0.5rem; border-radius: var(--radius-full); font-weight: 500; }
-.sw-detail-close { display: none; }
-.sw-detail-body { padding: 1rem; }
-.sw-detail-body .form-group { margin-bottom: 0.875rem; }
-.sw-detail-body .form-label { margin-bottom: 0.3rem; font-size: var(--text-sm); }
-.sw-detail-body .form-control { padding: 0.5rem 0.75rem; }
-.sw-detail-body .btn { padding: 0.5rem 1rem; font-size: var(--text-sm); }
-.sw-detail-empty { padding: 3rem 1.5rem; text-align: center; }
-.sw-detail-empty .sw-empty-icon { width: 56px; height: 56px; margin: 0 auto 1rem; color: var(--text-4); opacity: 0.35; }
-.sw-detail-empty .sw-empty-title { font-size: var(--text-sm); color: var(--text-2); margin-bottom: 0.25rem; font-weight: 500; }
-.sw-detail-empty .sw-empty-hint { font-size: var(--text-xs); color: var(--text-4); }
-
-/* 列表行选中态（主从模式） */
-.sw-table tbody tr.selected { background: var(--primary-lighter, rgba(99,102,241,0.08)) !important; box-shadow: inset 3px 0 0 var(--primary); }
-.sw-table tbody tr.selected:hover { background: var(--primary-light, rgba(99,102,241,0.12)) !important; }
-.sw-table tbody tr { cursor: pointer; }
-/* 点击行进入编辑，禁用控件点击穿透 */
-.sw-table tbody tr .sw-cat-select,
-.sw-table tbody tr .sw-level-pill,
-.sw-table tbody tr .sw-switch,
-.sw-table tbody tr .sw-icon-btn,
-.sw-table tbody tr .sw-check { cursor: pointer; position: relative; z-index: 1; }
-.sw-table tbody tr .sw-cell-word-text { pointer-events: none; }
-
-/* 移动端：详情面板变抽屉 */
-.sw-detail-backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 90; opacity: 0; transition: opacity 0.2s; }
-
-@media (max-width: 920px) {
-    .sw-master-detail { grid-template-columns: 1fr; }
-    .sw-detail { position: fixed; top: 0; right: 0; bottom: 0; width: min(420px, 100vw); z-index: 100; transform: translateX(100%); transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1); display: flex; flex-direction: column; }
-    .sw-detail.visible { transform: translateX(0); }
-    .sw-detail-backdrop.visible { display: block; opacity: 1; }
-    .sw-detail-card { flex: 1; margin: 0; border-radius: 0; border: none; display: flex; flex-direction: column; }
-    .sw-detail-header { border-radius: 0; flex-shrink: 0; }
-    .sw-detail-body { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
-    .sw-detail-close { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: var(--radius-sm); background: transparent; border: none; color: var(--text-3); cursor: pointer; transition: var(--transition); }
-    .sw-detail-close:hover { background: var(--surface-3); color: var(--text); }
-    .sw-detail-close svg { width: 16px; height: 16px; }
-}
-
-/* 移动端表格优化 */
-@media (max-width: 767px) {
-    .sw-stats-grid { grid-template-columns: repeat(2, 1fr); gap: 0.5rem; }
-    .sw-stat-card { padding: 0.75rem; }
-    .sw-stat-value { font-size: 1.25rem; }
-    .sw-cat-legend { gap: 0.375rem; }
-    .sw-cat-legend-item { font-size: 11px; }
-    .sw-toolbar { flex-direction: column; align-items: stretch; }
-    .sw-toolbar .admin-search-form { flex-direction: column; }
-    .sw-table { font-size: 13px; }
-    .sw-table td, .sw-table th { padding: 0.4rem 0.5rem; }
-    .sw-cell-word { max-width: 100%; }
-    .sw-floating-bar { left: 0.5rem; right: 0.5rem; transform: translateY(120%); max-width: none; border-radius: var(--radius-lg); }
-    .sw-floating-bar.visible { transform: translateY(0); }
-    .sw-batch-bar { flex-direction: column; align-items: stretch; gap: 0.5rem; }
-    .sw-batch-bar .form-control { width: 100% !important; }
-}
-@media (max-width: 480px) {
-    .sw-stats-grid { grid-template-columns: 1fr; }
-    .sw-table { min-width: 480px; }
-    .sw-floating-bar { flex-wrap: wrap; justify-content: center; border-radius: var(--radius-lg); }
-}
-</style>
 
 <div class="page-header">
     <h1 class="page-title"><?php echo e(t('admin_sensitive_title', '敏感词管理')); ?></h1>
@@ -849,7 +541,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
                     <input type="text" name="replacement" id="swFormReplacement" class="form-control" value="<?php echo e($editWord['replacement'] ?? '***'); ?>">
                 </div>
                 <div class="form-group">
-                    <label class="flex items-center gap-1" style="cursor:pointer;">
+                    <label class="flex items-center gap-1 cursor-pointer">
                         <input type="checkbox" name="enabled" id="swFormEnabled" value="1" <?php echo ($editWord['enabled'] ?? 1) ? 'checked' : ''; ?>>
                         <span><?php echo e(t('admin_sensitive_enabled', '启用')); ?></span>
                     </label>
@@ -869,7 +561,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
                     <span style="font-size:var(--text-sm);font-weight:500;color:var(--text-2);"><?php echo e(t('admin_sensitive_batch_import', '批量导入')); ?></span>
                 </div>
                 <div class="sw-collapsible collapsed" id="swBatchPanel" style="max-height:0;">
-                    <form method="POST" action="<?php echo site_url('admin/sensitive_words', ['action' => 'words']); ?>" style="margin-top:0.75rem;">
+                    <form method="POST" action="<?php echo site_url('admin/sensitive_words', ['action' => 'words']); ?>" class="mt-3">
                         <input type="hidden" name="csrf_token" value="<?php echo csrf_token(); ?>">
                         <div class="form-group">
                             <label class="form-label"><?php echo e(t('admin_sensitive_label_one_per_line', '每行一个词')); ?></label>
@@ -946,7 +638,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
             <?php foreach ($whitelist as $w): ?>
                 <span class="swl-chip<?php echo $w['enabled'] ? '' : ' disabled'; ?>">
                     <?php echo e($w['word']); ?>
-                    <a href="<?php echo site_url('admin/sensitive_words', ['action' => 'delete_whitelist', 'id' => (int)$w['id'], 'csrf_token' => csrf_token()]); ?>" class="swl-chip-del" data-confirm="<?php echo e(t('admin_sensitive_confirm_delete', '确定删除吗？')); ?>">&times;</a>
+                    <?php echo admin_action_form(site_url('admin/sensitive_words'), 'delete_whitelist', ['id' => (int)$w['id']], '×', ['class' => 'swl-chip-del', 'confirm' => t('admin_sensitive_confirm_delete', '确定删除吗？'), 'title' => t('admin_sensitive_action_delete_white', '删除白名单')] ); ?>
                 </span>
             <?php endforeach; ?>
         </div>

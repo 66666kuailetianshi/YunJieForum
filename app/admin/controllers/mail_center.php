@@ -6,7 +6,12 @@
  */
 
 require_once dirname(__DIR__) . '/layout/admin-init.php';
+
+// 权限门禁：邮件中心仅超级管理员可用（含 SMTP 配置）
+require_super_admin();
+
 require_once APP_ROOT . 'app/includes/bounce_processor.php';
+require_once APP_ROOT . 'app/includes/mailer.php'; // functions.php 已懒加载 mailer，本文件直接调用 send_mail/render_email_template，需自行引入
 
 $db = get_db();
 
@@ -462,15 +467,15 @@ if ($flash): ?>
             <div class="bounce-stat-label"><?php echo t('mail_center_stat_bounced', '已退信'); ?></div>
         </div>
         <div class="bounce-stat-item">
-            <div class="bounce-stat-value" id="bounce-stat-hard" style="color:#ef4444;"><?php echo $bounceStats['hard_bounced']; ?></div>
+            <div class="bounce-stat-value stat-danger" id="bounce-stat-hard"><?php echo $bounceStats['hard_bounced']; ?></div>
             <div class="bounce-stat-label"><?php echo t('mail_center_bounce_hard', '硬退信'); ?></div>
         </div>
         <div class="bounce-stat-item">
-            <div class="bounce-stat-value" id="bounce-stat-soft" style="color:#f59e0b;"><?php echo $bounceStats['soft_bounced']; ?></div>
+            <div class="bounce-stat-value stat-warn" id="bounce-stat-soft"><?php echo $bounceStats['soft_bounced']; ?></div>
             <div class="bounce-stat-label"><?php echo t('mail_center_bounce_soft', '软退信'); ?></div>
         </div>
         <div class="bounce-stat-item">
-            <div class="bounce-stat-value" id="bounce-stat-pending" style="color:#3b82f6;"><?php echo $bounceStats['pending']; ?></div>
+            <div class="bounce-stat-value stat-info" id="bounce-stat-pending"><?php echo $bounceStats['pending']; ?></div>
             <div class="bounce-stat-label"><?php echo t('mail_center_stat_pending', '待确认'); ?></div>
         </div>
     </div>
@@ -508,11 +513,11 @@ if ($flash): ?>
             </div>
             <div class="form-row">
                 <div class="form-group">
-                    <label class="form-label" for="bounce_username"><?php echo t('mail_center_bounce_username', '邮箱账号'); ?> <span style="font-weight:400;color:var(--text-muted);">（<?php echo t('mail_center_bounce_same_as_from', '与 SMTP 发件人相同'); ?>）</span></label>
+                    <label class="form-label" for="bounce_username"><?php echo t('mail_center_bounce_username', '邮箱账号'); ?> <span class="label-note">（<?php echo t('mail_center_bounce_same_as_from', '与 SMTP 发件人相同'); ?>）</span></label>
                     <input type="text" class="form-control" id="bounce_username" value="<?php echo e(!empty($bounceConfig['username']) ? $bounceConfig['username'] : $smtpFrom); ?>" placeholder="<?php echo e(t('mail_center_bounce_username_ph', '与发件人邮箱一致')); ?>">
                 </div>
                 <div class="form-group">
-                    <label class="form-label" for="bounce_password"><?php echo t('mail_center_bounce_password', '密码 / 授权码'); ?> <span style="font-weight:400;color:var(--text-muted);">（<?php echo t('mail_center_bounce_same_as_smtp', '与 SMTP 相同'); ?>）</span></label>
+                    <label class="form-label" for="bounce_password"><?php echo t('mail_center_bounce_password', '密码 / 授权码'); ?> <span class="label-note">（<?php echo t('mail_center_bounce_same_as_smtp', '与 SMTP 相同'); ?>）</span></label>
                     <div class="input-pwd-wrap">
                         <input type="password" class="form-control" id="bounce_password" value="<?php echo e(!empty($bounceConfig['password']) ? $bounceConfig['password'] : $smtpPass); ?>" placeholder="<?php echo e(t('mail_center_bounce_password_ph', '与 SMTP 授权码一致')); ?>" autocomplete="new-password">
                         <button type="button" class="input-pwd-toggle" data-target="bounce_password" aria-label="<?php echo e(t('mail_center_show_hide_pwd', '显示或隐藏密码')); ?>">
@@ -522,8 +527,8 @@ if ($flash): ?>
                     </div>
                 </div>
             </div>
-            <p class="form-hint" style="margin-top:-0.5rem;margin-bottom:1rem;">
-                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            <p class="form-hint form-hint-gap">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="hint-icon"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
                 <?php echo t('mail_center_bounce_sync_hint', '退信处理与 SMTP 发件使用同一邮箱账户和授权码。保存 SMTP 配置时将自动同步。'); ?>
             </p>
             <div class="form-group">
@@ -547,12 +552,12 @@ if ($flash): ?>
                 <div class="bounce-status-meta"><?php echo t('mail_center_bounce_match_count', '匹配 <strong id="bounce-last-count">{n}</strong> 条退信', ['n' => $bounceStats['last_count']]); ?></div>
             </div>
 
-            <div class="card-header" style="padding-left:0;">
-                <h3 class="card-title" style="font-size:0.95rem;"><?php echo t('mail_center_bounce_history', '检查历史'); ?></h3>
+            <div class="card-header card-header-flat">
+                <h3 class="card-title card-title-sm"><?php echo t('mail_center_bounce_history', '检查历史'); ?></h3>
             </div>
             <div class="bounce-history-list" id="bounce-history-list">
                 <?php if (empty($bounceRecentLogs)): ?>
-                <p class="text-muted" style="font-size:0.8125rem;"><?php echo t('mail_center_bounce_no_history', '暂无检查记录。'); ?></p>
+                <p class="text-muted bounce-empty"><?php echo t('mail_center_bounce_no_history', '暂无检查记录。'); ?></p>
                 <?php else: ?>
                     <?php foreach ($bounceRecentLogs as $blog): ?>
                     <div class="bounce-history-item">
@@ -568,8 +573,8 @@ if ($flash): ?>
                 <?php endif; ?>
             </div>
 
-            <div class="card-header" style="padding-left:0;">
-                <h3 class="card-title" style="font-size:0.95rem;"><?php echo t('mail_center_common_providers', '常见服务商配置'); ?></h3>
+            <div class="card-header card-header-flat">
+                <h3 class="card-title card-title-sm"><?php echo t('mail_center_common_providers', '常见服务商配置'); ?></h3>
             </div>
             <ul class="mail-faq-list">
                 <li>

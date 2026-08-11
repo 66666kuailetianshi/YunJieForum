@@ -5,8 +5,8 @@
  * 仅管理员可用，所有写操作需 POST + CSRF。
  *
  * 操作类型（action）：
- *   - ban          批量封禁（需 ban_reason / ban_days）
- *   - mute         批量禁言（需 mute_reason / mute_days）
+ *   - ban          批量封禁（需 reason / days）
+ *   - mute         批量禁言（需 reason / days）
  *   - unban_unmute 批量解封 + 解除禁言
  *   - set_role     批量设置角色（需 role）
  *   - delete       批量删除（管理员除外）
@@ -20,6 +20,7 @@
  */
 
 require_once APP_ROOT . 'app/includes/functions.php';
+require_once dirname(__DIR__) . '/layout/admin-helpers.php';
 
 if (!is_logged_in() || !is_admin()) {
     http_response_code(403);
@@ -61,6 +62,21 @@ $scope = trim($_POST['scope'] ?? '');
 $allowedActions = ['ban', 'mute', 'unban_unmute', 'set_role', 'delete', 'send_pm'];
 if (!in_array($action, $allowedActions, true)) {
     echo json_encode(['error' => t('admin_ajax_unknown_action_with_dot', '未知操作类型。')], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+// 权限分级：
+//  - 设置角色 / 批量删除 / 批量站内信：超管专属；
+//  - 封禁 / 禁言 / 解封解禁言：需 manage_user_dispose 权限（超管天然通过）。
+if (in_array($action, ['set_role', 'delete', 'send_pm'], true)) {
+    if (!is_super_admin()) {
+        http_response_code(403);
+        echo json_encode(['error' => t('common_super_admin_only', '该功能仅最高管理员可用。')], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+} elseif (!has_permission('manage_user_dispose')) {
+    http_response_code(403);
+    echo json_encode(['error' => t('admin_ajax_forbidden', '无权访问')], JSON_UNESCAPED_UNICODE);
     exit;
 }
 
@@ -112,8 +128,10 @@ if ($action === 'send_pm' && $scope === 'filter' && empty($ids)) {
         $params[':status'] = $filterStatus;
     }
     if ($filterRole !== '') {
-        $conditions[] = "u.role = :role";
-        $params[':role'] = $filterRole;
+        $roleCond = admin_role_filter_sql($filterRole);
+        if ($roleCond !== '') {
+            $conditions[] = $roleCond;
+        }
     }
     if ($filterGroup !== '') {
         try {
@@ -149,6 +167,19 @@ if ($action === 'send_pm' && $scope === 'filter' && empty($ids)) {
 $targetIds = array_values(array_filter($targetIds, function ($id) use ($adminIdSet) {
     return !isset($adminIdSet[$id]);
 }));
+
+// 层级保护：非超级管理员操作时，同时排除拥有 community_admin 角色的用户，
+// 防止社区管理员之间互相批量处置
+if (!is_super_admin()) {
+    $protectedIds = [];
+    try {
+        $protectedIds = $db->query("SELECT ur.user_id FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE r.name = 'community_admin'")->fetchAll(PDO::FETCH_COLUMN);
+    } catch (\Throwable $e) {}
+    $protectedIdSet = array_flip(array_map('intval', $protectedIds));
+    $targetIds = array_values(array_filter($targetIds, function ($id) use ($protectedIdSet) {
+        return !isset($protectedIdSet[$id]);
+    }));
+}
 
 if (empty($targetIds) && $action !== 'send_pm') {
     echo json_encode(['error' => t('admin_ajax_no_target_users', '没有可操作的目标用户（管理员已被自动排除）。')], JSON_UNESCAPED_UNICODE);
@@ -189,16 +220,34 @@ try {
 
         case 'set_role':
             $role = trim($_POST['role'] ?? '');
-            if (!in_array($role, ['user', 'moderator', 'admin'], true) || $role === 'admin') {
-                // 不允许批量设为管理员（避免越权）——仅允许 user / moderator
+            if (!in_array($role, ['user', 'community_admin'], true)) {
+                // 不允许批量设为管理员（避免越权）——两级体系仅允许 user / community_admin
                 $db->rollBack();
-                echo json_encode(['error' => t('admin_ajax_bulk_role_limited', '仅支持批量设为「普通用户」或「版主」，不能批量设为管理员。')], JSON_UNESCAPED_UNICODE);
+                echo json_encode(['error' => t('admin_ajax_bulk_role_limited', '仅支持批量设为「普通用户」或「社区管理员」，不能批量设为管理员。')], JSON_UNESCAPED_UNICODE);
                 exit;
             }
             $in = str_repeat('?,', count($targetIds) - 1) . '?';
-            $stmt = $db->prepare("UPDATE users SET role=? WHERE id IN ($in) AND role<>'admin'");
-            $stmt->execute(array_merge([$role], $targetIds));
-            $affected = $stmt->rowCount();
+            if ($role === 'community_admin') {
+                // 社区管理员：users.role 保持 'user'，经 user_roles 关联内置角色
+                $stmt = $db->prepare("UPDATE users SET role='user' WHERE id IN ($in) AND role<>'admin'");
+                $stmt->execute($targetIds);
+                $affected = $stmt->rowCount();
+                // 内置角色可能被误删：先兑底重建再取 ID
+                $cid = ensure_builtin_role('community_admin', '社区管理员', 'admin_access,manage_posts,manage_replies,manage_reports,manage_ban_appeals,manage_user_dispose');
+                if ($cid > 0) {
+                    // 方言翻译：MySQL 下 INSERT OR IGNORE 会语法错误，必须经 sql_prepare() 转换
+                    $ins = sql_prepare($db, "INSERT OR IGNORE INTO user_roles (user_id, role_id) SELECT id, ? FROM users WHERE id IN ($in) AND role<>'admin'");
+                    $ins->execute(array_merge([$cid], $targetIds));
+                    $affected = max($affected, $ins->rowCount());
+                }
+            } else {
+                // 普通用户：清掉 users.role 与 community_admin 关联
+                $stmt = $db->prepare("UPDATE users SET role='user' WHERE id IN ($in) AND role<>'admin'");
+                $stmt->execute($targetIds);
+                $affected = $stmt->rowCount();
+                $del = $db->prepare("DELETE FROM user_roles WHERE user_id IN ($in) AND role_id = (SELECT id FROM roles WHERE name = 'community_admin' LIMIT 1)");
+                $del->execute($targetIds);
+            }
             break;
 
         case 'delete':

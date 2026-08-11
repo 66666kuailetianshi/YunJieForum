@@ -9,8 +9,16 @@
  */
 
 require_once APP_ROOT . 'app/includes/functions.php';
+require_once dirname(__DIR__) . '/layout/admin-helpers.php';
 
 if (!is_logged_in() || !is_admin()) {
+    http_response_code(403);
+    echo json_encode(['error' => t('admin_ajax_forbidden', '无权访问')], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+// 细粒度门禁：风险详情属用户管理，需 manage_user_dispose 权限（超管天然通过）
+if (!has_permission('manage_user_dispose')) {
     http_response_code(403);
     echo json_encode(['error' => t('admin_ajax_forbidden', '无权访问')], JSON_UNESCAPED_UNICODE);
     exit;
@@ -131,12 +139,20 @@ foreach ($appeals as &$ap) {
 }
 unset($ap);
 
+// 隐私控制：非超管（社区管理员）默认隐藏邮箱，申请披露经超管审核通过后可见
+$emailVisible = admin_can_view_email((int)$u['id']);
+// 一次性披露：展示即消耗（仅社区管理员经申请批准后查看时生效）
+if ($emailVisible) {
+    admin_consume_email_disclosure((int)$u['id']);
+}
+
 echo json_encode([
     'user' => [
-        'id'          => (int)$u['id'],
-        'uid'         => $u['uid'] ?? '-',
-        'username'    => $u['username'],
-        'email'       => $u['email'],
+        'id'            => (int)$u['id'],
+        'uid'           => $u['uid'] ?? '-',
+        'username'      => $u['username'],
+        'email'         => $emailVisible ? $u['email'] : '',
+        'email_visible' => $emailVisible ? 1 : 0,
         'role'        => $u['role'],
         'status'      => $u['status'],
         'status_fmt'  => format_user_status($u['status']),

@@ -8,6 +8,9 @@
 
 require_once dirname(__DIR__) . '/layout/admin-init.php';
 
+// 权限门禁：运行状态监控仅超级管理员可用
+require_super_admin();
+
 $pageTitle = t('admin_sys_title', '运行状态监控');
 $activeMenu = 'system_status';
 
@@ -32,191 +35,6 @@ function ss_page_format_bytes(int $bytes): string {
 $dbSize = defined('DB_FILE') && is_file(DB_FILE) ? (int)filesize(DB_FILE) : 0;
 ?>
 
-<style>
-.status-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: 1rem;
-    margin-bottom: 1.5rem;
-}
-.status-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    padding: 1.25rem;
-    box-shadow: var(--shadow-sm);
-}
-.status-card-title {
-    font-size: 0.875rem;
-    font-weight: 600;
-    color: var(--text-muted);
-    margin-bottom: 0.75rem;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-}
-.status-value {
-    font-size: 1.5rem;
-    font-weight: 700;
-    color: var(--text);
-    margin-bottom: 0.25rem;
-    word-break: break-word;
-}
-.status-sub {
-    font-size: 0.8125rem;
-    color: var(--text-muted);
-}
-.status-badge {
-    display: inline-flex;
-    align-items: center;
-    padding: 0.25rem 0.75rem;
-    border-radius: 9999px;
-    font-size: 0.8125rem;
-    font-weight: 600;
-}
-.status-badge.success { background: rgba(16, 185, 129, 0.15); color: #10b981; }
-.status-badge.warning { background: rgba(245, 158, 11, 0.15); color: #f59e0b; }
-.status-badge.danger  { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
-[data-theme="dark"] .status-badge.success { background: rgba(16, 185, 129, 0.25); }
-[data-theme="dark"] .status-badge.warning { background: rgba(245, 158, 11, 0.25); }
-[data-theme="dark"] .status-badge.danger  { background: rgba(239, 68, 68, 0.25); }
-
-.progress-track {
-    width: 100%;
-    height: 0.625rem;
-    background: var(--surface-3);
-    border-radius: 9999px;
-    overflow: hidden;
-    margin-top: 0.75rem;
-}
-.progress-fill {
-    height: 100%;
-    border-radius: 9999px;
-    transition: width 0.4s ease;
-    min-width: 2px;
-}
-.progress-fill.low    { background: #10b981; }
-.progress-fill.medium { background: #f59e0b; }
-.progress-fill.high   { background: #ef4444; }
-.progress-fill.off    { background: #9ca3af; opacity: 0.5; } /* 受限环境不可用 */
-
-.bank-list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-}
-.bank-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 0.625rem 0;
-    border-bottom: 1px solid var(--border);
-    font-size: 0.875rem;
-}
-.bank-item:last-child { border-bottom: none; }
-.bank-slot { color: var(--text-muted); min-width: 5rem; }
-.bank-model { flex: 1; margin: 0 0.75rem; color: var(--text); }
-.bank-meta { color: var(--text-muted); white-space: nowrap; }
-
-.disk-list { margin-top: 0.75rem; }
-.disk-item {
-    padding: 0.875rem 0;
-    border-bottom: 1px solid var(--border);
-}
-.disk-item:last-child { border-bottom: none; }
-.disk-header {
-    display: flex;
-    justify-content: space-between;
-    font-size: 0.875rem;
-    margin-bottom: 0.5rem;
-}
-.disk-device { font-weight: 600; color: var(--text); }
-.disk-meta { color: var(--text-muted); }
-
-.last-update {
-    font-size: 0.75rem;
-    color: var(--text-muted);
-    margin-left: auto;
-    transition: color 0.2s ease;
-}
-.last-update.flash {
-    color: var(--primary);
-}
-
-.temp-list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-}
-.temp-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 0.5rem 0;
-    border-bottom: 1px solid var(--border);
-    font-size: 0.875rem;
-}
-.temp-item:last-child { border-bottom: none; }
-.temp-name {
-    color: var(--text-muted);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    min-width: 0;
-    flex: 1;
-}
-.temp-value {
-    font-weight: 600;
-    color: var(--text);
-    white-space: nowrap;
-    flex-shrink: 0;
-}
-.temp-value.normal { color: #10b981; }
-.temp-value.warning { color: #f59e0b; }
-.temp-value.danger { color: #ef4444; }
-
-.net-item {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-bottom: 0.5rem;
-    font-size: 0.875rem;
-}
-.net-arrow {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.5rem;
-    height: 1.5rem;
-    border-radius: 50%;
-    font-size: 0.75rem;
-}
-.net-arrow.down { background: rgba(16, 185, 129, 0.15); color: #10b981; }
-.net-arrow.up   { background: rgba(59, 130, 246, 0.15); color: #3b82f6; }
-
-.hw-disk-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 0.625rem 0;
-    border-bottom: 1px solid var(--border);
-    font-size: 0.875rem;
-}
-.hw-disk-item:last-child { border-bottom: none; }
-.hw-disk-model { flex: 1; margin: 0 0.75rem; color: var(--text); font-weight: 500; }
-.hw-disk-meta { color: var(--text-muted); white-space: nowrap; }
-.hw-disk-badge {
-    display: inline-block;
-    padding: 0.125rem 0.5rem;
-    border-radius: 9999px;
-    font-size: 0.75rem;
-    font-weight: 600;
-}
-.hw-disk-badge.ssd { background: rgba(59, 130, 246, 0.15); color: #3b82f6; }
-.hw-disk-badge.hdd { background: rgba(245, 158, 11, 0.15); color: #f59e0b; }
-</style>
-
 <div class="page-header">
     <h1 class="page-title"><?php echo e(t('admin_sys_title', '运行状态监控')); ?></h1>
     <div class="page-tools">
@@ -226,9 +44,9 @@ $dbSize = defined('DB_FILE') && is_file(DB_FILE) ? (int)filesize(DB_FILE) : 0;
     </div>
 </div>
 
-<div class="status-grid">
+<div class="status-grid card-stack">
     <!-- 运行状态 -->
-    <div class="status-card">
+    <div class="status-card card-stack-item">
         <div class="status-card-title">
             <span><?php echo e(t('admin_sys_status', '运行状态')); ?></span>
             <span class="status-badge success" id="loadStatusBadge"><?php echo e(t('admin_sys_status_ok', '运行正常')); ?></span>
@@ -238,7 +56,7 @@ $dbSize = defined('DB_FILE') && is_file(DB_FILE) ? (int)filesize(DB_FILE) : 0;
     </div>
 
     <!-- CPU -->
-    <div class="status-card">
+    <div class="status-card card-stack-item">
         <div class="status-card-title">
             <span><?php echo e(t('admin_sys_cpu_load', 'CPU 实时负载')); ?></span>
             <span id="cpuUsageText">0%</span>
@@ -251,7 +69,7 @@ $dbSize = defined('DB_FILE') && is_file(DB_FILE) ? (int)filesize(DB_FILE) : 0;
     </div>
 
     <!-- 内存 -->
-    <div class="status-card">
+    <div class="status-card card-stack-item">
         <div class="status-card-title">
             <span><?php echo e(t('admin_sys_mem_usage', '内存实时使用')); ?></span>
             <span id="memUsageText">0%</span>
@@ -264,35 +82,35 @@ $dbSize = defined('DB_FILE') && is_file(DB_FILE) ? (int)filesize(DB_FILE) : 0;
     </div>
 
     <!-- 系统负载 -->
-    <div class="status-card">
+    <div class="status-card card-stack-item">
         <div class="status-card-title">
             <span><?php echo e(t('admin_sys_load_avg', '系统负载平均值')); ?></span>
             <span class="status-sub"><?php echo e(t('admin_sys_load_avg_sub', '1/5/15 分钟')); ?></span>
         </div>
-        <div class="status-value" id="loadAvg1" style="font-size:1.5rem;">--</div>
+        <div class="status-value" id="loadAvg1">--</div>
         <div class="status-sub">
             <span><?php echo e(t('admin_sys_load_5min', '5 分钟：')); ?><strong id="loadAvg5">--</strong></span>
-            <span style="margin-left:0.75rem;"><?php echo e(t('admin_sys_load_15min', '15 分钟：')); ?><strong id="loadAvg15">--</strong></span>
+            <span class="ss-load-15"><?php echo e(t('admin_sys_load_15min', '15 分钟：')); ?><strong id="loadAvg15">--</strong></span>
         </div>
     </div>
 
     <!-- 服务器时间 -->
-    <div class="status-card">
+    <div class="status-card card-stack-item">
         <div class="status-card-title">
             <span><?php echo e(t('admin_sys_server_time', '服务器时间')); ?></span>
             <span class="status-sub" id="serverTzAbbr">--</span>
         </div>
-        <div class="status-value" id="serverTime" style="font-size:1.5rem;">--</div>
+        <div class="status-value" id="serverTime">--</div>
         <div class="status-sub" id="serverTz">--</div>
     </div>
 
     <!-- 数据库统计 -->
-    <div class="status-card">
+    <div class="status-card card-stack-item">
         <div class="status-card-title">
             <span><?php echo e(t('admin_sys_database', '数据库')); ?></span>
             <span class="status-sub" id="dbJournalMode">--</span>
         </div>
-        <div class="status-value" style="font-size:1rem;line-height:1.7;">
+        <div class="status-value ss-value-multi">
             <div><?php echo e(t('admin_sys_db_mainfile', '主文件：')); ?><strong id="dbSize">--</strong></div>
             <div><?php echo e(t('admin_sys_db_wal', 'WAL：')); ?><strong id="dbWalSize">--</strong></div>
             <div><?php echo e(t('admin_sys_db_tables', '表：')); ?><strong id="dbTableCount">--</strong><?php echo e(t('admin_sys_db_tables_unit', ' 个 / ')); ?><strong id="dbTotalRows">--</strong><?php echo e(t('admin_sys_db_rows_unit', ' 行')); ?></div>
@@ -300,7 +118,7 @@ $dbSize = defined('DB_FILE') && is_file(DB_FILE) ? (int)filesize(DB_FILE) : 0;
     </div>
 
     <!-- 温度监控 -->
-    <div class="status-card">
+    <div class="status-card card-stack-item">
         <div class="status-card-title">
             <span><?php echo e(t('admin_sys_temp', '温度监控')); ?></span>
             <span class="status-sub" id="tempCount">--</span>
@@ -311,26 +129,26 @@ $dbSize = defined('DB_FILE') && is_file(DB_FILE) ? (int)filesize(DB_FILE) : 0;
     </div>
 
     <!-- 网络流量 -->
-    <div class="status-card">
+    <div class="status-card card-stack-item">
         <div class="status-card-title">
             <span><?php echo e(t('admin_sys_network', '网络流量')); ?></span>
             <span class="status-sub"><?php echo e(t('admin_sys_net_rate', '实时速率')); ?></span>
         </div>
         <div class="net-item">
             <span class="net-arrow down">↓</span>
-            <span style="flex:1;"><?php echo e(t('admin_sys_download', '下载')); ?></span>
-            <span id="netDownloadSpeed" style="font-weight:600;color:#10b981;">-- B/s</span>
+            <span class="net-label"><?php echo e(t('admin_sys_download', '下载')); ?></span>
+            <span id="netDownloadSpeed" class="net-speed-down">-- B/s</span>
         </div>
         <div class="net-item">
             <span class="net-arrow up">↑</span>
-            <span style="flex:1;"><?php echo e(t('admin_sys_upload', '上传')); ?></span>
-            <span id="netUploadSpeed" style="font-weight:600;color:#3b82f6;">-- B/s</span>
+            <span class="net-label"><?php echo e(t('admin_sys_upload', '上传')); ?></span>
+            <span id="netUploadSpeed" class="net-speed-up">-- B/s</span>
         </div>
-        <div class="status-sub" style="margin-top:0.5rem;" id="netTotal"><?php echo e(t('admin_sys_net_total', '累计：↓ -- / ↑ --')); ?></div>
+        <div class="status-sub net-total" id="netTotal"><?php echo e(t('admin_sys_net_total', '累计：↓ -- / ↑ --')); ?></div>
     </div>
 
     <!-- 电池状态 -->
-    <div class="status-card" id="batteryCard" style="display:none;">
+    <div class="status-card card-stack-item" id="batteryCard" style="display:none;">
         <div class="status-card-title">
             <span><?php echo e(t('admin_sys_battery', '电池状态')); ?></span>
             <span class="status-sub" id="batteryStatus">--</span>
@@ -342,57 +160,58 @@ $dbSize = defined('DB_FILE') && is_file(DB_FILE) ? (int)filesize(DB_FILE) : 0;
     </div>
 </div>
 
-<!-- 环境信息 + PHP 详细信息 -->
-<div class="card" style="margin-bottom:1.5rem;">
+<!-- 环境信息 + PHP 详细信息（以下详情卡片统一用 .card-stack 纵排，替代内联 margin） -->
+<div class="card-stack">
+<div class="card">
     <div class="card-header">
         <h2 class="card-title"><?php echo e(t('admin_sys_php_env', 'PHP 运行环境')); ?></h2>
     </div>
-    <div id="phpInfoPanel" style="padding:1rem 1.25rem;">
+    <div id="phpInfoPanel" class="panel-body">
         <p class="text-muted text-center py-2"><?php echo e(t('admin_sys_loading', '正在加载…')); ?></p>
     </div>
 </div>
 
 <!-- GPU 信息 -->
-<div class="card" style="margin-bottom:1.5rem;">
+<div class="card">
     <div class="card-header">
         <h2 class="card-title"><?php echo e(t('admin_sys_gpu', '显卡信息')); ?></h2>
     </div>
-    <div id="gpuInfoPanel" style="padding:1rem 1.25rem;">
+    <div id="gpuInfoPanel" class="panel-body">
         <p class="text-muted text-center py-2"><?php echo e(t('admin_sys_loading', '正在加载…')); ?></p>
     </div>
 </div>
 
 <!-- 主板 + BIOS 信息 -->
-<div class="card" style="margin-bottom:1.5rem;">
+<div class="card">
     <div class="card-header">
         <h2 class="card-title"><?php echo e(t('admin_sys_motherboard', '主板与 BIOS')); ?></h2>
     </div>
-    <div id="motherboardPanel" style="padding:1rem 1.25rem;">
+    <div id="motherboardPanel" class="panel-body">
         <p class="text-muted text-center py-2"><?php echo e(t('admin_sys_loading', '正在加载…')); ?></p>
     </div>
 </div>
 
 <!-- 网络接口 -->
-<div class="card" style="margin-bottom:1.5rem;">
+<div class="card">
     <div class="card-header">
         <h2 class="card-title"><?php echo e(t('admin_sys_nic', '网络接口')); ?></h2>
     </div>
-    <div id="networkInterfacesPanel" style="padding:1rem 1.25rem;">
+    <div id="networkInterfacesPanel" class="panel-body">
         <p class="text-muted text-center py-2"><?php echo e(t('admin_sys_loading', '正在加载…')); ?></p>
     </div>
 </div>
 
 <!-- 数据库表 Top15 -->
-<div class="card" style="margin-bottom:1.5rem;">
+<div class="card">
     <div class="card-header">
         <h2 class="card-title"><?php echo e(t('admin_sys_db_tables_top', '数据库表（按记录数 Top 15）')); ?></h2>
     </div>
-    <div id="dbTablesPanel" style="padding:1rem 1.25rem;">
+    <div id="dbTablesPanel" class="panel-body">
         <p class="text-muted text-center py-2"><?php echo e(t('admin_sys_loading', '正在加载…')); ?></p>
     </div>
 </div>
 
-<div class="card" style="margin-bottom:1.5rem;">
+<div class="card">
     <div class="card-header">
         <h2 class="card-title"><?php echo e(t('admin_sys_memory_banks', '内存条信息')); ?></h2>
     </div>
@@ -410,7 +229,7 @@ $dbSize = defined('DB_FILE') && is_file(DB_FILE) ? (int)filesize(DB_FILE) : 0;
     </div>
 </div>
 
-<div class="card" style="margin-top:1.5rem;">
+<div class="card">
     <div class="card-header">
         <h2 class="card-title"><?php echo e(t('admin_sys_disk_hw', '硬盘型号')); ?></h2>
     </div>
@@ -418,6 +237,7 @@ $dbSize = defined('DB_FILE') && is_file(DB_FILE) ? (int)filesize(DB_FILE) : 0;
         <p class="text-muted text-center py-2"><?php echo e(t('admin_sys_loading', '正在加载…')); ?></p>
     </div>
 </div>
+</div><!-- /.card-stack -->
 
 <script>
 (function () {

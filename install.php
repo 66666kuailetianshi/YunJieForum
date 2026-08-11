@@ -321,7 +321,10 @@ $pageTitle = t('install_title', '安装向导');
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
     <title><?php echo e($pageTitle); ?> - <?php echo e(APP_NAME); ?></title>
-    <link rel="stylesheet" href="public/css/style.css?v=<?php echo e(APP_VERSION); ?>">
+    <link rel="stylesheet" href="public/css/tokens.css?v=<?php echo e(APP_VERSION); ?>-ui3">
+    <link rel="stylesheet" href="public/css/base.css?v=<?php echo e(APP_VERSION); ?>-ui3">
+    <link rel="stylesheet" href="public/css/utilities.css?v=<?php echo e(APP_VERSION); ?>-ui3">
+    <link rel="stylesheet" href="public/css/style.css?v=<?php echo e(APP_VERSION); ?>-ui3">
     <link rel="icon" type="image/x-icon" href="/favicon.ico">
 </head>
 <body class="auth-page">
