@@ -1,12 +1,12 @@
 # 云界论坛 (Cloud Forum)
 
-> **当前状态：正式版**（`v1.5.0`）｜ 轻量级社区论坛系统 · PHP + SQLite · 开箱即用
+> **当前状态：正式版**（`v1.5.1`）｜ 轻量级社区论坛系统 · PHP + SQLite · 开箱即用
 
 **[English](README.en.md) · [繁體中文](README.zh-TW.md)**
 
 `云界论坛` 是一套纯 PHP 编写的轻量级社区论坛（BBS）系统，默认使用 SQLite 文件数据库，无需独立部署数据库服务器即可运行，适合个人博客社区、兴趣小组、内网知识库等场景。系统内置用户体系、版块/帖子/回复、私信、通知、签到积分、勋章角色、内容审核（敏感词）、邮件与流量统计等完整功能，并提供可视化的安装向导与后台管理。
 
-- **当前版本：** `1.5.0`
+- **当前版本：** `1.5.1`
 - **开发语言：** PHP 7.4+
 - **默认数据库：** SQLite（同时支持 MySQL / PostgreSQL）
 - **前端：** 原生 HTML + CSS + 少量原生 JS，无前端构建步骤
@@ -48,7 +48,7 @@
 | 内容审核 | 敏感词过滤引擎（Trie + Aho-Corasick），支持精确/整词/正则三种匹配、白名单、三级处理（替换 / 拦截 / 人工审核）、命中日志；用户举报、封禁申诉、禁言 |
 | 邮件 | 原生 `fsockopen` 实现的 SMTP 发送器（无第三方依赖），支持 SSL/TLS，邮件日志、退信处理（bounce）、邮件统计与通知 |
 | 运维监控 | 流量统计（访问记录）、系统状态（CPU/内存/温度/网络/磁盘/显卡，详见[第 10.1 节](#101-系统状态监控-system_status)）、数据库备份、自动 Schema 迁移、安装/错误日志 |
-| 系统更新 | 「系统更新中心」支持手动/自动检查并应用版本更新：下载 → 校验 SHA256 哈希 → 自动备份 → 覆盖升级，详见[第 10.3 节](#103-系统更新中心-update_center) |
+| 系统更新 | 「系统更新中心」支持手动/自动检查并应用版本更新：下载 → 校验 SHA256 哈希 → 自动备份 → 覆盖升级；历史更新备份可列表/下载/分享/删除，详见[第 10.3 节](#103-系统更新中心-update_center) |
 | 多语言 | 内置 `简体中文 / 繁體中文 / English`，按 URL、Cookie、配置、浏览器语言自动识别 |
 | 主题 | 基于 CSS 变量的明暗双主题（light / dark），可改色与换肤 |
 | 人机验证 | 内置「滑块拼图」「点选文字」「推理交换」与「图片字母」四种模式人机验证，支持行为打分、难度调节（简单/普通/困难）、触发模式（始终显示/可疑触发/高风险触发）与显示方式（内嵌式/弹窗式/触发式），GD 生成背景图，无需第三方服务 |
@@ -476,6 +476,14 @@ location ~* \.(db|sqlite|sqlite3|sql|zip|gz|log|cache|lock)$ {
 
 > 自动更新同样走「校验 + 备份 + 覆盖」全流程；若更新源未提供 `package_url`，可将更新包命名为 `update.zip` 放在「{通道}/」目录下由系统自动推导。
 
+**历史更新备份管理**
+
+更新设置下方提供「历史更新备份」卡片，集中管理每次更新前自动生成的 `update_pre_*.zip` 代码备份（服务端分页，每页 10 条）：
+
+- **下载**：HMAC 派生一次性下载令牌（基于 CSRF 令牌，常量时间比较），文件名严格白名单校验防路径穿越。
+- **分享**：生成无需登录即可下载的公开链接（48 位随机令牌，默认 7 天过期，删除备份时自动清理分享记录）。
+- **删除**：POST + CSRF 校验，同步清理对应分享记录。
+
 ---
 
 ## 11. API 接口
@@ -490,6 +498,7 @@ location ~* \.(db|sqlite|sqlite3|sql|zip|gz|log|cache|lock)$ {
 | `post_replies_count.php` | 主题回复数实时查询 |
 | `check_ban_status.php` | 当前用户封禁/禁言状态 |
 | `upload_image.php` | 图片上传 |
+| `share_backup.php` | 历史更新备份分享下载（公开，需 48 位随机令牌，默认 7 天过期） |
 
 **后台接口**（`app/admin/api/`，`*_ajax.php`）：backup、ban_appeals、bounce、data_migration、update、mail_notify、mail_stats、pending_counts、posts、replies、reports、sensitive_logs、sensitive_words、system_status、traffic、user_detail、user_risk_detail、users、users_bulk、users_export_csv。
 
@@ -614,7 +623,7 @@ location ~* \.(db|sqlite|sqlite3|sql|zip|gz|log|cache|lock)$ {
 
 ---
 
-> 文档基于项目源码（`index.php`、`install.php`、`app/includes/*`、`public/*`）整理，版本 `1.5.0`。
+> 文档基于项目源码（`index.php`、`install.php`、`app/includes/*`、`public/*`）整理，版本 `1.5.1`。
 > 如与代码实现不符，请以代码与安装向导提示为准。
 
 ---

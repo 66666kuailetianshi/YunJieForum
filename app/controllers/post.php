@@ -402,6 +402,13 @@ include APP_ROOT . 'app/includes/header.php';
         <?php echo e(strip_bbcode($post['title'])); ?>
     </h1>
     <div class="page-header-actions action-bar">
+        <!-- 分享帖子：复制完整链接（含域名/IP），未登录也可使用 -->
+        <button type="button" class="btn btn-sm btn-secondary" id="post-share-btn"
+                data-url="<?php echo e(site_absolute_url() . site_url('post', ['id' => $postId])); ?>"
+                title="<?php echo e(t('post_share_title', '复制帖子链接，分享给他人')); ?>">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:2px;"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+            <?php echo e(t('post_share', '分享')); ?>
+        </button>
         <?php if (is_logged_in()): ?>
             <form method="post" action="<?php echo e(site_url('post', ['id' => $postId])); ?>" class="inline-form">
                 <input type="hidden" name="csrf_token" value="<?php echo e(csrf_token()); ?>">
@@ -787,8 +794,81 @@ var POST_I18N = {
     autoRefreshPaused: <?php echo json_encode(t('post_js_auto_refresh_paused', '已暂停自动刷新，点击按钮手动刷新')); ?>,
     updatedCountdown: <?php echo json_encode(t('post_js_updated_countdown', '有更新，{seconds} 秒后自动刷新…')); ?>,
     newRepliesCountdown: <?php echo json_encode(t('post_js_new_replies_countdown', '有 {count} 条新回复，{seconds} 秒后自动刷新…')); ?>,
-    contentUpdated: <?php echo json_encode(t('post_content_updated', '内容有更新，点击刷新')); ?>
+    contentUpdated: <?php echo json_encode(t('post_content_updated', '内容有更新，点击刷新')); ?>,
+    shareCopied: <?php echo json_encode(t('post_share_copied', '帖子链接已复制')); ?>,
+    shareCopyFailed: <?php echo json_encode(t('post_share_copy_failed', '复制失败，请手动复制链接')); ?>
 };
+
+// ===== 分享帖子：复制完整链接 + 轻量浮动提示 =====
+// 放在脚本最顶部并用事件委托绑定，避免后续脚本异常影响绑定；
+// 三级兜底：Clipboard API -> execCommand -> prompt 手动复制。
+function showPostShareToast(text, ok) {
+    var old = document.getElementById('post-share-toast');
+    if (old) old.remove();
+    var toast = document.createElement('div');
+    toast.id = 'post-share-toast';
+    toast.textContent = text;
+    toast.style.cssText = 'position:fixed;left:50%;bottom:48px;transform:translateX(-50%);z-index:9999;'
+        + 'padding:10px 20px;border-radius:8px;font-size:.9rem;box-shadow:0 4px 16px rgba(0,0,0,.18);'
+        + 'background:' + (ok ? 'var(--success, #16a34a)' : 'var(--danger, #dc2626)') + ';color:#fff;'
+        + 'opacity:0;transition:opacity .25s;pointer-events:none;max-width:80vw;word-break:break-all;';
+    document.body.appendChild(toast);
+    requestAnimationFrame(function () { toast.style.opacity = '1'; });
+    setTimeout(function () {
+        toast.style.opacity = '0';
+        setTimeout(function () { toast.remove(); }, 300);
+    }, 2200);
+}
+
+function handlePostShare(btn) {
+    var url = btn.getAttribute('data-url') || window.location.href;
+    var done = function (ok) {
+        if (ok) {
+            showPostShareToast(POST_I18N.shareCopied, true);
+        } else {
+            // 最终兜底：弹出 prompt 让用户手动复制（非安全上下文/剪贴板被禁时保证可见反馈）
+            window.prompt(POST_I18N.shareCopyFailed, url);
+        }
+    };
+    var fallback = function () {
+        var input = document.createElement('input');
+        input.value = url;
+        input.style.cssText = 'position:fixed;opacity:0;';
+        document.body.appendChild(input);
+        input.focus();
+        input.select();
+        var ok = false;
+        try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+        input.remove();
+        done(ok);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(function () { done(true); }, fallback);
+    } else {
+        fallback();
+    }
+}
+
+// 事件委托：无论按钮何时渲染、直接绑定是否成功都能响应
+var postShareBoundDirectly = false;
+document.addEventListener('click', function (e) {
+    var btn = e.target && e.target.closest ? e.target.closest('#post-share-btn') : null;
+    if (btn) {
+        if (!postShareBoundDirectly) {
+            // 委托路径兜底：若直接绑定未生效，这里标记避免双重触发
+            handlePostShare(btn);
+        }
+    }
+});
+// 直接绑定（优先路径，与委托二选一触发）
+(function () {
+    var shareBtn = document.getElementById('post-share-btn');
+    if (!shareBtn) return;
+    postShareBoundDirectly = true;
+    shareBtn.addEventListener('click', function () {
+        handlePostShare(shareBtn);
+    });
+})();
 
 function getReplyTextarea() {
     return document.getElementById('reply-content');

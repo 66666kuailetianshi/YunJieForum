@@ -1,12 +1,12 @@
 # 云界论坛 (Cloud Forum)
 
-> **Current Status: Stable** (v1.5.0) | Lightweight community forum · PHP + SQLite · Out-of-the-box
+> **Current Status: Stable** (v1.5.1) | Lightweight community forum · PHP + SQLite · Out-of-the-box
 
 **[简体中文](README.md) · [繁體中文](README.zh-TW.md)**
 
 `Cloud Forum` is a lightweight community forum (BBS) system written entirely in PHP. It uses a SQLite file database by default, so it can run without a standalone database server — suitable for personal blog communities, interest groups, intranet knowledge bases, and similar scenarios. The system includes a built-in user system, forums/posts/replies, private messages, notifications, daily check-ins with points, medals and roles, content moderation (sensitive words), email and traffic statistics, and provides a visual installation wizard and admin panel.
 
-- **Current Version:** `1.5.0`
+- **Current Version:** `1.5.1`
 - **Language:** PHP 7.4+
 - **Default Database:** SQLite (also supports MySQL / PostgreSQL)
 - **Frontend:** Native HTML + CSS + a small amount of native JS, no frontend build step
@@ -48,7 +48,7 @@
 | Content Moderation | Sensitive-word filtering engine (Trie + Aho-Corasick), supporting exact / whole-word / regex matching, whitelist, three-level handling (replace / block / manual review), hit logs; user reports, ban appeals, mute |
 | Email | Native SMTP sender implemented with `fsockopen` (no third-party dependencies), supports SSL/TLS, mail logs, bounce handling, mail statistics and notifications |
 | Ops & Monitoring | Traffic statistics (visit records), system status, database backup, automatic schema migration, installation/error logs |
-| System Update | "System Update Center" supports manual/automatic update checking and applying: download → verify SHA256 hash → auto-backup → overwrite upgrade, see [Section 10.3](#103-system-update-center-update_center) |
+| System Update | "System Update Center" supports manual/automatic update checking and applying: download → verify SHA256 hash → auto-backup → overwrite upgrade; historical update backups can be listed/downloaded/shared/deleted, see [Section 10.3](#103-system-update-center-update_center) |
 | Multi-language | Built-in `Simplified Chinese / Traditional Chinese / English`, auto-detected by URL, Cookie, config, and browser language |
 | Themes | Light/dark dual themes based on CSS variables (light / dark), customizable colors and skins |
 | CAPTCHA | Supports "slider jigsaw", "click text", and "reasoning swap" challenge modes with one-click switching or smart mixing; display modes include inline embedding and popup; behavioral scoring allows seamless verification for legitimate users |
@@ -478,6 +478,14 @@ Both a manual "Update now" click and an automatic trigger go through the same at
 
 > Auto-update also goes through the full "verify + backup + overwrite" flow; if the source provides no `package_url`, name the package `update.zip` and place it under the `{channel}/` directory so the system derives it automatically.
 
+**Historical Update Backup Management**
+
+Below the update settings, a "Update Backup History" card centrally manages the `update_pre_*.zip` code backups created automatically before each update (server-side pagination, 10 per page):
+
+- **Download**: one-time download token derived via HMAC (based on the CSRF token, constant-time comparison); strict filename whitelist prevents path traversal.
+- **Share**: generates a public link that downloads without login (48-char random token, 7-day expiry by default; the share record is cleaned up automatically when the backup is deleted).
+- **Delete**: POST + CSRF validation; the corresponding share record is removed as well.
+
 ---
 
 ## 11. API Endpoints
@@ -492,6 +500,7 @@ Both a manual "Update now" click and an automatic trigger go through the same at
 | `post_replies_count.php` | Realtime reply count for a topic |
 | `check_ban_status.php` | Current user's ban/mute status |
 | `upload_image.php` | Image upload |
+| `share_backup.php` | Shared download of historical update backups (public; requires a 48-char random token, 7-day expiry by default) |
 
 **Admin endpoints** (`app/admin/api/`, `*_ajax.php`): backup, ban_appeals, bounce, data_migration, update, mail_notify, mail_stats, pending_counts, posts, replies, reports, sensitive_logs, sensitive_words, system_status, traffic, user_detail, user_risk_detail, users, users_bulk, users_export_csv.
 
@@ -607,7 +616,7 @@ In "Site Settings → CAPTCHA Settings", find the "Display Mode" dropdown and se
 
 ---
 
-> Documentation compiled from the project source (`index.php`, `install.php`, `app/includes/*`, `public/*`), version `1.5.0`.
+> Documentation compiled from the project source (`index.php`, `install.php`, `app/includes/*`, `public/*`), version `1.5.1`.
 > If it differs from the actual implementation, please follow the code and the installation wizard prompts.
 
 

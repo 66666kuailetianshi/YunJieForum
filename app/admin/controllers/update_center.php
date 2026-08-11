@@ -6,6 +6,7 @@
  *   1. 当前版本展示与「检查更新」入口（手动）。
  *   2. 「立即更新」入口（手动应用：下载 → 校验 → 备份 → 覆盖）。
  *   3. 自动更新设置（更新源地址、更新通道、是否自动应用、检查间隔）。
+ *   4. 历史更新备份列表（位于更新设置下方，可下载 / 分享 / 删除，带分页）。
  */
 
 require_once dirname(__DIR__) . '/layout/admin-init.php';
@@ -14,6 +15,27 @@ require_once dirname(__DIR__) . '/layout/admin-init.php';
 require_super_admin();
 
 require_once APP_ROOT . 'app/includes/update_center.php';
+
+// 处理历史更新备份下载（GET + 一次性派生令牌，直接流式输出）
+if (($_GET['action'] ?? '') === 'download') {
+    $filename = (string)($_GET['filename'] ?? '');
+    $token    = (string)($_GET['token'] ?? '');
+    if (!uc_is_update_backup_name($filename) || !admin_backup_download_token_valid($filename, $token)) {
+        set_flash(t('admin_backup_flash_download_token_invalid', '下载令牌无效。'), 'error');
+        redirect('/admin/update_center');
+    }
+    $filepath = uc_update_backup_dir() . $filename;
+    if (!is_file($filepath)) {
+        set_flash(t('update_history_file_missing', '备份文件不存在或已被删除。'), 'error');
+        redirect('/admin/update_center');
+    }
+    header('Content-Type: application/zip');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    header('Content-Length: ' . filesize($filepath));
+    header('Cache-Control: no-cache, no-store, must-revalidate');
+    readfile($filepath);
+    exit;
+}
 
 $errors   = [];
 $autoResult = null;
@@ -59,6 +81,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && validate_csrf()) {
 
 $pageTitle   = t('update_title', '系统更新');
 $activeMenu  = 'update_center';
+
+// 历史更新备份列表（更新前自动创建的代码备份），分页每页 10 条（与「数据备份」页一致）
+$updateBackups = uc_list_update_backups();
+$historyPerPage = 10;
+$historyTotal = count($updateBackups);
+$historyTotalPages = max(1, (int)ceil($historyTotal / $historyPerPage));
+$historyPage = max(1, min((int)($_GET['page'] ?? 1), $historyTotalPages));
+$pagedUpdateBackups = array_slice($updateBackups, ($historyPage - 1) * $historyPerPage, $historyPerPage);
 
 require_once dirname(__DIR__) . '/layout/header.php';
 ?>
@@ -129,7 +159,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
         </div>
         <div class="modal-body" style="padding:1.25rem 1.5rem;">
             <p id="updateConfirmText" style="margin:0;font-size:.95rem;line-height:1.7;color:var(--text);"><?php echo e(t('update_confirm', '确定要立即更新吗？系统将先备份当前代码再覆盖升级。')); ?></p>
-            <div class="update-confirm-safe">
+            <div class="update-confirm-safe" id="updateConfirmSafe">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
                 <span><?php echo e(t('update_confirm_data_safe', '您的配置不会丢失：data/ 目录（数据库、站点设置、SMTP 邮件服务等）在升级中不会被覆盖。升级前还会自动备份全部代码，可随时恢复。')); ?></span>
             </div>
@@ -137,6 +167,25 @@ require_once dirname(__DIR__) . '/layout/header.php';
         <div class="modal-footer">
             <button type="button" class="btn btn-secondary" id="updateConfirmCancel"><?php echo e(t('update_confirm_cancel', '取消')); ?></button>
             <button type="button" class="btn btn-primary" id="updateConfirmOk"><?php echo e(t('update_confirm_ok', '确认更新')); ?></button>
+        </div>
+    </div>
+</div>
+
+<!-- 备份分享对话框 -->
+<div class="modal-overlay" id="shareModal" style="display:none;">
+    <div class="modal-box" style="max-width:520px;">
+        <div class="modal-header">
+            <h3 class="modal-title"><?php echo e(t('update_history_share_title', '分享更新备份')); ?></h3>
+            <button type="button" class="modal-close" id="shareModalClose">&times;</button>
+        </div>
+        <div class="modal-body" style="padding:1.25rem 1.5rem;">
+            <p style="margin:0 0 .75rem;font-size:.9rem;line-height:1.6;color:var(--text-muted);"><?php echo e(t('update_history_share_desc', '获得下方链接的人无需登录即可下载该备份，链接默认 7 天内有效，请勿分享给不信任的人。')); ?></p>
+            <input type="text" class="form-control" id="shareUrlInput" readonly style="font-size:.85rem;">
+            <p class="form-hint mt-1" id="shareExpires" style="margin-bottom:0;"></p>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" id="shareModalCancel"><?php echo e(t('update_confirm_cancel', '取消')); ?></button>
+            <button type="button" class="btn btn-primary" id="shareCopyBtn"><?php echo e(t('update_history_share_copy', '复制链接')); ?></button>
         </div>
     </div>
 </div>
@@ -194,6 +243,63 @@ require_once dirname(__DIR__) . '/layout/header.php';
 
         <button type="submit" class="btn btn-primary"><?php echo e(t('settings_save', '保存设置')); ?></button>
     </form>
+</div>
+
+<!-- 历史更新备份列表（位于更新设置下方；可下载 / 分享 / 删除） -->
+<div class="card mt-2" id="updateHistoryCard">
+    <div class="card-header">
+        <h2 class="card-title"><?php echo e(t('update_history_title', '历史更新备份')); ?></h2>
+        <span class="backup-refresh-hint">
+            <?php echo t('update_history_count_prefix', '共 '); ?><strong id="updateHistoryCount"><?php echo count($updateBackups); ?></strong><?php echo t('update_history_count_suffix', ' 个备份'); ?>
+        </span>
+    </div>
+    <p class="form-hint mt-1"><?php echo e(t('update_history_desc', '每次更新前系统会自动创建代码备份（update_pre_*.zip），包含 app/、public/ 及入口文件，不包含 data/ 数据。可下载留存、分享给他人或删除以释放空间。')); ?></p>
+    <div class="backup-list">
+        <div class="backup-empty" id="updateHistoryEmpty" <?php echo $updateBackups ? 'style="display:none;"' : ''; ?>>
+            <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.4;margin-bottom:0.5rem;"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+            <p><?php echo e(t('update_history_empty', '暂无历史更新备份。执行一次系统更新后，这里会列出更新前自动创建的代码备份。')); ?></p>
+        </div>
+        <div class="backup-table-wrap" id="updateHistoryTableWrap" <?php echo $updateBackups ? '' : 'style="display:none;"'; ?>>
+            <table class="backup-table">
+                <thead>
+                    <tr>
+                        <th><?php echo e(t('admin_backup_th_filename', '文件名')); ?></th>
+                        <th><?php echo e(t('admin_backup_th_created', '创建时间')); ?></th>
+                        <th><?php echo e(t('admin_backup_th_size', '大小')); ?></th>
+                        <th><?php echo e(t('admin_backup_th_actions', '操作')); ?></th>
+                    </tr>
+                </thead>
+                <tbody id="updateHistoryBody">
+                    <?php foreach ($pagedUpdateBackups as $ub): ?>
+                        <tr data-filename="<?php echo e($ub['filename']); ?>">
+                            <td class="backup-cell-filename" title="<?php echo e($ub['filename']); ?>"><?php echo e($ub['filename']); ?></td>
+                            <td><?php echo e(date('Y-m-d H:i:s', $ub['time'])); ?></td>
+                            <td><?php echo e(uc_format_bytes($ub['size'])); ?></td>
+                            <td class="backup-cell-actions">
+                                <a href="<?php echo site_url('admin/update_center', ['action' => 'download', 'filename' => $ub['filename'], 'token' => admin_backup_download_token($ub['filename'])]); ?>" class="btn btn-secondary btn-sm backup-action-btn" title="<?php echo e(t('admin_backup_btn_download', '下载')); ?>">
+                                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                                    <?php echo e(t('admin_backup_btn_download', '下载')); ?>
+                                </a>
+                                <button type="button" class="btn btn-secondary btn-sm backup-action-btn update-history-share-btn" data-filename="<?php echo e($ub['filename']); ?>" title="<?php echo e(t('update_history_share', '分享')); ?>">
+                                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+                                    <?php echo e(t('update_history_share', '分享')); ?>
+                                </button>
+                                <button type="button" class="btn btn-secondary btn-sm backup-action-btn update-history-delete-btn is-danger" data-filename="<?php echo e($ub['filename']); ?>" title="<?php echo e(t('admin_backup_btn_delete', '删除')); ?>">
+                                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                                    <?php echo e(t('admin_backup_btn_delete', '删除')); ?>
+                                </button>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <?php if ($historyTotalPages > 1): ?>
+        <div style="padding:0 1.25rem 1.25rem;">
+            <?php echo pagination($historyPage, $historyTotal, $historyPerPage, site_url('admin/update_center')); ?>
+        </div>
+    <?php endif; ?>
 </div>
 
 <script>
@@ -366,6 +472,8 @@ require_once dirname(__DIR__) . '/layout/header.php';
                     currentEl.textContent = res.to;
                     forceMode = false;
                     updateBtn.disabled = true;
+                    // 更新成功后刷新历史更新备份列表（新增了一份更新前备份）
+                    refreshBackupHistory();
                 } else {
                     var msg = '<?php echo e(t('update_failed', '更新失败')); ?>';
                     if (res.error === 'no_update_available') msg = '<?php echo e(t('update_none', '当前已是最新，无需更新。')); ?>';
@@ -396,22 +504,41 @@ require_once dirname(__DIR__) . '/layout/header.php';
             });
     }
 
-    // 自定义确认对话框（替代原生 confirm）
+    // 自定义确认对话框（替代原生 confirm，更新确认与删除备份确认共用）
     var confirmModal = document.getElementById('updateConfirmModal');
     var confirmTitleEl = document.getElementById('updateConfirmTitle');
     var confirmTextEl = document.getElementById('updateConfirmText');
-    function openUpdateConfirm() {
-        // 强制模式下切换确认框文案
-        confirmTitleEl.textContent = (forceMode ? '<?php echo e(t('update_confirm_force_title', '确认强制更新')); ?>' : '<?php echo e(t('update_confirm_title', '确认立即更新')); ?>');
-        confirmTextEl.textContent = (forceMode ? '<?php echo e(t('update_confirm_force', '当前已是最新版本，确定要强制重新安装吗？将重新下载更新包并覆盖代码（data/ 配置与数据不会被覆盖，升级前自动备份）。')); ?>' : '<?php echo e(t('update_confirm', '确定要立即更新吗？系统将先备份当前代码再覆盖升级。')); ?>');
+    var confirmSafeEl = document.getElementById('updateConfirmSafe');
+    var confirmOkBtn = document.getElementById('updateConfirmOk');
+    var pendingConfirmOk = null;
+    function openConfirm(title, text, showSafeHint, onOk, okText) {
+        confirmTitleEl.textContent = title;
+        confirmTextEl.textContent = text;
+        confirmTextEl.style.whiteSpace = showSafeHint ? '' : 'pre-line';
+        confirmSafeEl.style.display = showSafeHint ? '' : 'none';
+        confirmOkBtn.textContent = okText || '<?php echo e(t('update_confirm_ok', '确认更新')); ?>';
+        // 破坏性操作（如删除）用红色主按钮，与「确认更新」区分
+        confirmOkBtn.classList.toggle('btn-primary', showSafeHint);
+        confirmOkBtn.classList.toggle('btn-danger', !showSafeHint);
+        pendingConfirmOk = onOk;
         confirmModal.style.display = 'flex';
     }
-    function closeUpdateConfirm() { confirmModal.style.display = 'none'; }
+    function closeUpdateConfirm() { confirmModal.style.display = 'none'; pendingConfirmOk = null; }
 
-    updateBtn.addEventListener('click', openUpdateConfirm);
+    updateBtn.addEventListener('click', function () {
+        // 强制模式下切换确认框文案
+        openConfirm(
+            (forceMode ? '<?php echo e(t('update_confirm_force_title', '确认强制更新')); ?>' : '<?php echo e(t('update_confirm_title', '确认立即更新')); ?>'),
+            (forceMode ? '<?php echo e(t('update_confirm_force', '当前已是最新版本，确定要强制重新安装吗？将重新下载更新包并覆盖代码（data/ 配置与数据不会被覆盖，升级前自动备份）。')); ?>' : '<?php echo e(t('update_confirm', '确定要立即更新吗？系统将先备份当前代码再覆盖升级。')); ?>'),
+            true,
+            doUpdate,
+            '<?php echo e(t('update_confirm_ok', '确认更新')); ?>'
+        );
+    });
     document.getElementById('updateConfirmOk').addEventListener('click', function () {
+        var cb = pendingConfirmOk;
         closeUpdateConfirm();
-        doUpdate();
+        if (typeof cb === 'function') { cb(); }
     });
     document.getElementById('updateConfirmCancel').addEventListener('click', closeUpdateConfirm);
     document.getElementById('updateConfirmClose').addEventListener('click', closeUpdateConfirm);
@@ -421,6 +548,114 @@ require_once dirname(__DIR__) . '/layout/header.php';
     document.addEventListener('keydown', function (e) {
         if (e.key === 'Escape' && confirmModal.style.display !== 'none') { closeUpdateConfirm(); }
     });
+
+    // ===== 历史更新备份：删除 / 列表刷新 =====
+    var historyCsrf = '<?php echo csrf_token(); ?>';
+
+    function bindHistoryDeleteBtn(btn) {
+        btn.addEventListener('click', function () {
+            var filename = btn.dataset.filename;
+            openConfirm(
+                <?php echo json_encode(t('admin_backup_js_confirm_delete_title', '删除备份')); ?>,
+                <?php echo json_encode(t('admin_backup_js_confirm_delete_msg', '确定要删除备份文件 "{name}" 吗？')); ?>.replace('{name}', filename) + '\n' + <?php echo json_encode(t('admin_backup_js_confirm_delete_warn', '此操作不可恢复，删除后无法找回该备份。')); ?>,
+                false,
+                function () {
+                    var form = new FormData();
+                    form.append('action', 'backup_delete');
+                    form.append('csrf_token', historyCsrf);
+                    form.append('filename', filename);
+                    fetch('/index.php?route=admin/api/update_ajax', { method: 'POST', body: form })
+                        .then(function (r) { return r.json(); })
+                        .then(function (res) {
+                            if (res.success) {
+                                refreshBackupHistory();
+                            } else {
+                                showStatus('<?php echo e(t('admin_backup_js_delete_failed', '删除失败：')); ?>' + escapeHtml(res.error || <?php echo json_encode(t('admin_backup_js_unknown_error', '未知错误')); ?>), 'error');
+                            }
+                        })
+                        .catch(function () { showStatus(<?php echo json_encode(t('admin_backup_js_network_delete_fail', '网络错误，删除失败。')); ?>, 'error'); });
+                },
+                <?php echo json_encode(t('update_history_delete_ok', '确认删除')); ?>
+            );
+        });
+    }
+
+    // ===== 历史更新备份：分享 =====
+    var shareModal = document.getElementById('shareModal');
+    var shareUrlInput = document.getElementById('shareUrlInput');
+    var shareExpiresEl = document.getElementById('shareExpires');
+    var shareCopyBtn = document.getElementById('shareCopyBtn');
+    function closeShareModal() { shareModal.style.display = 'none'; }
+    shareCopyBtn.addEventListener('click', function () {
+        var url = shareUrlInput.value;
+        var done = function () {
+            shareCopyBtn.textContent = '<?php echo e(t('update_history_share_copied', '已复制')); ?>';
+            setTimeout(function () {
+                shareCopyBtn.textContent = '<?php echo e(t('update_history_share_copy', '复制链接')); ?>';
+            }, 2000);
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(url).then(done).catch(function () {
+                shareUrlInput.select();
+                document.execCommand('copy');
+                done();
+            });
+        } else {
+            shareUrlInput.select();
+            document.execCommand('copy');
+            done();
+        }
+    });
+    document.getElementById('shareModalCancel').addEventListener('click', closeShareModal);
+    document.getElementById('shareModalClose').addEventListener('click', closeShareModal);
+    shareModal.addEventListener('click', function (e) {
+        if (e.target === shareModal) { closeShareModal(); }
+    });
+
+    function bindHistoryShareBtn(btn) {
+        btn.addEventListener('click', function () {
+            var filename = btn.dataset.filename;
+            btn.disabled = true;
+            var form = new FormData();
+            form.append('action', 'backup_share');
+            form.append('csrf_token', historyCsrf);
+            form.append('filename', filename);
+            fetch('/index.php?route=admin/api/update_ajax', { method: 'POST', body: form })
+                .then(function (r) { return r.json(); })
+                .then(function (res) {
+                    if (res.success) {
+                        shareUrlInput.value = res.url;
+                        shareExpiresEl.textContent = '<?php echo e(t('update_history_share_expires_prefix', '链接有效期至：')); ?>' + new Date(res.expires * 1000).toLocaleString();
+                        shareModal.style.display = 'flex';
+                    } else {
+                        showStatus('<?php echo e(t('update_history_share_failed', '生成分享链接失败：')); ?>' + escapeHtml(res.error || <?php echo json_encode(t('admin_backup_js_unknown_error', '未知错误')); ?>), 'error');
+                    }
+                })
+                .catch(function () { showStatus(<?php echo json_encode(t('update_history_share_network_fail', '网络错误，生成分享链接失败。')); ?>, 'error'); })
+                .finally(function () { btn.disabled = false; });
+        });
+    }
+
+    function refreshBackupHistory() {
+        // 重新拉取当前页 HTML，仅替换历史更新备份卡片（含分页），
+        // 与服务端渲染保持完全一致；页码超界时后端会自动夹取到最后一页
+        fetch(window.location.href, { cache: 'no-store' })
+            .then(function (r) { return r.text(); })
+            .then(function (html) {
+                var doc = new DOMParser().parseFromString(html, 'text/html');
+                var newCard = doc.getElementById('updateHistoryCard');
+                var curCard = document.getElementById('updateHistoryCard');
+                if (newCard && curCard) {
+                    curCard.innerHTML = newCard.innerHTML;
+                    curCard.querySelectorAll('.update-history-delete-btn').forEach(bindHistoryDeleteBtn);
+                    curCard.querySelectorAll('.update-history-share-btn').forEach(bindHistoryShareBtn);
+                }
+            })
+            .catch(function () {});
+    }
+
+    document.querySelectorAll('.update-history-delete-btn').forEach(bindHistoryDeleteBtn);
+    document.querySelectorAll('.update-history-share-btn').forEach(bindHistoryShareBtn);
 })();
 </script>
 

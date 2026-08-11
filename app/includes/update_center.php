@@ -635,6 +635,152 @@ if (!function_exists('uc_get_current_version')) {
     }
 
     /**
+     * 历史更新备份目录（与数据备份共用 data/backups/，以 update_pre_ 前缀区分）
+     */
+    function uc_update_backup_dir(): string {
+        return DATA_PATH . 'backups' . DIRECTORY_SEPARATOR;
+    }
+
+    /**
+     * 校验历史更新备份文件名（update_pre_Ymd_His.zip），防止路径穿越
+     */
+    function uc_is_update_backup_name(string $filename): bool {
+        return (bool)preg_match('/^update_pre_\d{8}_\d{6}\.zip$/', $filename);
+    }
+
+    /**
+     * 从文件名解析备份时间（update_pre_Ymd_His.zip），解析失败回退文件 mtime
+     */
+    function uc_update_backup_time(string $filename, string $path): int {
+        if (preg_match('/^update_pre_(\d{8}_\d{6})\.zip$/', $filename, $m)) {
+            $dt = DateTime::createFromFormat('Ymd_His', $m[1]);
+            if ($dt !== false) {
+                return $dt->getTimestamp();
+            }
+        }
+        return (int)@filemtime($path);
+    }
+
+    /**
+     * 列出全部历史更新备份（时间倒序）
+     *
+     * @return array [{filename, size, time}]
+     */
+    function uc_list_update_backups(): array {
+        $dir   = uc_update_backup_dir();
+        $files = is_dir($dir) ? glob($dir . 'update_pre_*.zip') : [];
+        $list  = [];
+        foreach ((array)$files as $path) {
+            $name = basename($path);
+            if (!uc_is_update_backup_name($name)) {
+                continue;
+            }
+            $list[] = [
+                'filename' => $name,
+                'size'     => (int)@filesize($path),
+                'time'     => uc_update_backup_time($name, $path),
+            ];
+        }
+        usort($list, function ($a, $b) {
+            return ($b['time'] <=> $a['time']) ?: strcmp($b['filename'], $a['filename']);
+        });
+        return $list;
+    }
+
+    /**
+     * 删除指定历史更新备份（仅允许符合命名规则的文件），同时清理分享记录
+     */
+    function uc_delete_update_backup(string $filename): array {
+        if (!uc_is_update_backup_name($filename)) {
+            return ['success' => false, 'error' => 'invalid_filename'];
+        }
+        $path = uc_update_backup_dir() . $filename;
+        if (!is_file($path)) {
+            return ['success' => false, 'error' => 'not_found'];
+        }
+        if (!@unlink($path)) {
+            return ['success' => false, 'error' => 'delete_failed'];
+        }
+        @unlink(uc_update_backup_share_path($filename));
+        return ['success' => true];
+    }
+
+    /**
+     * 分享记录文件路径（与备份同目录，{filename}.share.json）
+     */
+    function uc_update_backup_share_path(string $filename): string {
+        return uc_update_backup_dir() . $filename . '.share.json';
+    }
+
+    /**
+     * 读取分享记录；不存在或已过期返回 null（过期时顺带清理）
+     */
+    function uc_get_update_backup_share(string $filename): ?array {
+        if (!uc_is_update_backup_name($filename)) {
+            return null;
+        }
+        $metaPath = uc_update_backup_share_path($filename);
+        if (!is_file($metaPath)) {
+            return null;
+        }
+        $raw = @file_get_contents($metaPath);
+        $meta = $raw === false ? null : json_decode($raw, true);
+        if (!is_array($meta) || empty($meta['token']) || empty($meta['expires'])) {
+            return null;
+        }
+        if (time() >= (int)$meta['expires']) {
+            @unlink($metaPath);
+            return null;
+        }
+        return $meta;
+    }
+
+    /**
+     * 创建（或复用未过期的）分享链接
+     *
+     * 令牌为 48 位随机十六进制串，无法由其他信息推导；默认 7 天过期，
+     * 到期后链接自动失效。重复调用返回同一链接，直至过期。
+     */
+    function uc_create_update_backup_share(string $filename, int $ttlDays = 7): array {
+        if (!uc_is_update_backup_name($filename)) {
+            return ['success' => false, 'error' => 'invalid_filename'];
+        }
+        $path = uc_update_backup_dir() . $filename;
+        if (!is_file($path)) {
+            return ['success' => false, 'error' => 'not_found'];
+        }
+        $meta = uc_get_update_backup_share($filename);
+        if ($meta === null) {
+            $meta = [
+                'token'   => bin2hex(random_bytes(24)),
+                'created' => time(),
+                'expires' => time() + $ttlDays * 86400,
+            ];
+            if (@file_put_contents(uc_update_backup_share_path($filename), json_encode($meta, JSON_UNESCAPED_UNICODE)) === false) {
+                return ['success' => false, 'error' => 'share_write_failed'];
+            }
+        }
+        // 生成完整绝对链接：优先用 SITE_URL 配置，未配置时自动推导协议 + 域名/IP
+        $relUrl = function_exists('site_url')
+            ? site_url('api/share_backup', ['file' => $filename, 'token' => $meta['token']])
+            : ('/index.php?route=api/share_backup&file=' . urlencode($filename) . '&token=' . $meta['token']);
+        $base = function_exists('site_absolute_url') ? site_absolute_url() : '';
+        return ['success' => true, 'url' => $base . $relUrl, 'expires' => (int)$meta['expires']];
+    }
+
+    /**
+     * 人类可读的字节大小
+     */
+    function uc_format_bytes(int $bytes): string {
+        if ($bytes <= 0) {
+            return '0 B';
+        }
+        $units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        $i = min((int)floor(log($bytes, 1024)), count($units) - 1);
+        return round($bytes / pow(1024, $i), 2) . ' ' . $units[$i];
+    }
+
+    /**
      * 自动更新触发（按间隔，由后台页面加载时调用）
      */
     function uc_try_auto_update(): array {

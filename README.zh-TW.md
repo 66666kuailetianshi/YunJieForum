@@ -1,12 +1,12 @@
 # 雲界論壇 (Cloud Forum)
 
-> **當前狀態：正式版**（`v1.5.0`）｜ 輕量級社區論壇系統 · PHP + SQLite · 開箱即用
+> **當前狀態：正式版**（`v1.5.1`）｜ 輕量級社區論壇系統 · PHP + SQLite · 開箱即用
 
 **[简体中文](README.md) · [English](README.en.md)**
 
 `雲界論壇` 是一套純 PHP 編寫的輕量級社區論壇（BBS）系統，默認使用 SQLite 文件資料庫，無需獨立部署資料庫伺服器即可運行，適合個人博客社區、興趣小組、內網知識庫等場景。系統內置用戶體系、版塊/帖子/回復、私信、通知、籤到積分、勳章角色、內容審核（敏感詞）、郵件與流量統計等完整功能，並提供可視化的安裝嚮導與後臺管理。
 
-- **當前版本：** `1.5.0`
+- **當前版本：** `1.5.1`
 - **開發語言：** PHP 7.4+
 - **默認資料庫：** SQLite（同時支持 MySQL / PostgreSQL）
 - **前端：** 原生 HTML + CSS + 少量原生 JS，無前端構建步驟
@@ -48,7 +48,7 @@
 | 內容審核 | 敏感詞過濾引擎（Trie + Aho-Corasick），支持精確/整詞/正則三種匹配、白名單、三級處理（替換 / 攔截 / 人工審核）、命中日誌；用戶舉報、封禁申訴、禁言 |
 | 郵件 | 原生 `fsockopen` 實現的 SMTP 發送器（無第三方依賴），支持 SSL/TLS，郵件日誌、退信處理（bounce）、郵件統計與通知 |
 | 運維監控 | 流量統計（訪問記錄）、系統狀態、資料庫備份、自動 Schema 遷移、安裝/錯誤日誌 |
-| 系統更新 | 「系統更新中心」支援手動/自動檢查並應用版本更新：下載 → 校驗 SHA256 雜湊 → 自動備份 → 覆蓋升級，詳見[第 10.3 節](#103-系統更新中心-update_center) |
+| 系統更新 | 「系統更新中心」支援手動/自動檢查並應用版本更新：下載 → 校驗 SHA256 雜湊 → 自動備份 → 覆蓋升級；歷史更新備份可列表/下載/分享/刪除，詳見[第 10.3 節](#103-系統更新中心-update_center) |
 | 多語言 | 內置 `簡體中文 / 繁體中文 / English`，按 URL、Cookie、配置、瀏覽器語言自動識別 |
 | 主題 | 基於 CSS 變量的明暗雙主題（light / dark），可改色與換膚 |
 | 工單系統 | 前臺「意見反饋」與後臺工單系統統一處理站點問題（bug 等），支援來源篩選（用戶 / 管理員）與狀態流轉（待處理 → 處理中 → 已解決 / 已關閉），新提交自動通知管理員 |
@@ -479,6 +479,14 @@ location ~* \.(db|sqlite|sqlite3|sql|zip|gz|log|cache|lock)$ {
 
 > 自動更新同樣走「校驗 + 備份 + 覆蓋」全流程；若更新源未提供 `package_url`，可將更新包命名為 `update.zip` 放在「{通道}/」目錄下由系統自動推導。
 
+**歷史更新備份管理**
+
+更新設定下方提供「歷史更新備份」卡片，集中管理每次更新前自動產生的 `update_pre_*.zip` 程式碼備份（伺服器端分頁，每頁 10 條）：
+
+- **下載**：HMAC 派生一次性下載令牌（基於 CSRF 令牌，常數時間比較），檔名嚴格白名單校驗防路徑穿越。
+- **分享**：產生無需登入即可下載的公開連結（48 位隨機令牌，預設 7 天過期，刪除備份時自動清理分享記錄）。
+- **刪除**：POST + CSRF 校驗，同步清理對應分享記錄。
+
 ---
 
 ## 11. API 接口
@@ -493,6 +501,7 @@ location ~* \.(db|sqlite|sqlite3|sql|zip|gz|log|cache|lock)$ {
 | `post_replies_count.php` | 主題回複數實時查詢 |
 | `check_ban_status.php` | 當前用戶封禁/禁言狀態 |
 | `upload_image.php` | 圖片上傳 |
+| `share_backup.php` | 歷史更新備份分享下載（公開，需 48 位隨機令牌，預設 7 天過期） |
 
 **後臺接口**（`app/admin/api/`，`*_ajax.php`）：backup、ban_appeals、bounce、data_migration、update、mail_notify、mail_stats、pending_counts、posts、replies、reports、sensitive_logs、sensitive_words、system_status、traffic、user_detail、user_risk_detail、users、users_bulk、users_export_csv。
 
@@ -608,7 +617,7 @@ location ~* \.(db|sqlite|sqlite3|sql|zip|gz|log|cache|lock)$ {
 
 ---
 
-> 文檔基於項目源碼（`index.php`、`install.php`、`app/includes/*`、`public/*`）整理，版本 `1.5.0`。
+> 文檔基於項目源碼（`index.php`、`install.php`、`app/includes/*`、`public/*`）整理，版本 `1.5.1`。
 > 如與代碼實現不符，請以代碼與安裝嚮導提示為準。
 
 ---
