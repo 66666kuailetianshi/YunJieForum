@@ -402,8 +402,7 @@ function exportDataJsonZip(array $whitelist, string $format): void {
  */
 function generateSQLContent(array $selected, string $mode, $db, $driver, bool $isSqlite, bool $isMysql): string {
     $qi = function($n) use ($driver) { return $driver->quoteIdentifier($n); };
-
-    $sql .= "-- ============================================================\n";
+    $sql = '';
     $sql .= "-- " . (defined('SITE_NAME') ? SITE_NAME : APP_NAME) . " 数据库备份\n";
     $sql .= "-- 产品: yunjie-bbs | 版本: " . (defined('APP_VERSION') ? APP_VERSION : '') . "\n";
     $sql .= "-- 导出时间: " . date('Y-m-d H:i:s') . "\n";
@@ -1674,6 +1673,67 @@ function applyIdMapToDbColumn(PDO $db, $driver, string $table, string $column, a
 }
 
 /**
+ * 获取目标表实际列名集合（小写，带缓存）
+ */
+function getTableColumnSet(PDO $db, $driver, string $table, array &$cache): array {
+    $key = strtolower($table);
+    if (isset($cache[$key])) {
+        return $cache[$key];
+    }
+    $cols = [];
+    try {
+        foreach ($driver->getTableInfo($table) as $c) {
+            $cols[] = strtolower($c['name']);
+        }
+    } catch (\Throwable $e) {
+        $cols = [];
+    }
+    $cache[$key] = $cols;
+    return $cols;
+}
+
+/**
+ * 过滤 INSERT 语句中目标表不存在的列，避免跨版本 schema 差异报错。
+ * 仅处理单行标准 INSERT INTO `table` (`col1`, `col2`) VALUES (...)。
+ */
+function filterInsertColumnsForTarget(string $stmtSql, array $validCols): string {
+    if (!preg_match('/^\s*INSERT\s+(IGNORE\s+)?INTO\s+`?(\w+)`?\s*\(([\s\S]*?)\)\s*VALUES\s*\(((?:[^()]|\((?:[^()]|\([^()]*\))*\))*)\)\s*;?\s*$/i', $stmtSql, $m)) {
+        return $stmtSql;
+    }
+
+    $prefix = isset($m[1]) ? $m[1] : '';
+    $colPart = $m[3];
+    $valuesPart = $m[4];
+
+    $validSet = [];
+    foreach ($validCols as $c) {
+        $validSet[strtolower($c)] = true;
+    }
+
+    $newCols = [];
+    $newVals = [];
+    $rawCols = explode(',', $colPart);
+    $rawVals = explode(',', $valuesPart);
+    $count = min(count($rawCols), count($rawVals));
+    for ($i = 0; $i < $count; $i++) {
+        $col = strtolower(trim($rawCols[$i], " `\t\n\r\0\x0B"));
+        if ($col === '') {
+            continue;
+        }
+        if (isset($validSet[$col])) {
+            $newCols[] = trim($rawCols[$i]);
+            $newVals[] = $rawVals[$i];
+        }
+    }
+
+    if (empty($newCols) || count($newCols) === count($rawCols)) {
+        return $stmtSql;
+    }
+
+    return 'INSERT ' . $prefix . 'INTO ' . $m[2] . ' (' . implode(', ', $newCols) . ') VALUES (' . implode(', ', $newVals) . ');';
+}
+
+/**
  * 恢复外键约束（按驱动差异）
  */
 function restoreForeignKeys(PDO $db, bool $isSqlite): void {
@@ -1717,6 +1777,8 @@ function importSQL(string $sqlContent, array $whitelist = [], string $mode = 'ov
     $db = get_db();
     $driver = get_db_driver();
     $isSqlite = $driver->isFileBased();
+
+    $sqlColCache = [];
 
     // 合并模式：优先使用参数传入的模式（ZIP 导入时已根据用户选择选取了对应文件），
     // 其次使用文件内声明的模式（独立 .sql 文件导入时兼容旧格式）
@@ -1831,6 +1893,17 @@ function importSQL(string $sqlContent, array $whitelist = [], string $mode = 'ov
                 if ($isMerge && preg_match('/^\s*DROP\s+TABLE\s+/i', $stmtSql)) {
                     $skippedCount++;
                     continue;
+                }
+
+                // 跨版本 schema 差异保护：剔除目标表不存在的列，避免 Unknown column 导致整批失败
+                if (preg_match('/^\s*INSERT\s+/i', $stmtSql)) {
+                    preg_match('/^\s*INSERT\s+(?:IGNORE\s+)?INTO\s+`?(\w+)`?\s/i', $stmtSql, $m);
+                    if (!empty($m[1])) {
+                        $validCols = getTableColumnSet($db, $driver, $m[1], $sqlColCache);
+                        if (!empty($validCols)) {
+                            $stmtSql = filterInsertColumnsForTarget($stmtSql, $validCols);
+                        }
+                    }
                 }
 
                 try {

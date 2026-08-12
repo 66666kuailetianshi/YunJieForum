@@ -52,7 +52,7 @@ if (!function_exists('uc_get_current_version')) {
      * @param bool|null $sslVerify 是否严格校验 SSL 证书（自签名证书源应关闭）；传 null 时读取后台设置 update_ssl_verify，未配置默认开启校验
      */
     function uc_http_get(string $url, int $timeout = 15, ?bool $sslVerify = null): array {
-        $ua = 'YunjieForum-Updater/' . uc_get_current_version();
+        $ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
         // 未显式传参时读取后台设置，默认开启 SSL 校验（防止更新通道被中间人篡改）
         if ($sslVerify === null) {
             $sslVerify = uc_get_setting('update_ssl_verify', '1') === '1';
@@ -70,16 +70,32 @@ if (!function_exists('uc_get_current_version')) {
                 CURLOPT_MAXREDIRS      => 5,
                 CURLOPT_ENCODING       => '',          // 支持压缩传输
                 CURLOPT_HTTPHEADER     => ['Accept: */*'],
+                CURLOPT_HEADER         => false,        // 不返回单独的头信息，统一从 $code/$data 中获取
             ]);
             $data = curl_exec($ch);
             $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
             $err  = curl_error($ch);
+            $curlErrNo = curl_errno($ch);
+            $certInfo = [];
+            if ($sslVerify && function_exists('curl_getinfo')) {
+                $cert = curl_getinfo($ch, CURLINFO_SSL_VERIFYRESULT);
+                $certInfo = ['ssl_verify_result' => $cert];
+            }
             curl_close($ch);
-            if ($data === false) {
-                return ['ok' => false, 'error' => ($err !== '' ? $err : 'curl_failed'), 'code' => $code];
+            if ($data === false || $curlErrNo !== 0) {
+                $details = "curl errno=$curlErrNo";
+                if (!empty($err)) $details .= ", error=$err";
+                if (!empty($certInfo)) $details .= ", ".json_encode($certInfo);
+                return ['ok' => false, 'error' => "curl_failed: $details", 'code' => $code];
             }
             if ($code >= 400) {
-                return ['ok' => false, 'error' => 'http_' . $code, 'code' => $code, 'body' => (string)$data];
+                // 把响应头也打出来：有些 CDN/WAF 会把错误页当成正常响应
+                $respHeaders = [];
+                foreach ($http_response_header ?? [] as $h) {
+                    if (is_string($h)) $respHeaders[] = $h;
+                }
+                $headerStr = !empty($respHeaders) ? " headers:".json_encode($respHeaders) : '';
+                return ['ok' => false, 'error' => "http_$code$headerStr", 'code' => $code, 'body' => (string)$data, 'headers' => $respHeaders];
             }
             return ['ok' => true, 'data' => $data, 'code' => $code];
         }
@@ -98,6 +114,8 @@ if (!function_exists('uc_get_current_version')) {
             }
         }
         if ($data === false) {
+            $streamMeta = stream_context_get_params($ctx) ?? [];
+            $metaKey = http_response_header();
             return ['ok' => false, 'error' => 'file_get_contents_failed', 'code' => $code];
         }
         if ($code >= 400) {
@@ -113,7 +131,7 @@ if (!function_exists('uc_get_current_version')) {
      * @param callable|null $progressCallback 进度回调 function($downloadedBytes, $totalBytes): void
      */
     function uc_http_download(string $url, string $dest, int $timeout = 600, ?bool $sslVerify = null, $progressCallback = null): array {
-        $ua = 'YunjieForum-Updater/' . uc_get_current_version();
+        $ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
         if ($sslVerify === null) {
             $sslVerify = uc_get_setting('update_ssl_verify', '1') === '1';
         }
@@ -374,11 +392,33 @@ if (!function_exists('uc_get_current_version')) {
         if (!is_dir($backupDir)) {
             @mkdir($backupDir, 0755, true);
         }
+        // Linux 上备份失败最常见根因：data/backups 对 Web 用户不可写
+        if (!is_dir($backupDir) || !is_writable($backupDir)) {
+            return [
+                'ok'      => false,
+                'error'   => 'backup_dir_not_writable',
+                'details' => uc_dir_writability_report($backupDir, 'data/backups/'),
+            ];
+        }
         $stamp   = date('Ymd_His');
         $zipPath = $backupDir . 'update_pre_' . $stamp . '.zip';
         $zip     = new ZipArchive();
-        if ($zip->open($zipPath, ZipArchive::CREATE) !== true) {
-            return ['ok' => false, 'error' => 'backup_zip_open_failed'];
+        $openRes = $zip->open($zipPath, ZipArchive::CREATE);
+        if ($openRes !== true) {
+            $failed = [
+                'ok'      => false,
+                'error'   => 'backup_zip_open_failed',
+                'details' => [
+                    'open_result' => is_int($openRes) ? $openRes : (string)$openRes,
+                    'zip_status'  => (string)$zip->getStatusString(),
+                    'dest'        => $zipPath,
+                    'writable'    => is_writable($backupDir),
+                    'disk_free'   => (($f = @disk_free_space($backupDir)) !== false) ? uc_format_bytes((int)$f) : 'unknown',
+                    'hint'        => '无法在 data/backups 创建备份压缩包，请检查目录权限与磁盘剩余空间。',
+                ],
+            ];
+            $zip->close();
+            return $failed;
         }
 
         // 需要备份的代码位置
@@ -478,7 +518,10 @@ if (!function_exists('uc_get_current_version')) {
                 continue;
             }
             if (@file_put_contents($dest, $content) === false) {
-                $failed[] = $norm . ' (write)';
+                // 附上 OS 级错误信息（如 Permission denied），便于 Linux 权限问题排查
+                $lastErr = error_get_last();
+                $why = ($lastErr['message'] ?? '') !== '' ? $lastErr['message'] : 'write_failed';
+                $failed[] = $norm . ' (write): ' . $why;
                 continue;
             }
             $count++;
@@ -634,7 +677,11 @@ if (!function_exists('uc_get_current_version')) {
         if (!$backup['ok']) {
             @unlink($pkgPath);
             uc_progress_write(['stage' => 'error', 'stage_label' => 'error', 'progress' => 85, 'total' => $dlTotalSize, 'downloaded' => $dlDownloaded, 'message' => '', 'error' => 'backup_failed: ' . ($backup['error'] ?? ''), 'done' => true]);
-            return ['success' => false, 'error' => 'backup_failed: ' . ($backup['error'] ?? '')];
+            return [
+                'success' => false,
+                'error'   => 'backup_failed: ' . ($backup['error'] ?? ''),
+                'details' => $backup['details'] ?? null,
+            ];
         }
 
         // 阶段 3.5：校验包内版本与声明版本一致（92% → 95%）
@@ -681,41 +728,183 @@ if (!function_exists('uc_get_current_version')) {
     }
 
     /**
+     * 上传错误码 → PHP 常量名（便于诊断输出）
+     */
+    function uc_upload_errno_name(int $code): string {
+        $map = [
+            UPLOAD_ERR_OK         => 'UPLOAD_ERR_OK',
+            UPLOAD_ERR_INI_SIZE   => 'UPLOAD_ERR_INI_SIZE',
+            UPLOAD_ERR_FORM_SIZE  => 'UPLOAD_ERR_FORM_SIZE',
+            UPLOAD_ERR_PARTIAL    => 'UPLOAD_ERR_PARTIAL',
+            UPLOAD_ERR_NO_FILE    => 'UPLOAD_ERR_NO_FILE',
+            UPLOAD_ERR_NO_TMP_DIR => 'UPLOAD_ERR_NO_TMP_DIR',
+            UPLOAD_ERR_CANT_WRITE => 'UPLOAD_ERR_CANT_WRITE',
+            UPLOAD_ERR_EXTENSION  => 'UPLOAD_ERR_EXTENSION',
+        ];
+        return $map[$code] ?? 'UNKNOWN';
+    }
+
+    /**
+     * 目录可写性诊断：目录是否存在 / 是否需要创建 / 是否可写 / 属主与权限
+     *
+     * 用于 Linux 上「手动上传更新包失败」的排查（最常见根因：
+     * data/tmp 或 data/backups 对 Web 用户如 www-data 不可写）。
+     */
+    function uc_dir_writability_report(string $dir, string $label = ''): array {
+        $exists = is_dir($dir);
+        $mkdirOk = null;
+        if (!$exists) {
+            $mkdirOk = @mkdir($dir, 0755, true) || is_dir($dir);
+            $exists  = is_dir($dir);
+        }
+        $writable = $exists && is_writable($dir);
+        $owner = false;
+        if ($exists) {
+            $owner = @fileowner($dir);
+            if ($owner !== false && function_exists('posix_getpwuid')) {
+                $pw = @posix_getpwuid((int)$owner);
+                if (is_array($pw) && !empty($pw['name'])) {
+                    $owner = $pw['name'] . ' (uid:' . (int)$owner . ')';
+                }
+            }
+        }
+        $perms = ($exists && ($p = @fileperms($dir)) !== false) ? substr(sprintf('%o', $p), -4) : '';
+        return [
+            'label'         => $label !== '' ? $label : $dir,
+            'path'          => $dir,
+            'realpath'      => $exists ? realpath($dir) : '',
+            'exists'        => $exists,
+            'mkdir_attempt' => $mkdirOk,
+            'writable'      => $writable,
+            'owner'         => $owner,
+            'perms'         => $perms,
+            'hint'          => $writable ? '' : '目录不存在或 Web 用户（如 www-data）无写权限。可执行：chown -R www-data:www-data ' . rtrim(DATA_PATH, '/\\') . ' 后再试（或 chmod -R 775）。',
+        ];
+    }
+
+    /**
+     * 上传环境诊断信息：PHP 上传限制、上传错误码、文件信息、目标目录状态。
+     * 供失败响应附带 details 字段，方便 Linux 等环境排查上传失败根因。
+     */
+    function uc_upload_env_details(string $reason, array $file = [], int $maxSize = 0): array {
+        $errMap = [
+            'upload_err_ini_size'    => '文件大小超过 PHP upload_max_filesize 限制',
+            'upload_err_form_size'   => '文件大小超过表单 MAX_FILE_SIZE 限制',
+            'upload_err_partial'     => '文件仅上传了一部分（网络中断或代理截断）',
+            'upload_err_no_file'     => '未收到上传文件（可能未选择文件或请求未附带文件）',
+            'upload_err_no_tmp_dir'  => 'PHP 临时上传目录（upload_tmp_dir）不存在或不可用',
+            'upload_err_cant_write'  => 'PHP 无法将上传文件写入临时目录（upload_tmp_dir 无写权限）',
+            'upload_err_extension'   => '上传被 PHP 扩展（如 fileinfo）中止',
+            'upload_err_unknown'     => '未知上传错误',
+            'not_zip'                => '仅支持 .zip 格式的更新包',
+            'file_too_large'         => '文件超过系统上限 ' . uc_format_bytes($maxSize),
+            'zip_extension_missing'  => '服务器未启用 ZipArchive 扩展（php-zip）',
+            'not_uploaded_file'      => '上传文件来源无效（is_uploaded_file 校验失败，可能被代理/防火墙改写）',
+            'move_failed'            => 'move_uploaded_file 失败：无法写入 data/tmp 目标目录',
+        ];
+        $tmpDir  = DATA_PATH . 'tmp' . DIRECTORY_SEPARATOR;
+        $dirInfo = uc_dir_writability_report($tmpDir, 'data/tmp/');
+        return [
+            'reason'      => $reason,
+            'reason_text' => $errMap[$reason] ?? $reason,
+            'php'         => [
+                'version'             => PHP_VERSION,
+                'upload_max_filesize' => (string)ini_get('upload_max_filesize'),
+                'post_max_size'       => (string)ini_get('post_max_size'),
+                'max_file_uploads'    => (string)ini_get('max_file_uploads'),
+                'upload_tmp_dir'      => (string)ini_get('upload_tmp_dir') ?: '(系统默认)',
+            ],
+            'upload'      => [
+                'error_code'    => (int)($file['error'] ?? -1),
+                'error_name'    => uc_upload_errno_name((int)($file['error'] ?? -1)),
+                'original_name' => (string)($file['name'] ?? ''),
+                'size'          => (int)($file['size'] ?? 0),
+                'size_text'     => uc_format_bytes((int)($file['size'] ?? 0)),
+                'tmp_name'      => (string)($file['tmp_name'] ?? ''),
+            ],
+            'data_tmp'    => $dirInfo,
+            'dest_path'   => $tmpDir . 'upload_update_input.zip',
+        ];
+    }
+
+    /**
      * 保存手动上传的更新包（.zip）到 data/tmp/upload_update_input.zip
      *
      * 与远程更新的区别：上传包来自管理员本地文件，无需下载与哈希校验；
      * 仍会做基础校验（扩展名、大小、ZIP 有效性）。
+     *
+     * 失败时返回结构附带 details（上传错误码 / PHP 上传限制 / data/tmp 目录
+     * 可写性 / move_uploaded_file 失败原因等），前端据此输出完整诊断，便于
+     * Linux 等环境排查「手动上传更新包失败」的根因。
      */
     function uc_save_upload_package(array $file): array {
-        if (empty($file) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
-            return ['ok' => false, 'error' => 'no_file'];
+        // PHP 上传错误码 → 可读键名（Linux 上常见：upload_max_filesize/post_max_size 过小、upload_tmp_dir 无权限）
+        $uploadErrMap = [
+            UPLOAD_ERR_INI_SIZE   => 'upload_err_ini_size',
+            UPLOAD_ERR_FORM_SIZE  => 'upload_err_form_size',
+            UPLOAD_ERR_PARTIAL    => 'upload_err_partial',
+            UPLOAD_ERR_NO_FILE    => 'upload_err_no_file',
+            UPLOAD_ERR_NO_TMP_DIR => 'upload_err_no_tmp_dir',
+            UPLOAD_ERR_CANT_WRITE => 'upload_err_cant_write',
+            UPLOAD_ERR_EXTENSION  => 'upload_err_extension',
+        ];
+        $errCode = (int)($file['error'] ?? UPLOAD_ERR_NO_FILE);
+        if ($errCode !== UPLOAD_ERR_OK) {
+            $key = $uploadErrMap[$errCode] ?? 'upload_err_unknown';
+            return ['ok' => false, 'error' => $key, 'details' => uc_upload_env_details($key, $file)];
         }
         $name = strtolower((string)($file['name'] ?? ''));
         if (substr($name, -4) !== '.zip') {
-            return ['ok' => false, 'error' => 'not_zip'];
+            return ['ok' => false, 'error' => 'not_zip', 'details' => uc_upload_env_details('not_zip', $file)];
         }
         // 与数据迁移 ZIP 上限保持一致
         $maxSize = 256 * 1024 * 1024;
         if ((int)($file['size'] ?? 0) > $maxSize) {
-            return ['ok' => false, 'error' => 'file_too_large'];
+            return ['ok' => false, 'error' => 'file_too_large', 'details' => uc_upload_env_details('file_too_large', $file, $maxSize)];
         }
         if (!class_exists('ZipArchive')) {
-            return ['ok' => false, 'error' => 'zip_extension_missing'];
+            return ['ok' => false, 'error' => 'zip_extension_missing', 'details' => uc_upload_env_details('zip_extension_missing', $file)];
         }
         $tmpDir = DATA_PATH . 'tmp' . DIRECTORY_SEPARATOR;
-        if (!is_dir($tmpDir)) {
-            @mkdir($tmpDir, 0755, true);
+        $dest   = $tmpDir . 'upload_update_input.zip';
+
+        // 目录诊断：Linux 下最常见原因是 data/tmp 对 Web 用户不可写（mkdir 加 @ 静默失败）
+        $dirInfo = uc_dir_writability_report($tmpDir, 'data/tmp/');
+        if (!$dirInfo['writable']) {
+            return ['ok' => false, 'error' => 'tmp_dir_not_writable', 'details' => $dirInfo];
         }
-        $dest = $tmpDir . 'upload_update_input.zip';
+
+        // 只接受 PHP 上传产生的临时文件（is_uploaded_file 校验），防止伪造路径文件
+        if (!is_uploaded_file($file['tmp_name'] ?? '')) {
+            return ['ok' => false, 'error' => 'not_uploaded_file', 'details' => uc_upload_env_details('not_uploaded_file', $file)];
+        }
         if (!move_uploaded_file($file['tmp_name'], $dest)) {
-            return ['ok' => false, 'error' => 'move_failed'];
+            $lastErr = error_get_last();
+            $details = uc_upload_env_details('move_failed', $file);
+            $details['dest_existed'] = file_exists($dest);
+            $details['last_error']   = ($lastErr['message'] ?? '') !== '' ? $lastErr['message'] : '';
+            $free = @disk_free_space($tmpDir);
+            $details['disk_free']    = $free !== false ? uc_format_bytes((int)$free) : 'unknown';
+            return ['ok' => false, 'error' => 'move_failed', 'details' => $details];
         }
         // 用 ZipArchive 打开校验压缩包有效性，无效则清理并拒绝
         $zip = new ZipArchive();
-        if ($zip->open($dest) !== true || $zip->numFiles < 1) {
+        $openRes = $zip->open($dest);
+        $zipStatus = (string)$zip->getStatusString();
+        if ($openRes !== true || $zip->numFiles < 1) {
+            $badSize = (int)@filesize($dest);
             $zip->close();
             @unlink($dest);
-            return ['ok' => false, 'error' => 'invalid_zip'];
+            return [
+                'ok'      => false,
+                'error'   => 'invalid_zip',
+                'details' => [
+                    'zip_open_result' => is_int($openRes) ? $openRes : (string)$openRes,
+                    'zip_status'      => $zipStatus,
+                    'file_size'       => uc_format_bytes($badSize),
+                    'hint'            => '压缩包可能已损坏，或不是有效的 ZIP 文件。请重新打包后上传。',
+                ],
+            ];
         }
         $zip->close();
         return ['ok' => true, 'path' => $dest, 'size' => (int)$file['size']];
@@ -773,7 +962,12 @@ if (!function_exists('uc_get_current_version')) {
         $backup = uc_backup_files();
         if (!$backup['ok']) {
             @unlink($zipPath);
-            return ['success' => false, 'error' => 'backup_failed: ' . ($backup['error'] ?? ''), 'backup' => ''];
+            return [
+                'success' => false,
+                'error'   => 'backup_failed: ' . ($backup['error'] ?? ''),
+                'backup'  => '',
+                'details' => $backup['details'] ?? null,
+            ];
         }
 
         // 阶段 2：解压覆盖

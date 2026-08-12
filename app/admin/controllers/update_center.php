@@ -504,7 +504,8 @@ require_once dirname(__DIR__) . '/layout/header.php';
                     else if (res.error && res.error.indexOf('check_failed') === 0) msg = '<?php echo e(t('update_check_failed', '检查更新失败（网络错误或更新源不可用）：')); ?>' + escapeHtml((res.error || '').replace('check_failed: ', ''));
                     else msg += '：' + escapeHtml(res.error || '');
                     if (res.hint) msg += '<br><small style="color:var(--text-muted);word-break:break-word">' + escapeHtml(res.hint) + '</small>';
-                    if (res.backup) msg += '<br><?php echo e(t('update_backup_kept', '已保留备份')); ?>：' + escapeHtml(res.backup.split(/[\\/]/).pop()) + '';
+                    if (res.backup) msg += '<br><?php echo e(t('update_backup_kept', '已保留备份')); ?>：' + escapeHtml(res.backup.split(/[\\/]/).pop());
+                    if (res.details) msg += diagBlock(res.details);
                     showStatus(msg, 'error');
                     updateBtn.disabled = false;
                 }
@@ -694,6 +695,28 @@ require_once dirname(__DIR__) . '/layout/header.php';
     var uploadResult  = document.getElementById('uploadResult');
     var lastUpload    = null; // { version, current, relation, files, size_text }
 
+    // 渲染后端返回的诊断信息（details）为可折叠块，便于排查上传/安装失败根因
+    function diagBlock(d) {
+        if (!d) return '';
+        var lines = [];
+        (function walk(obj, prefix) {
+            if (lines.length >= 16) return;
+            for (var k in obj) {
+                if (!Object.prototype.hasOwnProperty.call(obj, k) || lines.length >= 16) continue;
+                var v = obj[k];
+                if (v === null || v === undefined || v === '') continue;
+                var label = prefix ? prefix + '.' + k : k;
+                if (typeof v === 'object') { walk(v, label); }
+                else { lines.push(escapeHtml(label + ': ' + v)); }
+            }
+        })(d, '');
+        if (!lines.length) return '';
+        return '<details style="margin-top:.5rem;font-size:.8rem;color:var(--text-muted,#666);word-break:break-all;">'
+            + '<summary><?php echo e(t('update_upload_diag', '诊断信息')); ?></summary>'
+            + lines.join('<br>')
+            + '</details>';
+    }
+
     function showUploadResult(html, type) {
         uploadResult.style.display = '';
         uploadResult.className = 'update-status mt-2' + (type ? ' is-' + type : '');
@@ -722,7 +745,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
             .then(function (r) { return r.json(); })
             .then(function (res) {
                 if (!res.success) {
-                    var errMsg = res.error === 'no_file'
+                    var errMsg = res.error === 'no_file' || res.error === 'upload_err_no_file'
                         ? '<?php echo e(t('update_upload_err_no_file', '未收到上传文件。')); ?>'
                         : res.error === 'not_zip'
                             ? '<?php echo e(t('update_upload_err_not_zip', '仅支持 .zip 格式的更新包。')); ?>'
@@ -730,7 +753,18 @@ require_once dirname(__DIR__) . '/layout/header.php';
                                 ? '<?php echo e(t('update_upload_err_too_large', '文件过大（超过 256MB）。')); ?>'
                                 : res.error === 'invalid_zip'
                                     ? '<?php echo e(t('update_upload_err_invalid_zip', '上传的 ZIP 文件无效或已损坏。')); ?>'
-                                    : ('<?php echo e(t('update_upload_parse_failed', '解析失败：')); ?>' + escapeHtml(res.error || ''));
+                                    : (res.error === 'upload_err_ini_size' || res.error === 'upload_err_form_size')
+                                        ? '<?php echo e(t('update_upload_err_php_limit', '文件超过 PHP 上传限制（upload_max_filesize / post_max_size），请调大 php.ini 对应配置后重试。')); ?>'
+                                        : (res.error === 'upload_err_no_tmp_dir' || res.error === 'upload_err_cant_write')
+                                            ? '<?php echo e(t('update_upload_err_tmp_dir', 'PHP 临时上传目录（upload_tmp_dir）不可用或不可写，请检查 php.ini 与 php-fpm 运行用户权限。')); ?>'
+                                            : res.error === 'tmp_dir_not_writable'
+                                                ? '<?php echo e(t('update_upload_err_data_tmp', 'data/tmp 目录不存在或不可写，请检查目录权限（Web 用户需可写）。')); ?>'
+                                                : res.error === 'zip_extension_missing'
+                                                    ? '<?php echo e(t('update_upload_err_zip_ext', '服务器未启用 ZipArchive 扩展（php-zip），请安装后重试。')); ?>'
+                                                    : res.error === 'upload_err_partial'
+                                                        ? '<?php echo e(t('update_upload_err_partial', '文件上传不完整（网络中断或代理截断），请重新上传。')); ?>'
+                                                        : ('<?php echo e(t('update_upload_parse_failed', '解析失败：')); ?>' + escapeHtml(res.error || ''));
+                    if (res.details) errMsg += diagBlock(res.details);
                     showUploadResult(errMsg, 'error');
                     return;
                 }
@@ -801,6 +835,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
                     }
                     else msg += '：' + escapeHtml(res.error || '');
                     if (res.backup) msg += '<br><?php echo e(t('update_backup_kept', '已保留备份')); ?>：' + escapeHtml(res.backup.split(/[\\/]/).pop());
+                    if (res.details) msg += diagBlock(res.details);
                     showUploadResult(msg, 'error');
                 }
             })

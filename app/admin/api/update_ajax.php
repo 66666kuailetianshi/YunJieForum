@@ -61,7 +61,23 @@ if ($action === 'update') {
         echo json_encode(['success' => false, 'error' => 'csrf'], JSON_UNESCAPED_UNICODE);
         exit;
     }
-    $result = uc_perform_update(!empty($_POST['force']));
+    try {
+        $result = uc_perform_update(!empty($_POST['force']));
+    } catch (\Throwable $e) {
+        // 捕获 PHP 异常并附现场信息，避免前端只看到空白/500
+        $result = [
+            'success' => false,
+            'error'   => 'exception: ' . $e->getMessage(),
+            'details' => [
+                'exception' => $e->getMessage(),
+                'file'      => $e->getFile(),
+                'line'      => $e->getLine(),
+            ],
+        ];
+    }
+    if (empty($result['details'])) {
+        $result['details'] = null;
+    }
     ob_end_clean();
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode($result, JSON_UNESCAPED_UNICODE);
@@ -89,7 +105,11 @@ if ($action === 'upload_inspect') {
     if (!$saved['ok']) {
         ob_end_clean();
         header('Content-Type: application/json; charset=utf-8');
-        echo json_encode(['success' => false, 'error' => $saved['error']], JSON_UNESCAPED_UNICODE);
+        echo json_encode([
+            'success' => false,
+            'error'   => $saved['error'],
+            'details' => $saved['details'] ?? null,
+        ], JSON_UNESCAPED_UNICODE);
         exit;
     }
     $info = uc_inspect_upload_package($saved['path']);
@@ -134,10 +154,34 @@ if ($action === 'install_upload') {
     if (!is_file($zipPath)) {
         ob_end_clean();
         header('Content-Type: application/json; charset=utf-8');
-        echo json_encode(['success' => false, 'error' => 'pkg_not_found'], JSON_UNESCAPED_UNICODE);
+        // 附带 data/tmp 目录诊断，方便排查「上传成功但提示包已消失」的场景
+        echo json_encode([
+            'success' => false,
+            'error'   => 'pkg_not_found',
+            'details' => array_merge(uc_upload_env_details('pkg_not_found'), [
+                'upload_input_exists' => file_exists($zipPath),
+                'hint'                => '上传的更新包未保存到 data/tmp/upload_update_input.zip。请重新上传，或检查 data/tmp 目录权限。',
+            ]),
+        ], JSON_UNESCAPED_UNICODE);
         exit;
     }
-    $result = uc_perform_upload_update($zipPath);
+    try {
+        $result = uc_perform_upload_update($zipPath);
+    } catch (\Throwable $e) {
+        // 安装过程抛出的 PHP 异常（如 ZipArchive / 文件系统错误）附现场信息返回
+        $result = [
+            'success' => false,
+            'error'   => 'exception: ' . $e->getMessage(),
+            'details' => [
+                'exception' => $e->getMessage(),
+                'file'      => $e->getFile(),
+                'line'      => $e->getLine(),
+            ],
+        ];
+    }
+    if (empty($result['details'])) {
+        $result['details'] = null;
+    }
     uc_progress_clear();
     ob_end_clean();
     header('Content-Type: application/json; charset=utf-8');
