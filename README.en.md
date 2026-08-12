@@ -1,12 +1,12 @@
 # 云界论坛 (Cloud Forum)
 
-> **Current Status: Stable** (v1.5.2) | Lightweight community forum · PHP + SQLite · Out-of-the-box
+> **Current Status: Stable** (v1.5.3) | Lightweight community forum · PHP + SQLite · Out-of-the-box
 
 **[简体中文](README.md) · [繁體中文](README.zh-TW.md)**
 
 `Cloud Forum` is a lightweight community forum (BBS) system written entirely in PHP. It uses a SQLite file database by default, so it can run without a standalone database server — suitable for personal blog communities, interest groups, intranet knowledge bases, and similar scenarios. The system includes a built-in user system, forums/posts/replies, private messages, notifications, daily check-ins with points, medals and roles, content moderation (sensitive words), email and traffic statistics, and provides a visual installation wizard and admin panel.
 
-- **Current Version:** `1.5.2`
+- **Current Version:** `1.5.3`
 - **Language:** PHP 7.4+
 - **Default Database:** SQLite (also supports MySQL / PostgreSQL)
 - **Frontend:** Native HTML + CSS + a small amount of native JS, no frontend build step
@@ -47,7 +47,7 @@
 | Permissions / Roles | Permission groups based on `roles` (`has_permission`), supporting super admin, moderators, etc.; separate from **user groups** that auto-promote by points |
 | Content Moderation | Sensitive-word filtering engine (Trie + Aho-Corasick), supporting exact / whole-word / regex matching, whitelist, three-level handling (replace / block / manual review), hit logs; user reports, ban appeals, mute |
 | Email | Native SMTP sender implemented with `fsockopen` (no third-party dependencies), supports SSL/TLS, mail logs, bounce handling, mail statistics and notifications |
-| Ops & Monitoring | Traffic statistics (visit records: exact PV counting + session-level UV dedup + crawler filtering + region attribution, see [Section 10.4](#104-traffic-monitor-traffic_monitor)), IP database management (offline ip2region format, optional install: download from GitHub/domestic cloud drive, upload/query/delete, see [Section 10.5](#105-ip-database-management-ip_database)), system status, database backup, automatic schema migration, installation/error logs |
+| Ops & Monitoring | Traffic statistics (visit records: exact PV counting + session-level UV dedup + crawler filtering + region attribution, see [Section 10.4](#104-traffic-monitor-traffic_monitor)), IP database management (offline ip2region format, optional install: download from GitHub/domestic cloud drive, upload/query/delete, see [Section 10.5](#105-ip-database-management-ip_database)), IP geolocation in admin User/Post management (registration/last-active/posting IP + region, see [Section 10.6](#106-ip-geolocation-in-user--post-management)), system status, database backup, automatic schema migration, installation/error logs |
 | System Update | "System Update Center" supports manual/automatic update checking and applying: download → verify SHA256 hash → auto-backup → overwrite upgrade; historical update backups can be listed/downloaded/shared/deleted, see [Section 10.3](#103-system-update-center-update_center) |
 | Multi-language | Built-in `Simplified Chinese / Traditional Chinese / English`, auto-detected by URL, Cookie, config, and browser language |
 | Themes | Light/dark dual themes based on CSS variables (light / dark), customizable colors and skins |
@@ -541,6 +541,16 @@ Entry at `/admin/ip_database`, rendered by `app/admin/controllers/ip_database.ph
 
 > If no IP database is installed, the system degrades gracefully: `region` stays empty and the region card shows "Unknown", while the rest of the traffic statistics are unaffected.
 
+### 10.6 IP Geolocation in User & Post Management
+
+Both the admin User Management and Post Management lists now include an **IP Location** column (admin-only; no IP information is ever shown on the frontend), helping admins spot suspicious registrations and spam posts:
+
+- **User Management** (`/admin/users`): each user shows "Last Active IP + region" (main line) and "Registration IP + region" (small line). Data comes from the new `register_ip` / `last_ip` columns on the `users` table: `register_ip` is written at registration, and `last_ip` is refreshed on every successful login and activity update (`client_ip()`, `app/includes/functions.php`).
+- **Post Management** (`/admin/posts`): each post shows "Posting IP + region". Data comes from the new `ip` column on the `posts` table, recorded by `app/controllers/new_post.php` via `client_ip()` when a post is created.
+- **Region resolution**: shares `ip_region_query()` / `ip_region_display()` with the Traffic Monitor (`app/includes/ip2region.php`). Without an installed IP database, only the IP is shown and the region stays empty, with no effect on other features; legacy rows (registered/posted before the upgrade) show "—" when the IP column is empty.
+
+> The schema upgrade runs automatically through `init_db()` / `ensure_schema_patch()` (patch version v9), adding the columns above to `users` and `posts` with no manual steps required.
+
 ---
 
 ## 11. API Endpoints
@@ -672,7 +682,7 @@ In "Site Settings → CAPTCHA Settings", find the "Display Mode" dropdown and se
 
 ---
 
-> Documentation compiled from the project source (`index.php`, `install.php`, `app/includes/*`, `public/*`), version `1.5.2`.
+> Documentation compiled from the project source (`index.php`, `install.php`, `app/includes/*`, `public/*`), version `1.5.3`.
 > If it differs from the actual implementation, please follow the code and the installation wizard prompts.
 
 

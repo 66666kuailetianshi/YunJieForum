@@ -1603,7 +1603,19 @@
 .user-table .col-group { width: 110px; }
 .user-table .col-number { width: 72px; text-align: right; }
 .user-table .col-time { width: 100px; }
+.user-table .col-ip { width: 215px; }
 .user-table .col-actions { width: auto; min-width: 220px; }
+
+/* IP 定位列：IP 与归属地分行，归属地小字独立一行 */
+.user-table .ip-cell { line-height: 1.5; }
+.user-table .ip-cell .ip-main { font-size: 0.8rem; font-family: ui-monospace, Consolas, monospace; white-space: nowrap; }
+.user-table .ip-cell .ip-region { display: block; font-size: 0.72rem; color: var(--text-muted); margin-top: 1px; font-family: system-ui, sans-serif; }
+
+/* 帖子管理：发帖 IP 定位列（data-table 通用） */
+.data-table .col-ip { width: 200px; }
+.data-table .ip-cell { line-height: 1.5; }
+.data-table .ip-cell .ip-main { font-size: 0.8rem; font-family: ui-monospace, Consolas, monospace; white-space: nowrap; }
+.data-table .ip-cell .ip-region { display: block; font-size: 0.72rem; color: var(--text-muted); margin-top: 1px; font-family: system-ui, sans-serif; }
 
 /* 用户单元微调 */
 .user-table .user-cell {

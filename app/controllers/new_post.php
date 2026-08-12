@@ -84,12 +84,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $db->beginTransaction();
 
                 // 插入帖子（含 forum_id）
-                $stmt = $db->prepare("INSERT INTO posts (forum_id, user_id, title, content) VALUES (:forum_id, :user_id, :title, :content)");
+                $stmt = $db->prepare("INSERT INTO posts (forum_id, user_id, title, content, ip) VALUES (:forum_id, :user_id, :title, :content, :ip)");
                 $stmt->execute([
                     ':forum_id' => $forumId,
                     ':user_id' => $_SESSION['user_id'],
                     ':title' => $processedTitle,
                     ':content' => $processedContent,
+                    ':ip' => client_ip(),
                 ]);
                 $newPostId = (int)$db->lastInsertId();
 

@@ -87,13 +87,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 $hash = password_hash($password, PASSWORD_BCRYPT);
                 $uid = generate_uid();
-                $stmt = $db->prepare("INSERT INTO users (uid, username, email, password, role) VALUES (:uid, :username, :email, :password, :role)");
+                $regIp = client_ip();
+                $stmt = $db->prepare("INSERT INTO users (uid, username, email, password, role, register_ip, last_ip) VALUES (:uid, :username, :email, :password, :role, :reg_ip, :reg_ip)");
                 $stmt->execute([
                     ':uid' => $uid,
                     ':username' => $username,
                     ':email' => $email,
                     ':password' => $hash,
                     ':role' => $role,
+                    ':reg_ip' => $regIp,
                 ]);
 
                 $userId = (int)$db->lastInsertId();

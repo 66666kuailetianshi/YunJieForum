@@ -395,6 +395,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
                     <th class="col-time">
                         <a href="#" class="sort-th" data-sort="last_active"><?php echo e(t('admin_users_th_last_active', '最后活跃')); ?></a>
                     </th>
+                    <th class="col-ip"><?php echo e(t('admin_users_th_ip', 'IP 定位')); ?></th>
                     <th class="col-actions"><?php echo e(t('admin_users_th_actions', '操作')); ?></th>
                 </tr>
             </thead>
@@ -474,6 +475,25 @@ require_once dirname(__DIR__) . '/layout/header.php';
                         <td class="col-number"><?php echo (int)$u['reply_count']; ?></td>
                         <td class="col-time"><?php echo e(date('Y-m-d', db_time($u['created_at']))); ?></td>
                         <td class="col-time"><?php echo e($lastActive); ?></td>
+                        <?php
+                        // IP 定位：最后活跃 IP + 注册 IP，均实时查归属地（未安装 IP 库时为空）
+                        $ipLast = (string)($u['last_ip'] ?? '');
+                        $ipReg  = (string)($u['register_ip'] ?? '');
+                        $ipLastRegion = $ipLast !== '' ? ip_region_display(ip_region_query($ipLast)) : '';
+                        $ipRegRegion  = $ipReg  !== '' ? ip_region_display(ip_region_query($ipReg)) : '';
+                        ?>
+                        <td class="col-ip">
+                            <div class="ip-cell">
+                                <div class="ip-main" title="<?php echo e(t('admin_users_ip_last', '最后活跃 IP')); ?>">
+                                    <?php echo $ipLast !== '' ? e($ipLast) : '—'; ?>
+                                    <?php if ($ipLastRegion !== ''): ?><span class="text-muted ip-region"><?php echo e($ipLastRegion); ?></span><?php endif; ?>
+                                </div>
+                                <div class="text-muted text-xs" title="<?php echo e(t('admin_users_ip_register', '注册 IP')); ?>">
+                                    <?php echo e(t('admin_users_ip_register', '注册')); ?>：<?php echo $ipReg !== '' ? e($ipReg) : '—'; ?>
+                                    <?php if ($ipRegRegion !== ''): ?><span class="ip-region"><?php echo e($ipRegRegion); ?></span><?php endif; ?>
+                                </div>
+                            </div>
+                        </td>
                         <td class="col-actions">
                             <div class="action-btns">
                                 <?php if ($isSuperAdmin): ?>
@@ -779,6 +799,14 @@ require_once dirname(__DIR__) . '/layout/header.php';
             '<td class="col-number">' + (parseInt(u.reply_count, 10) || 0) + '</td>' +
             '<td class="col-time">' + escapeHtml(u.created_at_fmt) + '</td>' +
             '<td class="col-time">' + escapeHtml(u.last_active_ago) + '</td>' +
+            '<td class="col-ip"><div class="ip-cell">' +
+                '<div class="ip-main" title="' + <?php echo json_encode(t('admin_users_ip_last', '最后活跃 IP')); ?> + '">' + escapeHtml(u.ip_last || '—') +
+                    (u.ip_last_region ? ' <span class="text-muted ip-region">' + escapeHtml(u.ip_last_region) + '</span>' : '') +
+                '</div>' +
+                '<div class="text-muted text-xs" title="' + <?php echo json_encode(t('admin_users_ip_register', '注册 IP')); ?> + '">' + <?php echo json_encode(t('admin_users_ip_register', '注册') . '：'); ?> + escapeHtml(u.ip_register || '—') +
+                    (u.ip_register_region ? ' <span class="ip-region">' + escapeHtml(u.ip_register_region) + '</span>' : '') +
+                '</div>' +
+            '</div></td>' +
             '<td class="col-actions">' + actions + '</td>' +
             '</tr>';
     }
@@ -822,7 +850,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
 
                 if (users.length === 0) {
                     if (lastSignature !== 'EMPTY') {
-                        tbody.innerHTML = <?php echo json_encode(t('admin_users_js_no_users','<tr><td colspan="12" class="text-muted text-center py-2">未找到用户。</td></tr>')); ?>;
+                        tbody.innerHTML = <?php echo json_encode(t('admin_users_js_no_users','<tr><td colspan="13" class="text-muted text-center py-2">未找到用户。</td></tr>')); ?>;
                         lastSignature = 'EMPTY';
                     }
                     return;

@@ -150,6 +150,8 @@ function ensure_core_tables(PDO $db): void {
         status_reason TEXT DEFAULT '',
         login_fails INTEGER DEFAULT 0,
         login_locked_until DATETIME DEFAULT NULL,
+        register_ip VARCHAR(45) DEFAULT '',
+        last_ip VARCHAR(45) DEFAULT '',
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )");
     ddl_exec("CREATE TABLE IF NOT EXISTS forum_categories (
@@ -183,6 +185,7 @@ function ensure_core_tables(PDO $db): void {
         is_pinned INTEGER DEFAULT 0,
         is_essence INTEGER DEFAULT 0,
         is_locked INTEGER DEFAULT 0,
+        ip VARCHAR(45) DEFAULT '',
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (forum_id) REFERENCES forums(id) ON DELETE SET NULL,
@@ -242,7 +245,7 @@ function mark_migration_done(): void {
  */
 function ensure_schema_patch(PDO $db): void {
     $patchFile = DATA_PATH . 'db_patch_version.lock';
-    if ((int)@file_get_contents($patchFile) >= 8) {
+    if ((int)@file_get_contents($patchFile) >= 9) {
         return;
     }
     ensure_mail_logs_table($db);
@@ -272,7 +275,11 @@ function ensure_schema_patch(PDO $db): void {
     migrate_column($db, 'tickets', 'source', "VARCHAR(10) NOT NULL DEFAULT 'admin'");
     // v8：IP 归属地列（后台「IP 库」离线查询结果，国家|区域|省|市|ISP 或 LAN）
     migrate_column($db, 'traffic_visitors', 'region', "VARCHAR(128) DEFAULT ''");
-    @file_put_contents($patchFile, '8', LOCK_EX);
+    // v9：用户/发帖 IP 记录列（后台「用户管理 / 帖子管理」IP 定位显示）
+    migrate_column($db, 'users', 'register_ip', "VARCHAR(45) DEFAULT ''");
+    migrate_column($db, 'users', 'last_ip', "VARCHAR(45) DEFAULT ''");
+    migrate_column($db, 'posts', 'ip', "VARCHAR(45) DEFAULT ''");
+    @file_put_contents($patchFile, '9', LOCK_EX);
 }
 
 /**
@@ -338,6 +345,10 @@ function auto_migrate(): void {
             // 账号级登录锁定列（存量库补齐，全新安装由 CREATE TABLE 直接包含）
             migrate_column($db, 'users', 'login_fails', 'INTEGER DEFAULT 0');
             migrate_column($db, 'users', 'login_locked_until', 'DATETIME DEFAULT NULL');
+            // 用户/发帖 IP 记录列（存量库补齐，后台 IP 定位显示）
+            migrate_column($db, 'users', 'register_ip', "VARCHAR(45) DEFAULT ''");
+            migrate_column($db, 'users', 'last_ip', "VARCHAR(45) DEFAULT ''");
+            migrate_column($db, 'posts', 'ip', "VARCHAR(45) DEFAULT ''");
             ensure_reports_table($db);
             ensure_notifications_table($db);
             ensure_mail_logs_table($db);
@@ -1819,6 +1830,9 @@ function init_db(): void {
     migrate_column($db, 'users', 'status_reason', 'TEXT DEFAULT \'\'');
     migrate_column($db, 'users', 'login_fails', 'INTEGER DEFAULT 0');
     migrate_column($db, 'users', 'login_locked_until', 'DATETIME DEFAULT NULL');
+    // 后台「用户管理」IP 定位显示：注册 IP / 最后活跃 IP
+    migrate_column($db, 'users', 'register_ip', "VARCHAR(45) DEFAULT ''");
+    migrate_column($db, 'users', 'last_ip', "VARCHAR(45) DEFAULT ''");
 
     // 补充 role 列（兼容从旧版本升级的安装）
     migrate_column($db, 'users', 'role', "VARCHAR(20) DEFAULT 'user'");
@@ -1849,6 +1863,8 @@ function init_db(): void {
     migrate_column($db, 'posts', 'forum_id', 'INTEGER DEFAULT NULL');
     migrate_column($db, 'posts', 'is_essence', 'INTEGER DEFAULT 0');
     migrate_column($db, 'posts', 'is_locked', 'INTEGER DEFAULT 0');
+    // 后台「帖子管理」IP 定位显示：发帖 IP
+    migrate_column($db, 'posts', 'ip', "VARCHAR(45) DEFAULT ''");
 
     ddl_exec("CREATE INDEX IF NOT EXISTS idx_posts_created ON posts(created_at DESC)");
     ddl_exec("CREATE INDEX IF NOT EXISTS idx_posts_pinned ON posts(is_pinned DESC, created_at DESC)");

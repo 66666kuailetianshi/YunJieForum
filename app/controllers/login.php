@@ -86,6 +86,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 // 登录成功：清零失败计数与锁定状态
                 login_lock_clear($account);
+                // 记录本次登录 IP（后台「用户管理」IP 定位显示）
+                try {
+                    $db->prepare("UPDATE users SET last_ip = :ip WHERE id = :id")
+                        ->execute([':ip' => client_ip(), ':id' => (int)$user['id']]);
+                } catch (Exception $e) {
+                    // IP 记录失败不影响登录流程
+                }
                 // 重新生成 session id，防止会话固定攻击
                 session_regenerate_id(true);
                 $_SESSION['user_id'] = (int)$user['id'];

@@ -222,6 +222,12 @@ foreach ($users as &$u) {
 
     // 登录锁定状态（列缺失时恒为 0，供列表「解锁登录」按钮显示判断）
     $u['login_locked'] = !empty($u['login_locked_until']) && db_time($u['login_locked_until']) > $now ? 1 : 0;
+
+    // IP 定位：最后活跃 IP / 注册 IP + 实时归属地（未安装 IP 库时归属地为空）
+    $u['ip_last'] = (string)($u['last_ip'] ?? '');
+    $u['ip_last_region'] = $u['ip_last'] !== '' ? ip_region_display(ip_region_query($u['ip_last'])) : '';
+    $u['ip_register'] = (string)($u['register_ip'] ?? '');
+    $u['ip_register_region'] = $u['ip_register'] !== '' ? ip_region_display(ip_region_query($u['ip_register'])) : '';
 }
 unset($u);
 

@@ -1530,8 +1530,8 @@ function update_last_active(): void {
     $_SESSION['last_active_sync'] = time();
     try {
         $db = get_db();
-        $stmt = $db->prepare("UPDATE users SET last_active = CURRENT_TIMESTAMP WHERE id = :id");
-        $stmt->execute([':id' => $_SESSION['user_id']]);
+        $stmt = $db->prepare("UPDATE users SET last_active = CURRENT_TIMESTAMP, last_ip = :ip WHERE id = :id");
+        $stmt->execute([':id' => $_SESSION['user_id'], ':ip' => client_ip()]);
     } catch (Exception $e) {
         // 数据库异常不影响页面渲染
     }
@@ -1999,6 +1999,17 @@ function suggest_forum_icon_key(string $name): string {
         }
     }
     return 'folder';
+}
+
+/**
+ * 获取客户端 IP（与流量埋点口径一致：直连 REMOTE_ADDR，不信任代理转发头，保护隐私与安全）
+ */
+function client_ip(): string {
+    $ip = $_SERVER['REMOTE_ADDR'] ?? '';
+    if ($ip === '::1') {
+        $ip = '127.0.0.1';
+    }
+    return $ip;
 }
 
 /**

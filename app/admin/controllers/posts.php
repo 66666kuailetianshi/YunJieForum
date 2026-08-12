@@ -246,12 +246,13 @@ require_once dirname(__DIR__) . '/layout/header.php';
                     <th style="width:130px;">
                         <a href="<?php echo e(site_url('admin/posts', array_merge(array_diff_key($_GET, ['page' => 1, 'route' => 1]), ['sort' => 'created_at', 'order' => ($sort === 'created_at' && $order === 'asc') ? 'desc' : 'asc']))); ?>" class="sort-link<?php echo $sort === 'created_at' ? ' active ' . $order : ''; ?>"><?php echo e(t('admin_posts_th_time', '时间')); ?></a>
                     </th>
+                    <th class="col-ip"><?php echo e(t('admin_posts_th_ip', 'IP 定位')); ?></th>
                     <th style="width:155px;"><?php echo e(t('admin_posts_th_actions', '操作')); ?></th>
                 </tr>
             </thead>
             <tbody>
                 <?php if (empty($allPosts)): ?>
-                    <tr><td colspan="9" class="empty-cell"><?php echo e(t('admin_posts_empty', '暂无帖子数据')); ?></td></tr>
+                    <tr><td colspan="10" class="empty-cell"><?php echo e(t('admin_posts_empty', '暂无帖子数据')); ?></td></tr>
                 <?php else: ?>
                     <?php foreach ($allPosts as $post): ?>
                         <?php
@@ -283,6 +284,18 @@ require_once dirname(__DIR__) . '/layout/header.php';
                                 </div>
                             </td>
                             <td style="font-size:0.8rem;color:var(--text-muted);white-space:nowrap;"><?php echo date('Y-m-d H:i', strtotime($post['created_at'])); ?></td>
+                            <?php
+                            // 发帖 IP 定位：实时查归属地（未安装 IP 库时为空）
+                            $postIp = (string)($post['ip'] ?? '');
+                            $postIpRegion = $postIp !== '' ? ip_region_display(ip_region_query($postIp)) : '';
+                            ?>
+                            <td class="col-ip">
+                                <div class="ip-cell">
+                                    <div class="ip-main" title="<?php echo e(t('admin_posts_ip_title', '发帖 IP')); ?>"><?php echo $postIp !== '' ? e($postIp) : '—'; ?>
+                                        <?php if ($postIpRegion !== ''): ?><span class="text-muted ip-region"><?php echo e($postIpRegion); ?></span><?php endif; ?>
+                                    </div>
+                                </div>
+                            </td>
                             <td>
                                 <div class="actions">
                                     <a href="<?php echo site_url('post', ['id' => (int)$post['id']]); ?>" target="_blank" class="btn-icon" title="<?php echo e(t('admin_posts_action_view', '查看帖子')); ?>"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></a>
