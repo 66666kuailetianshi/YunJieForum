@@ -435,6 +435,14 @@ if (function_exists('get_db_driver')) {
                 resultBox.className = 'mig-import-result is-success';
                 var html = '<div>' + escapeHtml(res.message || '') + '</div>';
                 html += '<div class="mig-result-table"><?php echo e(t('admin_mig_total_inserted', '总写入行数')); ?>：' + (res.total_inserted || res.total_executed || 0) + '</div>';
+                if (res.fixed_count > 0) {
+                    html += '<details class="mt-2"><summary style="cursor:pointer;color:var(--text-muted);"><?php echo e(t('admin_mig_fixed_count', '已自动修复列数不一致的语句')); ?>：' + res.fixed_count + '<?php echo e(t('admin_mig_fixed_what', '（仅展示前 5 条）')); ?></summary>';
+                    html += '<div class="mig-result-table mt-2">';
+                    (res.fixed_messages || []).forEach(function (msg) {
+                        html += escapeHtml(msg) + '<br>';
+                    });
+                    html += '</div></details>';
+                }
                 if (res.total_skipped > 0) {
                     html += '<div class="mig-result-table"><?php echo e(t('admin_mig_total_skipped', '总跳过行数')); ?>：' + res.total_skipped + '</div>';
                 }

@@ -1693,17 +1693,82 @@ function getTableColumnSet(PDO $db, $driver, string $table, array &$cache): arra
 }
 
 /**
- * 过滤 INSERT 语句中目标表不存在的列，避免跨版本 schema 差异报错。
- * 仅处理单行标准 INSERT INTO `table` (`col1`, `col2`) VALUES (...)。
+ * 引号感知地切割 SQL 圆括号列表（列清单 / VALUES 值清单）。
+ *
+ * 仅在不在任何字符串（单引号/双引号/反引号）内且未被转义时才把逗号当作分隔符，
+ * 避免把 UA（如 'Mozilla/5.0 (KHTML, like Gecko)...'）、时间、正文里的逗号误当作分隔，
+ * 导致列与值错位/截断，最终报 1136 Column count doesn't match value count。
  */
-function filterInsertColumnsForTarget(string $stmtSql, array $validCols): string {
+function splitSqlListQuoted(string $part): array {
+    $items = [];
+    $cur = '';
+    $len = strlen($part);
+    $inS = false; // 单引号字符串内
+    $inD = false; // 双引号字符串内
+    $inB = false; // 反引号标识符内
+    $esc = false; // 上一个字符是反斜杠
+    for ($i = 0; $i < $len; $i++) {
+        $ch = $part[$i];
+        if ($esc) { $cur .= $ch; $esc = false; continue; }
+        if ($ch === '\\') { $cur .= $ch; $esc = true; continue; }
+        if (!$inD && !$inB && $ch === "'") { $inS = !$inS; $cur .= $ch; continue; }
+        if (!$inS && !$inB && $ch === '"') { $inD = !$inD; $cur .= $ch; continue; }
+        if (!$inS && !$inD && $ch === '`') { $inB = !$inB; $cur .= $ch; continue; }
+        if ($ch === ',' && !$inS && !$inD && !$inB) {
+            $items[] = $cur;
+            $cur = '';
+            continue;
+        }
+        $cur .= $ch;
+    }
+    $items[] = $cur;
+    return $items;
+}
+
+/**
+ * 归一化单条 INSERT 语句（跨版本 schema 差异 + 旧格式列/值数不一致修复）。
+ *
+ * 返回数组：
+ *  - action: 'run' 表示可用 $sql 执行；'skip' 表示源语句损坏且无法安全修复
+ *  - sql:    可执行的语句（可能已剔除目标表不存在的列 / 已省略无值的多余列）
+ *  - fixed:  true 表示发生过「列数 > 值数」修复（末尾缺值列省略，由目标表默认值补齐）
+ *  - reason: skip 时的诊断说明
+ *
+ * 兼容旧版导出：列清单 10 列但每行只有 9 个值（如新增列 device_type 后旧文件未带新值）。
+ * 此时无法猜测缺的是哪一列，但「缺少的通常是末尾列」的约定与 MySQL 默认值语义一致：
+ * 省略该列由目标表 DEFAULT 补齐，即可安全导入且不产生错误。
+ */
+function normalizeInsertForTarget(string $stmtSql, array $validCols): array {
     if (!preg_match('/^\s*INSERT\s+(IGNORE\s+)?INTO\s+`?(\w+)`?\s*\(([\s\S]*?)\)\s*VALUES\s*\(((?:[^()]|\((?:[^()]|\([^()]*\))*\))*)\)\s*;?\s*$/i', $stmtSql, $m)) {
-        return $stmtSql;
+        return ['action' => 'run', 'sql' => $stmtSql, 'fixed' => false, 'reason' => ''];
     }
 
     $prefix = isset($m[1]) ? $m[1] : '';
-    $colPart = $m[3];
-    $valuesPart = $m[4];
+    $table = $m[2];
+    $rawCols = array_map('trim', splitSqlListQuoted($m[3]));
+    $rawVals = array_map('trim', splitSqlListQuoted($m[4]));
+
+    // 值数 > 列数：值无列可对应，源文件数据行损坏，无法安全修复 → 跳过
+    if (count($rawVals) > count($rawCols)) {
+        return [
+            'action' => 'skip',
+            'sql'    => $stmtSql,
+            'fixed'  => false,
+            'reason' => t('admin_mig_sql_vals_gt_cols',
+                'INSERT 值数（{v}）多于列数（{c}）：源文件数据行可能有缺失/多余字段，已跳过该语句。',
+                ['v' => count($rawVals), 'c' => count($rawCols)]),
+        ];
+    }
+
+    // 列数 > 值数：末尾无值的列省略（目标表对应 DEFAULT 自动补齐）
+    $fixed = false;
+    if (count($rawCols) > count($rawVals)) {
+        $drop = array_slice($rawCols, count($rawVals));
+        while (count($rawCols) > count($rawVals)) {
+            array_pop($rawCols);
+        }
+        $fixed = true;
+    }
 
     $validSet = [];
     foreach ($validCols as $c) {
@@ -1712,25 +1777,36 @@ function filterInsertColumnsForTarget(string $stmtSql, array $validCols): string
 
     $newCols = [];
     $newVals = [];
-    $rawCols = explode(',', $colPart);
-    $rawVals = explode(',', $valuesPart);
-    $count = min(count($rawCols), count($rawVals));
+    $count = count($rawCols); // 与 count($rawVals) 相等
     for ($i = 0; $i < $count; $i++) {
         $col = strtolower(trim($rawCols[$i], " `\t\n\r\0\x0B"));
         if ($col === '') {
             continue;
         }
         if (isset($validSet[$col])) {
-            $newCols[] = trim($rawCols[$i]);
+            $newCols[] = $rawCols[$i];
             $newVals[] = $rawVals[$i];
         }
     }
 
-    if (empty($newCols) || count($newCols) === count($rawCols)) {
-        return $stmtSql;
+    if (empty($newCols)) {
+        return [
+            'action' => 'skip',
+            'sql'    => $stmtSql,
+            'fixed'  => $fixed,
+            'reason' => t('admin_mig_sql_no_valid_cols', 'INSERT 无任何可导入的目标列，已跳过该语句。'),
+        ];
     }
 
-    return 'INSERT ' . $prefix . 'INTO ' . $m[2] . ' (' . implode(', ', $newCols) . ') VALUES (' . implode(', ', $newVals) . ');';
+    // 未做任何修改则原样返回
+    if (!$fixed && count($newCols) === count($rawCols) && count($newVals) === count($rawVals)) {
+        return ['action' => 'run', 'sql' => $stmtSql, 'fixed' => false, 'reason' => ''];
+    }
+
+    $sql = 'INSERT ' . $prefix . 'INTO ' . $table . ' (' . implode(', ', $newCols) . ') VALUES (' . implode(', ', $newVals) . ');';
+    return ['action' => 'run', 'sql' => $sql, 'fixed' => $fixed, 'reason' => $fixed
+        ? t('admin_mig_sql_fixed_cols', '已修复列数不一致：省略末尾无值列 {cols}，由目标表默认值补齐。', ['cols' => implode(', ', $drop)])
+        : ''];
 }
 
 /**
@@ -1815,6 +1891,7 @@ function importSQL(string $sqlContent, array $whitelist = [], string $mode = 'ov
     $ignoredRows = 0;  // 合并模式：INSERT IGNORE 因主键/唯一键冲突被跳过的行数
     $errorMessages = [];
     $failedStatements = []; // 记录失败语句原文（用于诊断）
+    $fixedMessages = [];    // 记录被自动修复（列/值数不一致）的语句
     $hasDDL = false; // 是否包含 DDL 语句（DROP/CREATE/ALTER），DDL 在 MySQL 中会隐式提交事务
 
     // 预扫描：检测是否包含 DDL 语句
@@ -1895,13 +1972,23 @@ function importSQL(string $sqlContent, array $whitelist = [], string $mode = 'ov
                     continue;
                 }
 
-                // 跨版本 schema 差异保护：剔除目标表不存在的列，避免 Unknown column 导致整批失败
+                // 跨版本 schema 差异保护：剔除目标表不存在的列 + 引号感知校正列/值数，避免 Unknown column / 1136 整批失败
                 if (preg_match('/^\s*INSERT\s+/i', $stmtSql)) {
                     preg_match('/^\s*INSERT\s+(?:IGNORE\s+)?INTO\s+`?(\w+)`?\s/i', $stmtSql, $m);
                     if (!empty($m[1])) {
                         $validCols = getTableColumnSet($db, $driver, $m[1], $sqlColCache);
                         if (!empty($validCols)) {
-                            $stmtSql = filterInsertColumnsForTarget($stmtSql, $validCols);
+                            $norm = normalizeInsertForTarget($stmtSql, $validCols);
+                            if ($norm['action'] === 'skip') {
+                                // 数据行本身损坏（值数>列数 / 无可导入列），无法安全修复 → 跳过并记录诊断
+                                $errorMessages[] = 'Line ' . ($lineNum + 1) . ': ' . $norm['reason'];
+                                $failedStatements[] = (strlen($stmtSql) > 500) ? (substr($stmtSql, 0, 500) . '...') : $stmtSql;
+                                continue;
+                            }
+                            $stmtSql = $norm['sql'];
+                            if ($norm['fixed']) {
+                                $fixedMessages[] = 'Line ' . ($lineNum + 1) . ': ' . $norm['reason'];
+                            }
                         }
                     }
                 }
@@ -1985,6 +2072,11 @@ function importSQL(string $sqlContent, array $whitelist = [], string $mode = 'ov
         }
         if (!empty($failedStatements)) {
             $response['failed_statements'] = array_slice($failedStatements, 0, 10);
+        }
+        if (!empty($fixedMessages)) {
+            // 去重后最多返回 5 条修复说明
+            $response['fixed_count'] = count($fixedMessages);
+            $response['fixed_messages'] = array_slice(array_values(array_unique($fixedMessages)), 0, 5);
         }
         if (empty($errorMessages)) {
             $msg = t('admin_mig_sql_import_done', 'SQL 导入完成，共执行 {n} 条语句。', ['n' => $executedCount]);
