@@ -110,7 +110,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // 注册成功，清除邮箱验证码
                 clear_email_verification_code();
 
-                set_flash(t('register_success', '注册成功！欢迎加入云界论坛。'), 'success');
+                set_flash(t('register_success', '注册成功！欢迎加入 {site}。', ['site' => SITE_NAME]), 'success');
 
                 $redirect = $_SESSION['redirect_after_login'] ?? 'index.php';
                 unset($_SESSION['redirect_after_login']);

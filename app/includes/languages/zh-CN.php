@@ -1590,7 +1590,7 @@ return [
     'register_security_verify_fail' => '安全验证失败，请刷新页面重试。',
     'register_send_fail' => '发送失败，请重试。',
     'register_submit' => '注册',
-    'register_success' => '注册成功！欢迎加入云界论坛。',
+    'register_success' => '注册成功！欢迎加入 {site}。',
     'register_taken' => '用户名或邮箱已被注册。',
     'register_terms_text' => '用户协议',
     'register_title' => '注册',

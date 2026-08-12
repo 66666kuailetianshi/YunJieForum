@@ -34,7 +34,7 @@
     'register_code_required' => '請輸入電子郵件驗證碼。',
     'register_code_invalid' => '電子郵件驗證碼錯誤或已過期。',
     'register_taken' => '使用者名稱或電子郵件已被註冊。',
-    'register_success' => '註冊成功！歡迎加入雲界論壇。',
+    'register_success' => '註冊成功！歡迎加入 {site}。',
     'register_title' => '註冊',
     'register_create_account' => '建立帳號',
     'register_join_site' => '加入 {site}',

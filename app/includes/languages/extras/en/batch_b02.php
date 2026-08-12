@@ -34,7 +34,7 @@
     'register_code_required' => 'Please enter the email verification code.',
     'register_code_invalid' => 'The email verification code is incorrect or has expired.',
     'register_taken' => 'The username or email is already registered.',
-    'register_success' => 'Registration successful! Welcome to 云界论坛.',
+    'register_success' => 'Registration successful! Welcome to {site}.',
     'register_title' => 'Register',
     'register_create_account' => 'Create account',
     'register_join_site' => 'Join {site}',

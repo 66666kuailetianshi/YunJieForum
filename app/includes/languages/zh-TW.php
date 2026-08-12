@@ -1588,7 +1588,7 @@ return [
     'register_security_verify_fail' => '安全驗證失敗，請刷新頁面重試。',
     'register_send_fail' => '發送失敗，請重試。',
     'register_submit' => '註冊',
-    'register_success' => '註冊成功！歡迎加入雲界論壇。',
+    'register_success' => '註冊成功！歡迎加入 {site}。',
     'register_taken' => '用戶名或郵箱已被註冊。',
     'register_terms_text' => '用戶協議',
     'register_title' => '註冊',

@@ -256,7 +256,7 @@ function exportData(array $whitelist, string $format): void {
         return;
     }
 
-    $siteName = defined('SITE_NAME') ? SITE_NAME : '云界论坛';
+    $siteName = defined('SITE_NAME') ? SITE_NAME : APP_NAME;
     $filename = $siteName . t('admin_mig_export_filename', '_数据迁移_') . date('Ymd_His');
 
     // 直接输出下载（非 JSON 接口响应）
@@ -329,7 +329,7 @@ function exportDataJsonZip(array $whitelist, string $format): void {
         return;
     }
 
-    $siteName = defined('SITE_NAME') ? SITE_NAME : '云界论坛';
+    $siteName = defined('SITE_NAME') ? SITE_NAME : APP_NAME;
     $zipFilename = $siteName . '_数据迁移_含头像_' . date('Ymd_His') . '.zip';
     $asciiName   = 'yunjie_migration_' . date('Ymd_His') . '.zip';
 
@@ -403,8 +403,8 @@ function exportDataJsonZip(array $whitelist, string $format): void {
 function generateSQLContent(array $selected, string $mode, $db, $driver, bool $isSqlite, bool $isMysql): string {
     $qi = function($n) use ($driver) { return $driver->quoteIdentifier($n); };
 
-    $sql = "-- ============================================================\n";
-    $sql .= "-- 云界论坛 数据库备份\n";
+    $sql .= "-- ============================================================\n";
+    $sql .= "-- " . (defined('SITE_NAME') ? SITE_NAME : APP_NAME) . " 数据库备份\n";
     $sql .= "-- 产品: yunjie-bbs | 版本: " . (defined('APP_VERSION') ? APP_VERSION : '') . "\n";
     $sql .= "-- 导出时间: " . date('Y-m-d H:i:s') . "\n";
     $sql .= "-- 数据库: " . ($isSqlite ? 'SQLite' : ($isMysql ? 'MySQL' : 'PDO')) . "\n";
@@ -546,7 +546,7 @@ function exportDataSQL(array $whitelist, string $format = 'sql'): void {
     $sqlMerge     = generateSQLContent($selected, 'merge', $db, $driver, $isSqlite, $isMysql);
 
     // ===== 打包为 ZIP（含两个 SQL 文件 + uploads 目录） =====
-    $siteName = defined('SITE_NAME') ? SITE_NAME : '云界论坛';
+    $siteName = defined('SITE_NAME') ? SITE_NAME : APP_NAME;
     $zipFilename = $siteName . '_数据库备份_' . date('Ymd_His') . '.zip';
     $asciiName  = 'yunjie_backup_' . date('Ymd_His') . '.zip';
 

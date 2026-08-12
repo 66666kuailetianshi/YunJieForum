@@ -786,7 +786,12 @@ function ensure_announcements_table(PDO $db): void {
 function init_default_announcements(PDO $db): void {
     $annCount = (int)$db->query("SELECT COUNT(*) FROM announcements")->fetchColumn();
     if ($annCount === 0) {
-        $db->exec("INSERT INTO announcements (title, content, is_active, display_order) VALUES ('欢迎来到云界论坛', '云界论坛正式开站！欢迎大家注册交流。', 1, 0)");
+        $siteName = defined('SITE_NAME') ? SITE_NAME : '云界论坛';
+        $stmt = $db->prepare("INSERT INTO announcements (title, content, is_active, display_order) VALUES (:title, :content, 1, 0)");
+        $stmt->execute([
+            ':title'   => '欢迎来到' . $siteName,
+            ':content' => $siteName . '正式开站！欢迎大家注册交流。',
+        ]);
     }
 }
 
@@ -2151,7 +2156,12 @@ function init_db(): void {
     // 初始化默认公告
     $annCount = (int)$db->query("SELECT COUNT(*) FROM announcements")->fetchColumn();
     if ($annCount === 0) {
-        $db->exec("INSERT INTO announcements (title, content, is_active, display_order) VALUES ('欢迎来到云界论坛', '云界论坛正式开站！欢迎大家注册交流。', 1, 0)");
+        $siteName = defined('SITE_NAME') ? SITE_NAME : '云界论坛';
+        $stmt = $db->prepare("INSERT INTO announcements (title, content, is_active, display_order) VALUES (:title, :content, 1, 0)");
+        $stmt->execute([
+            ':title'   => '欢迎来到' . $siteName,
+            ':content' => $siteName . '正式开站！欢迎大家注册交流。',
+        ]);
     }
 
     // 初始化默认站点页面（用户协议、隐私政策）

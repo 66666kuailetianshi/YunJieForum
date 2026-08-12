@@ -1726,7 +1726,12 @@ function get_active_announcements(): array {
                 display_order INTEGER DEFAULT 0,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )");
-            $db->exec("INSERT INTO announcements (title, content, is_active, display_order) VALUES ('欢迎来到云界论坛', '云界论坛正式开站！欢迎大家注册交流。', 1, 0)");
+            $siteName = defined('SITE_NAME') ? SITE_NAME : '云界论坛';
+            $stmt = $db->prepare("INSERT INTO announcements (title, content, is_active, display_order) VALUES (:title, :content, 1, 0)");
+            $stmt->execute([
+                ':title'   => '欢迎来到' . $siteName,
+                ':content' => $siteName . '正式开站！欢迎大家注册交流。',
+            ]);
         }
         $cache = [];
     }

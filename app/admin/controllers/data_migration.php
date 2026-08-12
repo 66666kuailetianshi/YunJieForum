@@ -257,7 +257,7 @@ if (function_exists('get_db_driver')) {
                 if (!r.ok) return r.json().then(function (j) { throw new Error(j.error || '<?php echo e(t('admin_mig_export_failed', '导出失败')); ?>'); });
                 var cd = r.headers.get('Content-Disposition') || '';
                 var m = cd.match(/filename="?([^";]+)"?/);
-                var fname = m ? m[1] : ('云界论坛_数据迁移_' + Date.now() + '.json');
+                var fname = m ? m[1] : (<?php echo json_encode((defined('SITE_NAME') ? SITE_NAME : '云界论坛') . '_数据迁移_', JSON_UNESCAPED_UNICODE); ?> + Date.now() + '.json');
                 return r.blob().then(function (b) { return { b: b, fname: fname }; });
             })
             .then(function (o) {
