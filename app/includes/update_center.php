@@ -32,7 +32,22 @@ if (!function_exists('uc_get_current_version')) {
     }
 
     /**
+     * 从失败响应中提取可读的正文预览（压缩空白、限长，供错误诊断输出）
+     */
+    function uc_body_preview(string $body, int $maxLen = 300): string {
+        $text = trim((string)preg_replace('/\s+/', ' ', $body));
+        $len  = function_exists('mb_strlen') ? mb_strlen($text, 'UTF-8') : strlen($text);
+        if ($len > $maxLen) {
+            $text = (function_exists('mb_substr') ? mb_substr($text, 0, $maxLen, 'UTF-8') : substr($text, 0, $maxLen)) . '…';
+        }
+        return $text;
+    }
+
+    /**
      * HTTP GET 取文本（优先 curl，回退 file_get_contents）
+     *
+     * 失败（传输错误或 HTTP 状态码 >= 400）时返回体附带 body 字段，
+     * 即服务器实际返回的失败正文，供上层输出诊断。
      *
      * @param bool|null $sslVerify 是否严格校验 SSL 证书（自签名证书源应关闭）；传 null 时读取后台设置 update_ssl_verify，未配置默认开启校验
      */
@@ -63,6 +78,9 @@ if (!function_exists('uc_get_current_version')) {
             if ($data === false) {
                 return ['ok' => false, 'error' => ($err !== '' ? $err : 'curl_failed'), 'code' => $code];
             }
+            if ($code >= 400) {
+                return ['ok' => false, 'error' => 'http_' . $code, 'code' => $code, 'body' => (string)$data];
+            }
             return ['ok' => true, 'data' => $data, 'code' => $code];
         }
         $ctx = stream_context_create([
@@ -70,8 +88,20 @@ if (!function_exists('uc_get_current_version')) {
             'https' => ['timeout' => $timeout, 'user_agent' => $ua, 'verify_peer' => $sslVerify, 'verify_host' => $sslVerify ? 2 : false],
         ]);
         $data = @file_get_contents($url, false, $ctx);
+        // file_get_contents 失败时仍可从 $http_response_header 拿到状态行
+        $code = 200;
+        if (is_array($http_response_header)) {
+            foreach ($http_response_header as $line) {
+                if (preg_match('#^HTTP/\S+\s+(\d{3})#', $line, $m)) {
+                    $code = (int)$m[1];
+                }
+            }
+        }
         if ($data === false) {
-            return ['ok' => false, 'error' => 'file_get_contents_failed', 'code' => 0];
+            return ['ok' => false, 'error' => 'file_get_contents_failed', 'code' => $code];
+        }
+        if ($code >= 400) {
+            return ['ok' => false, 'error' => 'http_' . $code, 'code' => $code, 'body' => (string)$data];
         }
         return ['ok' => true, 'data' => $data, 'code' => 200];
     }
@@ -122,7 +152,15 @@ if (!function_exists('uc_get_current_version')) {
                 return ['ok' => false, 'error' => $err];
             }
             if ($code >= 400) {
-                return ['ok' => false, 'error' => 'http_' . $code];
+                // 读取失败响应正文预览（错误页/JSON 错误信息），便于诊断后清理临时文件
+                $body = '';
+                $fpr  = @fopen($dest, 'rb');
+                if ($fpr) {
+                    $body = (string)@fread($fpr, 1024);
+                    fclose($fpr);
+                }
+                @unlink($dest);
+                return ['ok' => false, 'error' => 'http_' . $code, 'code' => $code, 'body' => $body];
             }
             return ['ok' => true, 'code' => $code];
         }
@@ -201,7 +239,11 @@ if (!function_exists('uc_get_current_version')) {
         }
         $res = uc_http_get($url, 20);
         if (!$res['ok']) {
-            return ['ok' => false, 'error' => $res['error']];
+            $err = $res['error'];
+            if (!empty($res['body'])) {
+                $err .= ' | ' . uc_body_preview((string)$res['body']);
+            }
+            return ['ok' => false, 'error' => $err];
         }
 
         $body = trim($res['data']);
@@ -560,8 +602,12 @@ if (!function_exists('uc_get_current_version')) {
         });
         if (!$dl['ok']) {
             @unlink($pkgPath);
-            uc_progress_write(['stage' => 'error', 'stage_label' => 'error', 'progress' => 0, 'total' => $dlTotalSize, 'downloaded' => $dlDownloaded, 'message' => '', 'error' => 'download_failed: ' . ($dl['error'] ?? ''), 'done' => true]);
-            return ['success' => false, 'error' => 'download_failed: ' . ($dl['error'] ?? '')];
+            $dlErr = 'download_failed: ' . ($dl['error'] ?? '');
+            if (!empty($dl['body'])) {
+                $dlErr .= ' | ' . uc_body_preview((string)$dl['body']);
+            }
+            uc_progress_write(['stage' => 'error', 'stage_label' => 'error', 'progress' => 0, 'total' => $dlTotalSize, 'downloaded' => $dlDownloaded, 'message' => '', 'error' => $dlErr, 'done' => true]);
+            return ['success' => false, 'error' => $dlErr];
         }
 
         // 阶段 2：校验哈希（80% → 85%）
