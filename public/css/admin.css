@@ -2525,17 +2525,17 @@
 .risk-safe  { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
 
 /* 操作按钮 */
-.actions { display: flex; gap: 2px; flex-wrap: wrap; }
+.actions { display: flex; align-items: center; gap: 2px; flex-wrap: nowrap; }
 .actions .btn-icon {
     display: inline-flex; align-items: center; justify-content: center;
-    width: 30px; height: 30px; border-radius: var(--radius-sm); border: 1px solid transparent;
+    width: 26px; height: 26px; border-radius: var(--radius-sm); border: 1px solid transparent;
     background: transparent; color: var(--text-muted); cursor: pointer; transition: all 0.15s;
-    text-decoration: none; padding: 0;
+    text-decoration: none; padding: 0; flex-shrink: 0;
 }
 .actions .btn-icon:hover { background: var(--bg-soft); color: var(--text); border-color: var(--border); }
 .actions .btn-icon.active { color: var(--primary); background: color-mix(in srgb, var(--primary) 8%, var(--surface)); }
 .actions .btn-icon.danger:hover { color: #dc2626; background: #fef2f2; border-color: #fecaca; }
-.actions .btn-icon svg { width: 15px; height: 15px; }
+.actions .btn-icon svg { width: 14px; height: 14px; }
 
 /* 排序链接 */
 .sort-link { color: var(--text-muted); text-decoration: none; white-space: nowrap; user-select: none; }
@@ -2652,16 +2652,16 @@
 .reply-ref { display: block; font-size: 0.7rem; color: var(--text-muted); margin-top: 2px; }
 
 /* 操作按钮 */
-.actions { display: flex; gap: 4px; }
+.actions { display: flex; align-items: center; gap: 2px; flex-wrap: nowrap; }
 .actions .btn-icon {
     display: inline-flex; align-items: center; justify-content: center;
-    width: 30px; height: 30px; border-radius: var(--radius-sm); border: 1px solid transparent;
+    width: 26px; height: 26px; border-radius: var(--radius-sm); border: 1px solid transparent;
     background: transparent; color: var(--text-muted); cursor: pointer; transition: all 0.15s;
-    text-decoration: none; padding: 0;
+    text-decoration: none; padding: 0; flex-shrink: 0;
 }
 .actions .btn-icon:hover { background: var(--bg-soft); color: var(--text); border-color: var(--border); }
 .actions .btn-icon.danger:hover { color: #dc2626; background: #fef2f2; border-color: #fecaca; }
-.actions .btn-icon svg { width: 15px; height: 15px; }
+.actions .btn-icon svg { width: 14px; height: 14px; }
 
 /* 模态框 */
 .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 999; justify-content: center; align-items: flex-start; padding-top: 5vh; }

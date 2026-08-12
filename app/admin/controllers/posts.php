@@ -247,7 +247,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
                         <a href="<?php echo e(site_url('admin/posts', array_merge(array_diff_key($_GET, ['page' => 1, 'route' => 1]), ['sort' => 'created_at', 'order' => ($sort === 'created_at' && $order === 'asc') ? 'desc' : 'asc']))); ?>" class="sort-link<?php echo $sort === 'created_at' ? ' active ' . $order : ''; ?>"><?php echo e(t('admin_posts_th_time', '时间')); ?></a>
                     </th>
                     <th class="col-ip"><?php echo e(t('admin_posts_th_ip', 'IP 定位')); ?></th>
-                    <th style="width:155px;"><?php echo e(t('admin_posts_th_actions', '操作')); ?></th>
+                    <th style="width:175px;"><?php echo e(t('admin_posts_th_actions', '操作')); ?></th>
                 </tr>
             </thead>
             <tbody>
