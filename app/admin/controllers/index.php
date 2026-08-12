@@ -294,7 +294,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
     if (!card) return;
 
     function updateTodo() {
-        fetch('<?php echo site_url('admin/api/pending_counts_ajax'); ?>&_=' + Date.now(), { credentials: 'same-origin' })
+        fetch('<?php echo e(rtrim(dirname($_SERVER['SCRIPT_NAME'] ?? '/'), '/\\') . '/index.php?route=admin/api/pending_counts_ajax'); ?>&_=' + Date.now(), { credentials: 'same-origin' })
             .then(function (r) {
                 if (!r.ok) throw new Error('HTTP ' + r.status);
                 return r.json();

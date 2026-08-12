@@ -37,9 +37,11 @@
             timerId = setTimeout(updateBadges, delay);
         }
 
+        var apiUrl = '<?php echo e(rtrim(dirname($_SERVER['SCRIPT_NAME'] ?? '/'), '/\\') . '/index.php?route=admin/api/pending_counts_ajax'); ?>';
+
         function updateBadges() {
             try {
-                fetch('<?php echo site_url('admin/api/pending_counts_ajax'); ?>&_=' + Date.now(), { credentials: 'same-origin' })
+                fetch(apiUrl + '&_=' + Date.now(), { credentials: 'same-origin' })
                     .then(function (r) {
                         // 非 2xx 响应（418 WAF 拦截、5xx 等）触发退避
                         if (!r.ok) { throw new Error('HTTP ' + r.status); }

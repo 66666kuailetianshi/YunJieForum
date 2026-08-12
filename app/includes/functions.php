@@ -5,6 +5,8 @@
 
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/db.php';
+// IP 归属地离线查询（ip2region xdb 格式，无第三方依赖）
+require_once __DIR__ . '/ip2region.php';
 // mailer.php 已改为懒加载：仅在真正发送邮件的函数内 require_once，
 // 避免 99% 不发邮件的请求白白加载 17KB 邮件模块。
 
@@ -2008,6 +2010,8 @@ function suggest_forum_icon_key(string $name): string {
  * - PV：每次页面访问都精确累加，不再被节流吞掉（修复同一会话快速翻页时 PV 严重低估）；
  * - UV：按「会话 × 小时」去重，每小时每会话最多计 1，跨小时边界也不遗漏；
  * - 爬虫：UA 命中已知爬虫/命令行抓取时直接忽略，避免机器人刷高 PV/UV；
+ * - 地域：已配置 IP 库（data/ip2region/ip2region.xdb）时，离线查询 IP 归属地
+ *   随访客明细行记录（traffic_visitors.region），仅存归属地不存明文 IP；
  * - 访客明细行（traffic_visitors）：仍按 60s 会话节流以控制写压力，
  *   仅影响「热页/设备 views、在线人数滞后 ≤60s」等次要指标，主指标 PV/UV 保持精确。
  */
@@ -2081,14 +2085,17 @@ function track_visit(): void {
 
         // 插入或更新访客记录（按 visit_date + ip_hash 去重）
         $upsertClause = get_db_driver()->upsertConflictClause('visit_date, ip_hash');
-        $stmt = $db->prepare("INSERT INTO traffic_visitors (visit_date, ip_hash, user_agent, page, referrer, device_type, first_visit, last_visit, views)
-            VALUES (:date, :ip, :ua, :page, :ref, :device, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 1)
+        // IP 归属地：离线查询（ip2region xdb），无数据文件时返回 null 不记录
+        $region = ip_region_query($ip);
+        $stmt = $db->prepare("INSERT INTO traffic_visitors (visit_date, ip_hash, user_agent, page, referrer, device_type, region, first_visit, last_visit, views)
+            VALUES (:date, :ip, :ua, :page, :ref, :device, :region, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 1)
             {$upsertClause}
                 last_visit = CURRENT_TIMESTAMP,
                 page = :page2,
                 user_agent = :ua2,
                 referrer = :ref2,
                 device_type = :device2,
+                region = :region2,
                 views = views + 1");
         $stmt->execute([
             ':date'    => $visitDate,
@@ -2097,10 +2104,12 @@ function track_visit(): void {
             ':page'    => $page,
             ':ref'     => $referrer,
             ':device'  => $deviceType,
+            ':region'  => $region ?? '',
             ':page2'   => $page,
             ':ua2'     => $ua,
             ':ref2'    => $referrer,
             ':device2' => $deviceType,
+            ':region2' => $region ?? '',
         ]);
 
         // 记录本次写入时间，用于访客明细行节流

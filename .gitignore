@@ -5,10 +5,12 @@ data/*
 uploads/
 
 # ===== 数据库文件与日志 =====
+# 论坛主库与其余 *.db 一律排除；IP 归属地库（官方 xdb 文件）为可选安装，不随代码分发
 *.db
 *.db-journal
 *.db-wal
 *.db-shm
+*.xdb
 *.lock
 *.log
 

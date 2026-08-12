@@ -101,6 +101,12 @@ require_once dirname(__DIR__) . '/layout/header.php';
         <div id="device-bars" class="tm-bars"></div>
     </div>
 
+    <!-- 地域分布 -->
+    <div class="card">
+        <h2 class="card-title mb-1"><?php echo e(t('admin_traffic_region', '地域分布')); ?></h2>
+        <div id="region-bars" class="tm-bars"></div>
+    </div>
+
     <!-- 浏览器 -->
     <div class="card">
         <h2 class="card-title mb-1"><?php echo e(t('admin_traffic_browser', '浏览器分布')); ?></h2>
@@ -131,10 +137,17 @@ require_once dirname(__DIR__) . '/layout/header.php';
 <!-- 最近访客 -->
 <div class="card">
     <h2 class="card-title mb-1"><?php echo e(t('admin_traffic_recent_title', '最近访客')); ?></h2>
+    <div class="toolbar card-toolbar">
+        <div class="toolbar-field toolbar-field-select">
+            <select id="recent-region-filter" class="form-control">
+                <option value=""><?php echo e(t('admin_traffic_region_all', '全部归属地')); ?></option>
+            </select>
+        </div>
+    </div>
     <div class="table-responsive">
         <table class="data-table data-table-compact">
             <thead>
-                <tr><th><?php echo e(t('admin_traffic_th_visitor', '访客标识')); ?></th><th><?php echo e(t('admin_traffic_th_device', '设备')); ?></th><th><?php echo e(t('admin_traffic_th_system', '系统')); ?></th><th><?php echo e(t('admin_traffic_th_browser', '浏览器')); ?></th><th><?php echo e(t('admin_traffic_th_page', '访问页面')); ?></th><th class="col-number"><?php echo e(t('admin_traffic_th_browsecount', '浏览次数')); ?></th><th class="col-time"><?php echo e(t('admin_traffic_th_lastactive', '最后活跃')); ?></th></tr>
+                <tr><th><?php echo e(t('admin_traffic_th_visitor', '访客标识')); ?></th><th><?php echo e(t('admin_traffic_th_region', '归属地')); ?></th><th><?php echo e(t('admin_traffic_th_device', '设备')); ?></th><th><?php echo e(t('admin_traffic_th_system', '系统')); ?></th><th><?php echo e(t('admin_traffic_th_browser', '浏览器')); ?></th><th><?php echo e(t('admin_traffic_th_page', '访问页面')); ?></th><th class="col-number"><?php echo e(t('admin_traffic_th_browsecount', '浏览次数')); ?></th><th class="col-time"><?php echo e(t('admin_traffic_th_lastactive', '最后活跃')); ?></th></tr>
             </thead>
             <tbody id="recent-visitors-body"></tbody>
         </table>
@@ -150,6 +163,8 @@ require_once dirname(__DIR__) . '/layout/header.php';
     var fetching = false;      // 请求去重：正在请求中时不发新请求
     var lastDataHash = '';     // 快速比对数据是否变化，避免无意义的重绘
     var recentPage = 1;        // 最近访客当前页码
+    var recentRegion = '';     // 最近访客 IP 归属地筛选值
+    var regionOptionsKey = ''; // 下拉选项指纹，避免每 5s 重复重建
     // ========== 图表渲染 ==========
 
     function drawHourlyChart(data) {
@@ -386,17 +401,41 @@ require_once dirname(__DIR__) . '/layout/header.php';
         tbody.innerHTML = html;
     }
 
+    // ========== IP 归属地筛选下拉 ==========
+
+    function renderRegionFilter(options) {
+        var sel = document.getElementById('recent-region-filter');
+        if (!sel) return;
+        var opts = options || [];
+        var key = opts.slice().sort().join('\n');   // 集合指纹：仅集合变化时重建，避免打断用户操作
+        if (key === regionOptionsKey) return;
+        regionOptionsKey = key;
+
+        var val = sel.value;   // 先记住当前选择，重建后恢复
+        var html = '<option value=""><?php echo e(t('admin_traffic_region_all', '全部归属地')); ?></option>';
+        for (var i = 0; i < opts.length; i++) {
+            html += '<option value="' + e(opts[i]) + '">' + e(opts[i]) + '</option>';
+        }
+        sel.innerHTML = html;
+        sel.value = val;
+        if (sel.value !== recentRegion) {
+            // 当前筛选值已不在选项中（如数据变化导致），重置为全部
+            recentRegion = '';
+        }
+    }
+
     function renderRecentVisitors(visitors) {
         var tbody = document.getElementById('recent-visitors-body');
         if (!tbody) return;
         var html = '';
         if (visitors.length === 0) {
-            html = '<tr><td colspan="7" style="text-align:center;color:var(--muted);"><?php echo e(t('admin_traffic_no_visitors', '暂无访客数据')); ?></td></tr>';
+            html = '<tr><td colspan="8" style="text-align:center;color:var(--muted);"><?php echo e(t('admin_traffic_no_visitors', '暂无访客数据')); ?></td></tr>';
         }
         for (var i = 0; i < visitors.length; i++) {
             var v = visitors[i];
             html += '<tr>';
             html += '<td><code style="font-size:0.8rem;">' + e(v.ip_short) + '</code></td>';
+            html += '<td>' + e(v.region || '-') + '</td>';
             html += '<td>' + e(v.device || '-') + '</td>';
             html += '<td>' + e(v.os || '-') + '</td>';
             html += '<td>' + e(v.browser || '-') + '</td>';
@@ -511,7 +550,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
         if (fetching) return;
         fetching = true;
 
-        fetch('<?php echo site_url('admin/api/traffic_ajax'); ?>&page=' + recentPage + '&_=' + Date.now())
+        fetch('<?php echo site_url('admin/api/traffic_ajax'); ?>&page=' + recentPage + '&region=' + encodeURIComponent(recentRegion) + '&_=' + Date.now())
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 fetching = false;
@@ -526,6 +565,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
                     data.hourly_pv ? data.hourly_pv.join(',') : '',
                     data.hot_pages ? data.hot_pages.length : 0,
                     data.recent_visitors ? data.recent_visitors.length : 0,
+                    data.regions ? data.regions.length : 0,
                     data.recent_total ? data.recent_total : 0,
                     data.recent_page ? data.recent_page : 0
                 ].join('|');
@@ -534,6 +574,9 @@ require_once dirname(__DIR__) . '/layout/header.php';
 
                 // 统计数字始终更新（动画平滑过渡）
                 updateStats(data);
+
+                // 归属地下拉选项始终同步（内部有集合指纹，选项不变不重建）
+                renderRegionFilter(data.region_options || []);
 
                 // 图表和列表仅在数据变化时重绘
                 if (changed) {
@@ -544,6 +587,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
                     renderRecentPagination(data);
                     renderBars('referrer-list', data.referrers || [], 'count', function(item) { return item.source; });
                     renderBars('device-bars', data.devices || [], 'visitors', function(item) { return item.label + ' (' + item.visitors + <?php echo json_encode(t('admin_traffic_people_suffix', '人)')); ?>; });
+                    renderBars('region-bars', data.regions || [], 'count', function(item) { return item.name; });
                     renderBars('browser-bars', data.browsers || [], 'count', function(item) { return item.name; });
                     renderBars('os-bars', data.os_list || [], 'count', function(item) { return item.name; });
                 }
@@ -580,6 +624,16 @@ require_once dirname(__DIR__) . '/layout/header.php';
             var p = parseInt(btn.getAttribute('data-page'), 10);
             if (!p || isNaN(p) || p === recentPage) return;
             recentPage = p;
+            refresh();
+        });
+    }
+
+    // IP 归属地筛选：切换后回到第一页并刷新
+    var regionFilterSel = document.getElementById('recent-region-filter');
+    if (regionFilterSel) {
+        regionFilterSel.addEventListener('change', function() {
+            recentRegion = this.value;
+            recentPage = 1;
             refresh();
         });
     }

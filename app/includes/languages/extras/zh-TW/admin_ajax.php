@@ -31,6 +31,7 @@
     'admin_ajax_off'                             => '關閉',
     'admin_ajax_unknown'                         => '未知',
     'admin_ajax_unknown_short'                   => '未知',
+    'admin_ajax_unknown_region'                  => '未知',
     'admin_ajax_unknown_with_code'               => '未知(',
     'admin_ajax_no_reason'                       => '（無說明）',
     'admin_ajax_no_title'                        => '（無標題）',

@@ -47,7 +47,7 @@
 | Permissions / Roles | Permission groups based on `roles` (`has_permission`), supporting super admin, moderators, etc.; separate from **user groups** that auto-promote by points |
 | Content Moderation | Sensitive-word filtering engine (Trie + Aho-Corasick), supporting exact / whole-word / regex matching, whitelist, three-level handling (replace / block / manual review), hit logs; user reports, ban appeals, mute |
 | Email | Native SMTP sender implemented with `fsockopen` (no third-party dependencies), supports SSL/TLS, mail logs, bounce handling, mail statistics and notifications |
-| Ops & Monitoring | Traffic statistics (visit records: exact PV counting + session-level UV dedup + crawler filtering, see [Section 10.4](#104-traffic-monitor-traffic_monitor)), system status, database backup, automatic schema migration, installation/error logs |
+| Ops & Monitoring | Traffic statistics (visit records: exact PV counting + session-level UV dedup + crawler filtering + region attribution, see [Section 10.4](#104-traffic-monitor-traffic_monitor)), IP database management (offline ip2region format, optional install: download from GitHub/domestic cloud drive, upload/query/delete, see [Section 10.5](#105-ip-database-management-ip_database)), system status, database backup, automatic schema migration, installation/error logs |
 | System Update | "System Update Center" supports manual/automatic update checking and applying: download → verify SHA256 hash → auto-backup → overwrite upgrade; historical update backups can be listed/downloaded/shared/deleted, see [Section 10.3](#103-system-update-center-update_center) |
 | Multi-language | Built-in `Simplified Chinese / Traditional Chinese / English`, auto-detected by URL, Cookie, config, and browser language |
 | Themes | Light/dark dual themes based on CSS variables (light / dark), customizable colors and skins |
@@ -398,7 +398,7 @@ Entry: `/admin` (corresponds to `app/admin/controllers/`, layout in `app/admin/l
 | Ticket system | `tickets.php` (unified handling of user feedback & admin tickets; source filter & status workflow) |
 | Medals | `medals.php` |
 | Email | `mail_center.php` (logs/statistics/notifications/bounce config) |
-| Ops | `backup.php`, `data_migration.php` (data migration & restore), `update_center.php` (System Update Center) |
+| Ops | `backup.php`, `data_migration.php` (data migration & restore), `update_center.php` (System Update Center), `ip_database.php` (IP database management) |
 
 Many admin operations are handled through `app/admin/api/*_ajax.php`, returning JSON for asynchronous frontend calls, with auxiliary endpoints for pending counts (`pending_counts_ajax.php`) and user risk details (`user_risk_detail_ajax.php`).
 
@@ -512,6 +512,35 @@ Entry at `/admin/traffic_monitor`, rendered by `app/admin/controllers/traffic_mo
 
 > Tracking runs only on front-end pages (`app/includes/header.php`); public polling endpoints (`pm_poll.php`, `home_realtime.php`, etc.) and admin pages never trigger it, so polling traffic cannot pollute the data. IPs are stored as SHA-256 hashes, never in plain text.
 
+### 10.5 IP Database Management (ip_database)
+
+Entry at `/admin/ip_database`, rendered by `app/admin/controllers/ip_database.php` with interfaces served by `app/admin/api/ip_db_ajax.php`; the query logic lives in `app/includes/ip2region.php`. It reads the official compiled xdb binaries of the open-source project [ip2region](https://github.com/lionsoul2014/ip2region) (dual-licensed Apache-2.0 OR MIT; full license text in [LICENSE.md](LICENSE.md)) directly — `app/data/ip2region_v4.xdb` / `app/data/ip2region_v6.xdb` — querying them at runtime in the official xdb 3.0 format, fully offline, with no network access, no SQLite driver and no preprocessing.
+
+**Data source (optional install)**: the IP database is optional and is **not shipped with the code** by default. Install it from the admin panel:
+
+1. **One-click download from GitHub**: in "Download IP Database", click "Download & Install from GitHub"; the server pulls the two official v4/v6 xdb files directly from the official repository, validates and installs them (the server must be able to reach GitHub).
+2. **One-click download from the domestic cloud drive**: click "Download & Install from Domestic Cloud Drive"; the server pulls the two v4/v6 xdb files from the domestic cloud drive (pan.szczk.top) and validates them. If the server cannot reach that drive, use the fallback links below to download manually and import via "Upload Update".
+3. You can also upload official xdb files from any source via "Upload Update" (validated, atomically replaced, takes effect immediately). A missing IP database only affects region display; everything else keeps working.
+
+**Features**
+
+- **Status display**: whether the two xdb files exist, paths, data scale (IPv4/IPv6 segment counts), total size, update time (xdb build time), sample checks (built-in queries against several public IPs), and visitor-region coverage ratio.
+- **Download & install**: both the GitHub and domestic cloud drive sources are pulled server-side in one click, validated and installed (atomic replace, immediate effect); the domestic cloud drive also offers manual download fallback links.
+- **Online query**: enter any IPv4/IPv6 address to get its geolocation instantly — `province·city` at home, `Chinese country (English name) · province · city` abroad (English and foreign cities are shown too) — handy for verifying the data.
+- **Upload update**: upload the official `ip2region_v4.xdb` / `ip2region_v6.xdb` (up to 200MB each); v4/v6 is auto-detected from the `ipVersion` in the file header, then validated and atomically replaced, taking effect immediately.
+- **Delete**: a danger-zone button removes the xdb files; new visits no longer record regions afterwards, while historical region data stays displayed.
+
+**Direct-read & lookup internals** (xdb 3.0 binary format, ported from the official PHP Searcher logic):
+
+1. **File layout**: a 256-byte header (version / build time / segment-index range pointers / IP version) → a 512KiB vector index (256×256×8B, locating the segment-index range by the first two bytes of the IP) → a shared text pool (delimiter-free UTF-8) → the segment-index region (14B per row for v4, 38B per row for v6: start/end closed range + dataLen/dataPtr; v4 segment IPs are stored little-endian).
+2. **Lookup algorithm**: coarse vector-index location → binary search over the segment index → read the hit text. v4 has 553,958 segments / v6 734,952; one query costs ~20 file reads.
+3. **Bilingual**: the geolocation text has 5 fields `country|province|city|ISP|country_code`; a built-in 247-entry English→Chinese country map shows foreign regions as `Chinese country (English name)` while keeping the foreign province/city; China keeps `province·city`.
+4. **Memory footprint**: only the 512KiB vector index is kept in memory; the data region is read on demand via fseek/fread, suitable for shared hosting. The searcher is reused by file mtime plus an in-memory cache of the latest 512 results, satisfying the high-frequency calls from `track_visit()`.
+
+**Integration with traffic stats**: `track_visit()` calls `ip_region_query()` during tracking and writes only the **region text** (province/city/country) into the `traffic_visitors.region` column (plain-text IPs are still stored only as SHA-256 hashes). The Traffic Monitor page thereby shows a "region" column in Recent Visitors and a "Region Distribution" card (aggregated by province at home, by country abroad, top 10).
+
+> If no IP database is installed, the system degrades gracefully: `region` stays empty and the region card shows "Unknown", while the rest of the traffic statistics are unaffected.
+
 ---
 
 ## 11. API Endpoints
@@ -528,7 +557,7 @@ Entry at `/admin/traffic_monitor`, rendered by `app/admin/controllers/traffic_mo
 | `upload_image.php` | Image upload |
 | `share_backup.php` | Shared download of historical update backups (public; requires a 48-char random token, 7-day expiry by default) |
 
-**Admin endpoints** (`app/admin/api/`, `*_ajax.php`): backup, ban_appeals, bounce, data_migration, update, mail_notify, mail_stats, pending_counts, posts, replies, reports, sensitive_logs, sensitive_words, system_status, traffic, user_detail, user_risk_detail, users, users_bulk, users_export_csv.
+**Admin endpoints** (`app/admin/api/`, `*_ajax.php`): backup, ban_appeals, bounce, data_migration, ip_db, mail_notify, mail_stats, pending_counts, posts, replies, reports, sensitive_logs, sensitive_words, system_status, traffic, update, user_detail, user_risk_detail, users, users_bulk, users_export_csv.
 
 > Endpoints generally use `realtime_cache($key, $ttl, $callback)` for short caching, avoiding high-frequency polling from overwhelming the database.
 

@@ -22,6 +22,7 @@ $menuItems = [
     'dashboard'               => ['icon' => 'dashboard',      'label' => t('menu_dashboard', '概览'),         'url' => '/admin', 'perm' => ''],
     'system_status'           => ['icon' => 'system',         'label' => t('menu_system_status', '运行状态'),     'url' => '/admin/system_status', 'perm' => 'super'],
     'traffic_monitor'         => ['icon' => 'traffic',        'label' => t('menu_traffic_monitor', '流量监测'),     'url' => '/admin/traffic_monitor', 'perm' => 'super'],
+    'ip_database'             => ['icon' => 'globe',          'label' => t('menu_ip_database', 'IP 库管理'),     'url' => '/admin/ip_database', 'perm' => 'super'],
     'users'                   => ['icon' => 'users',          'label' => t('menu_users', '用户管理'),     'url' => '/admin/users', 'perm' => 'manage_user_dispose'],
     'user_groups'             => ['icon' => 'user_groups',    'label' => t('menu_user_groups', '用户组'),       'url' => '/admin/user_groups', 'perm' => 'super'],
     'posts'                   => ['icon' => 'posts',          'label' => t('menu_posts', '帖子管理'),     'url' => '/admin/posts', 'perm' => 'manage_posts'],
@@ -78,7 +79,7 @@ $menuGroups = [
     'review'    => [t('menu_group_review', '审核与反馈'),    ['reports', 'ban_appeals', 'password_reset_requests', 'email_disclosure', 'tickets', 'sensitive_words']],
     'mail'      => [t('menu_group_mail', '邮件中心'),        ['mail_center']],
     'settings'  => [t('menu_group_settings', '系统设置'),    ['settings', 'site_pages', 'captcha_debug']],
-    'ops'       => [t('menu_group_ops', '运维与更新'),       ['backup', 'data_migration', 'update_center']],
+    'ops'       => [t('menu_group_ops', '运维与更新'),       ['backup', 'data_migration', 'update_center', 'ip_database']],
 ];
 
 /**
@@ -108,6 +109,7 @@ function admin_menu_icon(string $key): string {
         'settings'      => '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
         'document'      => '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>',
         'update'        => '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
+        'globe'         => '<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>',
     ];
     $path = $icons[$key] ?? $icons['dashboard'];
     return '<svg class="admin-menu-svg" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' . $path . '</svg>';

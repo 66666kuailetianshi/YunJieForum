@@ -47,7 +47,7 @@
 | 权限 / 角色 | 基于 `roles` 的权限组（`has_permission`），支持超级管理员、版主等；与按积分自动晋升的**用户组**分离 |
 | 内容审核 | 敏感词过滤引擎（Trie + Aho-Corasick），支持精确/整词/正则三种匹配、白名单、三级处理（替换 / 拦截 / 人工审核）、命中日志；用户举报、封禁申诉、禁言 |
 | 邮件 | 原生 `fsockopen` 实现的 SMTP 发送器（无第三方依赖），支持 SSL/TLS，邮件日志、退信处理（bounce）、邮件统计与通知 |
-| 运维监控 | 流量统计（访问记录：PV 精确计数 + 会话级 UV 去重 + 爬虫过滤，详见[第 10.4 节](#104-流量监测traffic_monitor)）、系统状态（CPU/内存/温度/网络/磁盘/显卡，详见[第 10.1 节](#101-系统状态监控-system_status)）、数据库备份、自动 Schema 迁移、安装/错误日志 |
+| 运维监控 | 流量统计（访问记录：PV 精确计数 + 会话级 UV 去重 + 爬虫过滤 + 地域归属，详见[第 10.4 节](#104-流量监测traffic_monitor)）、IP 库管理（离线 ip2region 格式，可选安装：GitHub/国内网盘下载、上传/查询/删除，详见[第 10.5 节](#105-ip-库管理-ip_database)）、系统状态（CPU/内存/温度/网络/磁盘/显卡，详见[第 10.1 节](#101-系统状态监控-system_status)）、数据库备份、自动 Schema 迁移、安装/错误日志 |
 | 系统更新 | 「系统更新中心」支持手动/自动检查并应用版本更新：下载 → 校验 SHA256 哈希 → 自动备份 → 覆盖升级；历史更新备份可列表/下载/分享/删除，详见[第 10.3 节](#103-系统更新中心-update_center) |
 | 多语言 | 内置 `简体中文 / 繁體中文 / English`，按 URL、Cookie、配置、浏览器语言自动识别 |
 | 主题 | 基于 CSS 变量的明暗双主题（light / dark），可改色与换肤 |
@@ -396,7 +396,7 @@ location ~* \.(db|sqlite|sqlite3|sql|zip|gz|log|cache|lock)$ {
 | 工单系统 | `tickets.php`（前台反馈与管理员工单统一处理，支持来源筛选与状态流转） |
 | 勋章 | `medals.php` |
 | 邮件 | `mail_center.php`（日志/统计/通知/退信配置） |
-| 运维 | `backup.php`、`data_migration.php`（数据迁移与还原）、`update_center.php`（系统更新中心） |
+| 运维 | `backup.php`、`data_migration.php`（数据迁移与还原）、`update_center.php`（系统更新中心）、`ip_database.php`（IP 库管理） |
 
 后台大量操作通过 `app/admin/api/*_ajax.php` 以 JSON 返回，前端异步调用，并提供待办计数（`pending_counts_ajax.php`）、用户风险详情（`user_risk_detail_ajax.php`）等辅助接口。
 
@@ -510,6 +510,35 @@ location ~* \.(db|sqlite|sqlite3|sql|zip|gz|log|cache|lock)$ {
 
 > 统计入口仅在前台页面（`app/includes/header.php`）调用；公共轮询接口（`pm_poll.php`、`home_realtime.php` 等）与后台页面不触发埋点，避免轮询请求污染数据。IP 以 SHA-256 哈希存储，不保留明文。
 
+### 10.5 IP 库管理（ip_database）
+
+入口 `/admin/ip_database`，由 `app/admin/controllers/ip_database.php` 渲染、`app/admin/api/ip_db_ajax.php` 提供接口，查询逻辑位于 `app/includes/ip2region.php`。直接使用开源项目 [ip2region](https://github.com/lionsoul2014/ip2region)（Apache-2.0 OR MIT 双许可，许可证全文见 [LICENSE.md](LICENSE.md)）官方编译的 xdb 二进制文件 `app/data/ip2region_v4.xdb` / `app/data/ip2region_v6.xdb`，运行期按官方 xdb 3.0 格式直读查询，全程离线、无需联网、不依赖 SQLite 驱动、无需预处理。
+
+**数据来源（可选安装）**：IP 库为可选项，**默认不随代码分发**，需在后台自行下载安装：
+
+1. **后台一键下载（GitHub）**：后台「下载 IP 库」点击「从 GitHub 下载并安装」，服务端从官方仓库直接拉取 v4/v6 两个 xdb 文件并校验安装（需服务器可访问 GitHub）。
+2. **后台一键下载（国内网盘）**：点击「从国内网盘下载并安装」，服务端从国内网盘（pan.szczk.top）拉取 v4/v6 两个 xdb 文件并校验安装；若服务器无法访问该网盘，可点击下方备用链接手动下载后经「上传更新」导入。
+3. 也可通过「上传更新」上传任意来源的官方 xdb 文件（校验后原子替换，立即生效）。未安装 IP 库仅影响地域展示，其余功能不受影响。
+
+**功能**
+
+- **状态展示**：两个 xdb 文件是否存在、路径、数据规模（IPv4/IPv6 段数）、总大小、更新时间（xdb 构建时间）、抽样验证（内置若干公网 IP 实查）、访客数据地域覆盖比例。
+- **下载安装**：GitHub / 国内网盘双源均由服务端一键拉取 v4/v6 xdb 并校验安装（原子替换，立即生效）；国内网盘另提供手动下载备用链接。
+- **在线查询**：输入任意 IPv4/IPv6 地址即时返回归属地，国内为「省·市」，境外为「中文国家（英文原名）· 省份 · 城市」（英文与境外城市同样展示），便于核对库数据准确性。
+- **上传更新**：上传官方 `ip2region_v4.xdb` / `ip2region_v6.xdb`（单个上限 200MB），按文件头 `ipVersion` 自动识别 v4/v6，校验后原子替换，立即生效。
+- **删除**：危险操作区提供删除入口；删除后新访问记录不再记录地域，历史地域数据保留展示。
+
+**直读与检索原理**（xdb 3.0 二进制格式，移植官方 PHP Searcher 逻辑）：
+
+1. **文件布局**：头部 256 字节（版本/构建时间/段索引区间指针/IP 版本）→ 512KiB 向量索引（256×256×8B，按 IP 前两字节定位段索引区间）→ 共享文本池（无分隔符 UTF-8）→ 段索引区（v4 每行 14B、v6 每行 38B：start/end 闭区间 + dataLen/dataPtr，v4 段 IP 小端存储）。
+2. **查询算法**：向量索引粗定位 → 段索引区二分 → 读取命中文本。v4 553,958 段 / v6 734,952 段，单次查询约 20 次文件读取。
+3. **中英双语**：归属地文本为「国家|省份|城市|ISP|国别码」五列；内置 247 个国家/地区英译中映射表，境外显示「中文国家（英文原名）」并保留境外省/市，中国保持「省·市」。
+4. **内存占用**：仅将 512KiB 向量索引读入内存，数据区按需 fseek/fread，适配共享主机；检索器按文件 mtime 复用 + 最近 512 条结果缓存，满足 `track_visit()` 高频埋点调用。
+
+**地域统计联动**：`track_visit()` 埋点时调用 `ip_region_query()` 解析归属地，仅将**地域文本**（省/市/国家）写入 `traffic_visitors.region` 列（明文 IP 仍只存 SHA-256 哈希）。流量监测页由此展示「最近访客归属地」列与「地域分布」卡片（国内按省级聚合、国外按国家聚合，TOP10）。
+
+> 未安装 IP 库时系统自动降级：`region` 留空、地域卡片显示「未知」，其余流量统计不受影响。
+
 ---
 
 ## 11. API 接口
@@ -526,7 +555,7 @@ location ~* \.(db|sqlite|sqlite3|sql|zip|gz|log|cache|lock)$ {
 | `upload_image.php` | 图片上传 |
 | `share_backup.php` | 历史更新备份分享下载（公开，需 48 位随机令牌，默认 7 天过期） |
 
-**后台接口**（`app/admin/api/`，`*_ajax.php`）：backup、ban_appeals、bounce、data_migration、update、mail_notify、mail_stats、pending_counts、posts、replies、reports、sensitive_logs、sensitive_words、system_status、traffic、user_detail、user_risk_detail、users、users_bulk、users_export_csv。
+**后台接口**（`app/admin/api/`，`*_ajax.php`）：backup、ban_appeals、bounce、data_migration、ip_db、mail_notify、mail_stats、pending_counts、posts、replies、reports、sensitive_logs、sensitive_words、system_status、traffic、update、user_detail、user_risk_detail、users、users_bulk、users_export_csv。
 
 > 接口普遍使用 `realtime_cache($key, $ttl, $callback)` 做短缓存，避免高频轮询压垮数据库。
 

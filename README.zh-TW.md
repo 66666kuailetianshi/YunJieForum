@@ -47,7 +47,7 @@
 | 權限 / 角色 | 基於 `roles` 的權限組（`has_permission`），支持超級管理員、版主等；與按積分自動晉升的**用戶組**分離 |
 | 內容審核 | 敏感詞過濾引擎（Trie + Aho-Corasick），支持精確/整詞/正則三種匹配、白名單、三級處理（替換 / 攔截 / 人工審核）、命中日誌；用戶舉報、封禁申訴、禁言 |
 | 郵件 | 原生 `fsockopen` 實現的 SMTP 發送器（無第三方依賴），支持 SSL/TLS，郵件日誌、退信處理（bounce）、郵件統計與通知 |
-| 運維監控 | 流量統計（訪問記錄：PV 精確計數 + 會話級 UV 去重 + 爬蟲過濾，詳見[第 10.4 節](#104-流量監測traffic_monitor)）、系統狀態、資料庫備份、自動 Schema 遷移、安裝/錯誤日誌 |
+| 運維監控 | 流量統計（訪問記錄：PV 精確計數 + 會話級 UV 去重 + 爬蟲過濾 + 地域歸屬，詳見[第 10.4 節](#104-流量監測traffic_monitor)）、IP 庫管理（離線 ip2region 格式，可選安裝：GitHub/國內網盤下載、上傳/查詢/刪除，詳見[第 10.5 節](#105-ip-庫管理-ip_database)）、系統狀態、資料庫備份、自動 Schema 遷移、安裝/錯誤日誌 |
 | 系統更新 | 「系統更新中心」支援手動/自動檢查並應用版本更新：下載 → 校驗 SHA256 雜湊 → 自動備份 → 覆蓋升級；歷史更新備份可列表/下載/分享/刪除，詳見[第 10.3 節](#103-系統更新中心-update_center) |
 | 多語言 | 內置 `簡體中文 / 繁體中文 / English`，按 URL、Cookie、配置、瀏覽器語言自動識別 |
 | 主題 | 基於 CSS 變量的明暗雙主題（light / dark），可改色與換膚 |
@@ -399,7 +399,7 @@ location ~* \.(db|sqlite|sqlite3|sql|zip|gz|log|cache|lock)$ {
 | 工單系統 | `tickets.php`（前臺反饋與管理員工單統一處理，支援來源篩選與狀態流轉） |
 | 勳章 | `medals.php` |
 | 郵件 | `mail_center.php`（日誌/統計/通知/退信配置） |
-| 運維 | `backup.php`、`data_migration.php`（數據遷移與還原）、`update_center.php`（系統更新中心） |
+| 運維 | `backup.php`、`data_migration.php`（數據遷移與還原）、`update_center.php`（系統更新中心）、`ip_database.php`（IP 庫管理） |
 
 後臺大量操作通過 `app/admin/api/*_ajax.php` 以 JSON 返回，前端異步調用，並提供待辦計數（`pending_counts_ajax.php`）、用戶風險詳情（`user_risk_detail_ajax.php`）等輔助接口。
 
@@ -513,6 +513,35 @@ location ~* \.(db|sqlite|sqlite3|sql|zip|gz|log|cache|lock)$ {
 
 > 統計入口僅在前台頁面（`app/includes/header.php`）調用；公共輪詢接口（`pm_poll.php`、`home_realtime.php` 等）與後台頁面不觸發埋點，避免輪詢請求污染數據。IP 以 SHA-256 雜湊存儲，不保留明文。
 
+### 10.5 IP 庫管理（ip_database）
+
+入口 `/admin/ip_database`，由 `app/admin/controllers/ip_database.php` 渲染、`app/admin/api/ip_db_ajax.php` 提供接口，查詢邏輯位於 `app/includes/ip2region.php`。直接使用開源專案 [ip2region](https://github.com/lionsoul2014/ip2region)（Apache-2.0 OR MIT 雙許可，許可證全文見 [LICENSE.md](LICENSE.md)）官方編譯的 xdb 二進位檔案 `app/data/ip2region_v4.xdb` / `app/data/ip2region_v6.xdb`，執行期按官方 xdb 3.0 格式直讀查詢，全程離線、無需聯網、不依賴 SQLite 驅動、無需預處理。
+
+**資料來源（可選安裝）**：IP 庫為可選項，**預設不隨程式碼發佈**，需在後台自行下載安裝：
+
+1. **後台一鍵下載（GitHub）**：後台「下載 IP 庫」點擊「從 GitHub 下載並安裝」，伺服器端從官方倉庫直接拉取 v4/v6 兩個 xdb 檔案並校驗安裝（需伺服器可存取 GitHub）。
+2. **後台一鍵下載（國內網盤）**：點擊「從國內網盤下載並安裝」，伺服器端從國內網盤（pan.szczk.top）拉取 v4/v6 兩個 xdb 檔案並校驗安裝；若伺服器無法存取該網盤，可點擊下方備用連結手動下載後經「上傳更新」匯入。
+3. 也可透過「上傳更新」上傳任意來源的官方 xdb 檔案（校驗後原子替換，立即生效）。未安裝 IP 庫僅影響地域展示，其餘功能不受影響。
+
+**功能**
+
+- **狀態展示**：兩個 xdb 檔案是否存在、路徑、數據規模（IPv4/IPv6 段數）、總大小、更新時間（xdb 構建時間）、抽樣驗證（內置若干公網 IP 實查）、訪客數據地域覆蓋比例。
+- **下載安裝**：GitHub / 國內網盤雙源均由伺服器端一鍵拉取 v4/v6 xdb 並校驗安裝（原子替換，立即生效）；國內網盤另提供手動下載備用連結。
+- **線上查詢**：輸入任意 IPv4/IPv6 地址即時返回歸屬地，國內為「省·市」，境外為「中文國家（英文原名）· 省份 · 城市」（英文與境外城市同樣展示），便於核對庫數據準確性。
+- **上傳更新**：上傳官方 `ip2region_v4.xdb` / `ip2region_v6.xdb`（單個上限 200MB），按檔案頭 `ipVersion` 自動識別 v4/v6，校驗後原子替換，立即生效。
+- **刪除**：危險操作區提供刪除入口；刪除後新訪問記錄不再記錄地域，歷史地域數據保留展示。
+
+**直讀與檢索原理**（xdb 3.0 二進位格式，移植官方 PHP Searcher 邏輯）：
+
+1. **檔案佈局**：頭部 256 位元組（版本/構建時間/段索引區間指標/IP 版本）→ 512KiB 向量索引（256×256×8B，按 IP 前兩位元組定位段索引區間）→ 共享文字池（無分隔符 UTF-8）→ 段索引區（v4 每行 14B、v6 每行 38B：start/end 閉區間 + dataLen/dataPtr，v4 段 IP 小端儲存）。
+2. **查詢演算法**：向量索引粗定位 → 段索引區二分 → 讀取命中文字。v4 553,958 段 / v6 734,952 段，單次查詢約 20 次檔案讀取。
+3. **中英雙語**：歸屬地文字為「國家|省份|城市|ISP|國別碼」五列；內置 247 個國家/地區英譯中映射表，境外顯示「中文國家（英文原名）」並保留境外省/市，中國保持「省·市」。
+4. **記憶體佔用**：僅將 512KiB 向量索引讀入記憶體，數據區按需 fseek/fread，適配共享主機；檢索器按檔案 mtime 複用 + 最近 512 條結果快取，滿足 `track_visit()` 高頻埋點調用。
+
+**地域統計聯動**：`track_visit()` 埋點時調用 `ip_region_query()` 解析歸屬地，僅將**地域文字**（省/市/國家）寫入 `traffic_visitors.region` 列（明文 IP 仍只存 SHA-256 雜湊）。流量監測頁由此展示「最近訪客歸屬地」列與「地域分佈」卡片（國內按省級聚合、國外按國家聚合，TOP10）。
+
+> 未安裝 IP 庫時系統自動降級：`region` 留空、地域卡片顯示「未知」，其餘流量統計不受影響。
+
 ---
 
 ## 11. API 接口
@@ -529,7 +558,7 @@ location ~* \.(db|sqlite|sqlite3|sql|zip|gz|log|cache|lock)$ {
 | `upload_image.php` | 圖片上傳 |
 | `share_backup.php` | 歷史更新備份分享下載（公開，需 48 位隨機令牌，預設 7 天過期） |
 
-**後臺接口**（`app/admin/api/`，`*_ajax.php`）：backup、ban_appeals、bounce、data_migration、update、mail_notify、mail_stats、pending_counts、posts、replies、reports、sensitive_logs、sensitive_words、system_status、traffic、user_detail、user_risk_detail、users、users_bulk、users_export_csv。
+**後臺接口**（`app/admin/api/`，`*_ajax.php`）：backup、ban_appeals、bounce、data_migration、ip_db、mail_notify、mail_stats、pending_counts、posts、replies、reports、sensitive_logs、sensitive_words、system_status、traffic、update、user_detail、user_risk_detail、users、users_bulk、users_export_csv。
 
 > 接口普遍使用 `realtime_cache($key, $ttl, $callback)` 做短緩存，避免高頻輪詢壓垮資料庫。
 

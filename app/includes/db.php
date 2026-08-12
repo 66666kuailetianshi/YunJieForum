@@ -242,7 +242,7 @@ function mark_migration_done(): void {
  */
 function ensure_schema_patch(PDO $db): void {
     $patchFile = DATA_PATH . 'db_patch_version.lock';
-    if ((int)@file_get_contents($patchFile) >= 7) {
+    if ((int)@file_get_contents($patchFile) >= 8) {
         return;
     }
     ensure_mail_logs_table($db);
@@ -270,7 +270,9 @@ function ensure_schema_patch(PDO $db): void {
     ensure_tickets_table($db);
 // v7：工单来源列（user=前台用户反馈 / admin=后台管理员工单）
     migrate_column($db, 'tickets', 'source', "VARCHAR(10) NOT NULL DEFAULT 'admin'");
-    @file_put_contents($patchFile, '7', LOCK_EX);
+    // v8：IP 归属地列（后台「IP 库」离线查询结果，国家|区域|省|市|ISP 或 LAN）
+    migrate_column($db, 'traffic_visitors', 'region', "VARCHAR(128) DEFAULT ''");
+    @file_put_contents($patchFile, '8', LOCK_EX);
 }
 
 /**
@@ -921,6 +923,7 @@ function ensure_sensitive_words_tables(PDO $db): void {
         ip_hash VARCHAR(64) NOT NULL,
         user_agent VARCHAR(500) DEFAULT '',
         page VARCHAR(255) DEFAULT '',
+        region VARCHAR(128) DEFAULT '',
         first_visit DATETIME DEFAULT CURRENT_TIMESTAMP,
         last_visit DATETIME DEFAULT CURRENT_TIMESTAMP,
         views INTEGER DEFAULT 1,
@@ -1072,6 +1075,7 @@ function ensure_remaining_tables(PDO $db): void {
         ip_hash VARCHAR(64) NOT NULL,
         user_agent VARCHAR(500) DEFAULT '',
         page VARCHAR(255) DEFAULT '',
+        region VARCHAR(128) DEFAULT '',
         first_visit DATETIME DEFAULT CURRENT_TIMESTAMP,
         last_visit DATETIME DEFAULT CURRENT_TIMESTAMP,
         views INTEGER DEFAULT 1,

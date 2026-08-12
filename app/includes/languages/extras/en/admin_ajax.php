@@ -31,6 +31,7 @@
     'admin_ajax_off'                             => 'Off',
     'admin_ajax_unknown'                         => 'Unknown',
     'admin_ajax_unknown_short'                   => 'Unknown',
+    'admin_ajax_unknown_region'                  => 'Unknown',
     'admin_ajax_unknown_with_code'               => 'Unknown(',
     'admin_ajax_no_reason'                       => '(No description)',
     'admin_ajax_no_title'                        => '(No title)',

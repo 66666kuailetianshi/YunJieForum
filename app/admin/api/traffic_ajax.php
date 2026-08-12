@@ -91,9 +91,9 @@ foreach ($allHourlyRows as $row) {
     }
 }
 
-// ===================== 查询 3：今日访客批量统计（合并来源+UA+设备+热门页面 → 1 查询）=====================
+// ===================== 查询 3：今日访客批量统计（合并来源+UA+设备+热门页面+地域 → 1 查询）=====================
 $allVisitors = $db->query(
-    "SELECT page, referrer, device_type, user_agent, views 
+    "SELECT page, referrer, device_type, user_agent, views, region 
      FROM traffic_visitors 
      WHERE visit_date = '$today'"
 )->fetchAll();
@@ -160,6 +160,47 @@ foreach ($deviceMap as $type => $data) {
     ];
 }
 
+// --- 地域分布（国内按省级聚合，国外按国家聚合，取 TOP10）---
+$regionMap = [];
+$regionUnknown = 0;
+foreach ($allVisitors as $v) {
+    $prov = ip_region_province($v['region'] ?? '');
+    if ($prov === '') {
+        $regionUnknown++;
+    } else {
+        if (!isset($regionMap[$prov])) $regionMap[$prov] = 0;
+        $regionMap[$prov]++;
+    }
+}
+arsort($regionMap);
+$regions = [];
+$regionRank = 0;
+foreach ($regionMap as $name => $count) {
+    if ($regionRank++ >= 10) break;
+    $regions[] = ['name' => $name, 'count' => $count];
+}
+if ($regionUnknown > 0) {
+    $regions[] = ['name' => t('admin_ajax_unknown_region', '未知'), 'count' => $regionUnknown];
+}
+
+// --- 地域筛选选项（IP 归属地监控下拉，按访问量排序取 TOP50）---
+$regionOptionMap = [];
+foreach ($allVisitors as $v) {
+    $prov = ip_region_province($v['region'] ?? '');
+    if ($prov === '') {
+        $prov = t('admin_ajax_unknown_region', '未知');
+    }
+    $regionOptionMap[$prov] = ($regionOptionMap[$prov] ?? 0) + 1;
+}
+arsort($regionOptionMap);
+$regionOptions = [];
+foreach ($regionOptionMap as $name => $cnt) {
+    $regionOptions[] = $name;
+    if (count($regionOptions) >= 50) {
+        break;
+    }
+}
+
 // --- UA 采样解析（最多 500 条，避免逐条正则全表扫描）---
 $uaSample = array_slice($allVisitors, 0, 500);
 $browserStats = [];
@@ -207,19 +248,30 @@ foreach ($dailyRows as $row) {
     $daily[] = ['date' => $row['stat_date'], 'pv' => (int)$row['pv'], 'uv' => (int)$row['uv']];
 }
 
-// ===================== 查询 5：最近访客（分页，利用 last_visit 索引，仅扫描近期数据）=====================
+// ===================== 查询 5：最近访客（分页 + IP 归属地筛选）=====================
 $recentPage = max(1, (int)($_GET['page'] ?? 1));
 $recentPerPage = 10;
+
+// IP 归属地筛选：值为查询 3 生成的 region_options 之一（国内省 / 境外国家 / 未知）
+$regionFilter = trim((string)($_GET['region'] ?? ''));
+$recentWhere = "last_visit >= {$driver->daysAgo(1)}";
+if ($regionFilter !== '') {
+    $regionCond = ip_region_filter_sql($regionFilter, $db);
+    if ($regionCond !== '') {
+        $recentWhere .= ' AND ' . $regionCond;
+    }
+}
+
 $recentTotal = (int)$db->query(
-    "SELECT COUNT(*) FROM traffic_visitors WHERE last_visit >= {$driver->daysAgo(1)}"
+    "SELECT COUNT(*) FROM traffic_visitors WHERE $recentWhere"
 )->fetchColumn();
 $recentTotalPages = max(1, (int)ceil($recentTotal / $recentPerPage));
 $recentPage = min($recentPage, $recentTotalPages);
 $recentOffset = ($recentPage - 1) * $recentPerPage;
 $recentVisitors = $db->query(
-    "SELECT ip_hash, user_agent, page, device_type, first_visit, last_visit, views 
+    "SELECT ip_hash, user_agent, page, device_type, region, first_visit, last_visit, views 
      FROM traffic_visitors 
-     WHERE last_visit >= {$driver->daysAgo(1)}
+     WHERE $recentWhere
      ORDER BY last_visit DESC LIMIT $recentPerPage OFFSET $recentOffset"
 )->fetchAll();
 $recentList = [];
@@ -251,6 +303,7 @@ foreach ($recentVisitors as $row) {
         'os'         => $os,
         'device'     => $deviceLabel,
         'page'       => $row['page'],
+        'region'     => ip_region_display($row['region'] ?? ''),
         'last_visit' => db_datetime($row['last_visit']),
         'views'      => (int)$row['views'],
     ];
@@ -284,6 +337,8 @@ echo json_encode([
     'hot_pages'         => $hotPagesList,
     'referrers'         => $referrers,
     'devices'           => $devices,
+    'regions'           => $regions,
+    'region_options'    => $regionOptions,
     'browsers'          => $browsers,
     'os_list'           => $osList,
     'recent_visitors'   => $recentList,
@@ -320,6 +375,50 @@ echo json_encode([
 ob_end_flush();
 
 // ===================== 辅助函数（文件末尾）=====================
+
+/**
+ * 归属地筛选条件生成：把 region_options 中的选项映射回 traffic_visitors.region 的匹配条件
+ *
+ * region 原始格式："国家|省份|城市|ISP|国别码"（空段为 0），如：
+ *   - 国内："中国|江苏省|南京市|电信|CN"
+ *   - 境外："United States|California|0|Google LLC|US"
+ *   - 内网："LAN"；未命中/无数据为 ""
+ *
+ * 选项值（ip_region_province 产物）：
+ *   - 国内省份/直辖市："江苏省"、"北京市"
+ *   - 境外国家（中文，个别保留英文原样）："美国"、"Japan"
+ *   - 无归属地："未知"（t('admin_ajax_unknown_region')）
+ *
+ * @return string SQL 片段（无条件时返回空字符串），值经 PDO::quote 转义
+ */
+function ip_region_filter_sql(string $key, PDO $db): string {
+    $unknownLabel = t('admin_ajax_unknown_region', '未知');
+    if ($key === $unknownLabel || $key === 'LAN') {
+        return "(region IS NULL OR region = '' OR region = 'LAN')";
+    }
+
+    // 候选前缀：国家名（英文/中文）+ 国内省份槽 / 城市槽（省份缺失时命中）
+    $patterns = [$key];
+    $cn = ip_region_countries();
+    $en = array_search($key, $cn, true);              // 中文名 → 补英文原名
+    if ($en !== false && $en !== $key) {
+        $patterns[] = $en;
+    }
+    if (isset($cn[$key]) && $cn[$key] !== $key) {     // 英文名 → 补中文名
+        $patterns[] = $cn[$key];
+    }
+    $patterns[] = '中国|' . $key;                      // 国内省份槽
+    $patterns[] = '中国|0|' . $key;                    // 国内省份缺失、命中城市槽
+    $patterns = array_values(array_unique($patterns));
+
+    $conds = [];
+    foreach ($patterns as $p) {
+        // 转义 LIKE 通配符，再以 % 作为真实通配符
+        $p = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $p);
+        $conds[] = 'region LIKE ' . $db->quote($p . '%');
+    }
+    return '(' . implode(' OR ', $conds) . ')';
+}
 
 /**
  * 总量级统计数据缓存（30 秒 TTL，避免每次全表扫描 total PV / total UV）
