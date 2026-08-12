@@ -116,16 +116,16 @@ $stats = [
 // ===================== 查询帖子列表 =====================
 // 单一分支：有筛选参数时走 prepare，否则直接 query，COUNT 只执行一次
 if (!empty($params)) {
-    $countStmt = $db->prepare("SELECT COUNT(*) FROM posts p JOIN users u ON p.user_id = u.id WHERE $whereSql");
+    $countStmt = $db->prepare("SELECT COUNT(DISTINCT p.id) FROM posts p JOIN users u ON p.user_id = u.id OR p.user_id = u.uid WHERE $whereSql");
     $countStmt->execute($params);
     $total = (int)$countStmt->fetchColumn();
 } else {
-    $total = (int)$db->query("SELECT COUNT(*) FROM posts p JOIN users u ON p.user_id = u.id WHERE $whereSql")->fetchColumn();
+    $total = (int)$db->query("SELECT COUNT(DISTINCT p.id) FROM posts p JOIN users u ON p.user_id = u.id OR p.user_id = u.uid WHERE $whereSql")->fetchColumn();
 }
 
 $sql = "SELECT p.*, u.username, f.name AS forum_name
     FROM posts p
-    JOIN users u ON p.user_id = u.id
+    JOIN users u ON p.user_id = u.id OR p.user_id = u.uid
     LEFT JOIN forums f ON p.forum_id = f.id
     WHERE $whereSql
     ORDER BY p.is_pinned DESC, p.{$sort} {$order}

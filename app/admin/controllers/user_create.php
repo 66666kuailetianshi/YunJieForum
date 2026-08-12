@@ -59,12 +59,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && validate_csrf()) {
     if (empty($errors)) {
         try {
             $db->beginTransaction();
-            $stmt = $db->prepare("INSERT INTO users (uid, username, email, password, role) VALUES (:uid, :username, :email, :password, 'user')");
+            $stmt = $db->prepare("INSERT INTO users (uid, username, email, password, role, register_ip, last_ip) VALUES (:uid, :username, :email, :password, 'user', :ip, :ip)");
             $stmt->execute([
                 ':uid' => generate_uid(),
                 ':username' => $old['username'],
                 ':email' => $old['email'],
                 ':password' => password_hash($password, PASSWORD_BCRYPT),
+                ':ip' => client_ip(),
             ]);
             $newUserId = (int)$db->lastInsertId();
 

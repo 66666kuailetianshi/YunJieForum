@@ -711,7 +711,7 @@ include APP_ROOT . 'app/includes/header.php';
         $countStmt = $db->prepare("SELECT COUNT(*) FROM favorites f JOIN posts p ON f.post_id = p.id WHERE f.user_id = :user_id");
         $countStmt->execute([':user_id' => $user['id']]);
         $favTotal = (int)$countStmt->fetchColumn();
-        $stmt = $db->prepare("SELECT p.*, f.id AS fav_id, u.username FROM favorites f JOIN posts p ON f.post_id = p.id JOIN users u ON p.user_id = u.id WHERE f.user_id = :user_id ORDER BY f.created_at DESC LIMIT :limit OFFSET :offset");
+        $stmt = $db->prepare("SELECT p.*, f.id AS fav_id, u.username FROM favorites f JOIN posts p ON f.post_id = p.id JOIN users u ON p.user_id = u.id OR p.user_id = u.uid WHERE f.user_id = :user_id ORDER BY f.created_at DESC LIMIT :limit OFFSET :offset");
         $stmt->bindValue(':user_id', $user['id'], PDO::PARAM_INT);
         $stmt->bindValue(':limit', $profilePerPage, PDO::PARAM_INT);
         $stmt->bindValue(':offset', $profileOffset, PDO::PARAM_INT);

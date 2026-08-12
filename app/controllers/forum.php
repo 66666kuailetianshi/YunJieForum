@@ -38,7 +38,7 @@ $stmt = $db->prepare("SELECT p.id, p.title, p.views, p.replies_count, p.is_pinne
     p.created_at, p.updated_at,
     u.username, u.avatar, u.posts_count, u.points
     FROM posts p
-    JOIN users u ON p.user_id = u.id
+    JOIN users u ON p.user_id = u.id OR p.user_id = u.uid
     WHERE p.forum_id = :fid
     ORDER BY p.is_pinned DESC, p.updated_at DESC
     LIMIT :limit OFFSET :offset");

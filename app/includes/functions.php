@@ -1654,7 +1654,7 @@ function get_forums_by_category(): array {
         FROM forum_categories fc
         LEFT JOIN forums f ON f.category_id = fc.id
         LEFT JOIN posts p ON f.last_post_id = p.id
-        LEFT JOIN users u ON p.user_id = u.id
+        LEFT JOIN users u ON p.user_id = u.id OR p.user_id = u.uid
         ORDER BY fc.display_order ASC, fc.id ASC, f.display_order ASC, f.id ASC");
     // 注：last_post_time 优先取 forums.last_post_time（最后回复/最后活动时间），
     // 回退到帖子创建时间，避免回复旧帖后首页"最后发表"时间不更新

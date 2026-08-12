@@ -22,7 +22,7 @@ $stats = forum_stats();
 $stmt = $db->prepare("SELECT p.id, p.title, p.views, p.replies_count, p.is_pinned, p.is_essence, p.is_locked, p.created_at,
     u.username, u.avatar
     FROM posts p
-    JOIN users u ON p.user_id = u.id
+    JOIN users u ON p.user_id = u.id OR p.user_id = u.uid
     ORDER BY p.created_at DESC
     LIMIT :limit");
 $stmt->bindValue(':limit', 10, PDO::PARAM_INT);

@@ -33,7 +33,7 @@ if ($action === 'get_content' && validate_csrf()) {
     $stmt = $db->prepare(
         "SELECT r.*, u.username, p.title AS post_title, p.id AS post_id
          FROM replies r
-         JOIN users u ON r.user_id = u.id
+         JOIN users u ON r.user_id = u.id OR r.user_id = u.uid
          JOIN posts p ON r.post_id = p.id
          WHERE r.id = :id"
     );

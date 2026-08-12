@@ -88,14 +88,14 @@ $stats = [
 // ===================== 查询回复列表 =====================
 $total = $stats['total'];
 if (!empty($params)) {
-    $countStmt = $db->prepare("SELECT COUNT(*) FROM replies r JOIN users u ON r.user_id = u.id JOIN posts p ON r.post_id = p.id WHERE $whereSql");
+    $countStmt = $db->prepare("SELECT COUNT(DISTINCT r.id) FROM replies r JOIN users u ON r.user_id = u.id OR r.user_id = u.uid JOIN posts p ON r.post_id = p.id WHERE $whereSql");
     $countStmt->execute($params);
     $total = (int)$countStmt->fetchColumn();
 }
 
 $sql = "SELECT r.*, u.username, p.title AS post_title, p.id AS post_id
     FROM replies r
-    JOIN users u ON r.user_id = u.id
+    JOIN users u ON r.user_id = u.id OR r.user_id = u.uid
     JOIN posts p ON r.post_id = p.id
     WHERE $whereSql
     ORDER BY r.{$sort} {$order}

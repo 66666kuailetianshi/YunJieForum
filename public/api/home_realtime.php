@@ -42,7 +42,7 @@ try {
         $db = get_db();
         $stmt = $db->query("SELECT p.id, p.title, p.is_pinned, p.is_essence, p.is_locked, p.created_at, u.username
             FROM posts p
-            JOIN users u ON p.user_id = u.id
+            JOIN users u ON p.user_id = u.id OR p.user_id = u.uid
             ORDER BY p.created_at DESC
             LIMIT 10");
         $latest = [];

@@ -19,7 +19,7 @@ $postId = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 // 查询帖子（含楼主扩展信息）
 $stmt = $db->prepare("SELECT p.*, u.username, u.avatar, u.signature, u.points, u.posts_count, u.created_at AS user_created_at
     FROM posts p
-    JOIN users u ON p.user_id = u.id
+    JOIN users u ON p.user_id = u.id OR p.user_id = u.uid
     WHERE p.id = :id
     LIMIT 1");
 $stmt->execute([':id' => $postId]);
@@ -329,7 +329,7 @@ $totalReplies = (int)$stmt->fetchColumn();
 if ($authorFilter > 0) {
     $stmt = $db->prepare("SELECT r.*, u.username, u.avatar, u.points, u.posts_count, u.created_at AS user_created_at
         FROM replies r
-        JOIN users u ON r.user_id = u.id
+        JOIN users u ON r.user_id = u.id OR r.user_id = u.uid
         WHERE r.post_id = :post_id AND r.user_id = :user_id
         ORDER BY r.floor ASC, r.created_at ASC
         LIMIT :limit OFFSET :offset");
@@ -338,7 +338,7 @@ if ($authorFilter > 0) {
 } else {
     $stmt = $db->prepare("SELECT r.*, u.username, u.avatar, u.points, u.posts_count, u.created_at AS user_created_at
         FROM replies r
-        JOIN users u ON r.user_id = u.id
+        JOIN users u ON r.user_id = u.id OR r.user_id = u.uid
         WHERE r.post_id = :post_id
         ORDER BY r.floor ASC, r.created_at ASC
         LIMIT :limit OFFSET :offset");
@@ -360,7 +360,7 @@ foreach ($replies as $reply) {
 if (!empty($quoteIds)) {
     $quoteIds = array_values(array_unique($quoteIds));
     $safeIds = implode(',', array_map('intval', $quoteIds));
-    $stmt = $db->query("SELECT r.id, r.floor, r.content, u.username FROM replies r JOIN users u ON r.user_id = u.id WHERE r.id IN ($safeIds)");
+    $stmt = $db->query("SELECT r.id, r.floor, r.content, u.username FROM replies r JOIN users u ON r.user_id = u.id OR r.user_id = u.uid WHERE r.id IN ($safeIds)");
     foreach ($stmt->fetchAll() as $row) {
         $quotedReplies[(int)$row['id']] = $row;
     }

@@ -32,7 +32,7 @@ if ($hasQuery) {
 
     $stmt = $db->prepare("SELECT p.*, u.username, u.avatar, f.name AS forum_name, f.icon AS forum_icon
         FROM posts p
-        JOIN users u ON p.user_id = u.id
+        JOIN users u ON p.user_id = u.id OR p.user_id = u.uid
         LEFT JOIN forums f ON p.forum_id = f.id
         WHERE p.title LIKE :q1 OR p.content LIKE :q2
         ORDER BY p.created_at DESC

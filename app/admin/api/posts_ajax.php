@@ -61,7 +61,7 @@ if ($action === 'get_content' && validate_csrf()) {
     $replies = $db->prepare(
         "SELECT r.*, u.username
          FROM replies r
-         JOIN users u ON r.user_id = u.id
+         JOIN users u ON r.user_id = u.id OR r.user_id = u.uid
          WHERE r.post_id = :pid
          ORDER BY r.floor ASC"
     );

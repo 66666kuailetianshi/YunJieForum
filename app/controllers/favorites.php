@@ -48,7 +48,7 @@ $total = (int)$stmt->fetchColumn();
 $stmt = $db->prepare("SELECT fav.created_at AS favorited_at, p.*, u.username, u.avatar, f.name AS forum_name, f.icon AS forum_icon
     FROM favorites fav
     JOIN posts p ON fav.post_id = p.id
-    JOIN users u ON p.user_id = u.id
+    JOIN users u ON p.user_id = u.id OR p.user_id = u.uid
     LEFT JOIN forums f ON p.forum_id = f.id
     WHERE fav.user_id = :uid
     ORDER BY fav.created_at DESC

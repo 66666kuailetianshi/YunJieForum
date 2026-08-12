@@ -107,7 +107,7 @@ try {
 $recentPosts = [];
 $recentUsers = [];
 try {
-    $recentPosts = $db->query("SELECT p.*, u.username FROM posts p JOIN users u ON p.user_id = u.id ORDER BY p.created_at DESC LIMIT 5")->fetchAll();
+    $recentPosts = $db->query("SELECT p.*, u.username FROM posts p JOIN users u ON p.user_id = u.id OR p.user_id = u.uid ORDER BY p.created_at DESC LIMIT 5")->fetchAll();
     $recentUsers = $db->query("SELECT * FROM users ORDER BY created_at DESC LIMIT 5")->fetchAll();
 } catch (Exception $e) {
     // 忽略异常
