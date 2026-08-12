@@ -1480,4 +1480,11 @@
     'ipdb_delete_confirm' => '确定要删除 IP 库 xdb 文件吗？删除后新访问记录将不再记录地域信息。',
     'ipdb_delete_ok' => 'IP 库 xdb 文件已删除。',
     'ipdb_delete_failed' => '删除 IP 库 xdb 文件失败，请检查文件权限。',
+    'ipdb_dl_finalize_failed' => '校验安装失败',
+    'ipdb_dl_err_incomplete' => '文件不完整',
+    'ipdb_dl_err_bad_xdb' => '文件不是合法的 ip2region 数据文件',
+    'ipdb_dl_err_type_mismatch' => '库版本与文件不匹配',
+    'ipdb_dl_err_bad_format' => '文件头无法解析',
+    'ipdb_dl_err_replace_failed' => '写入 app/data 失败，请检查目录权限',
+    'ipdb_dl_err_not_found' => '临时文件不存在',
 ];

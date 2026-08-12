@@ -587,7 +587,8 @@ function ip_region_dl_install(string $ver): array
     }
     $r = ip_region_xdb_install($tmp, $ver);
     if (empty($r['success'])) {
-        return ['ok' => false, 'error' => 'install_failed'];
+        // 透传内部错误码（如 replace_failed / type_mismatch），便于前端定位
+        return ['ok' => false, 'error' => 'install_failed:' . ($r['error'] ?? '')];
     }
     return ['ok' => true, 'imported' => $r['imported'] ?? 0, 'size' => $r['size'] ?? 0];
 }

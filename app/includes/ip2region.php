@@ -552,6 +552,12 @@ function ip_region_xdb_install(string $srcPath, string $ver): array
     $segSize = ($ver === 'v6') ? 38 : 14;
     $segments = (int)(($hdr['endPtr'] - $hdr['startPtr']) / $segSize);
 
+    // 确保目标目录存在（app/data 不随代码分发，首次安装时需创建）
+    $dir = dirname($target);
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0755, true);
+    }
+
     // 写 .new 临时文件后原子替换，避免与只读查询竞争
     $tmp = $target . '.new';
     @unlink($tmp);

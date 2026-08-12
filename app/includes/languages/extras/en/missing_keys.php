@@ -210,4 +210,11 @@
     'ipdb_delete_confirm' => 'Are you sure you want to delete the IP database xdb files? New visit records will no longer include region info.',
     'ipdb_delete_ok' => 'IP database xdb files deleted.',
     'ipdb_delete_failed' => 'Failed to delete the IP database xdb files, please check file permissions.',
+    'ipdb_dl_finalize_failed' => 'Verification & install failed',
+    'ipdb_dl_err_incomplete' => 'File incomplete',
+    'ipdb_dl_err_bad_xdb' => 'File is not a valid ip2region data file',
+    'ipdb_dl_err_type_mismatch' => 'Database version does not match the file',
+    'ipdb_dl_err_bad_format' => 'Unable to parse file header',
+    'ipdb_dl_err_replace_failed' => 'Failed to write to app/data, please check directory permissions',
+    'ipdb_dl_err_not_found' => 'Temporary file not found',
 ];

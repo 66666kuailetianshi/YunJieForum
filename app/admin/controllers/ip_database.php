@@ -366,7 +366,18 @@ require_once dirname(__DIR__) . '/layout/header.php';
         noProg: '<?php echo e(t('ipdb_dl_no_progress', '未能获取数据，请重试或更换下载源。')); ?>',
         fetchFailed: '<?php echo e(t('ipdb_dl_fetch_failed', '下载分片失败')); ?>',
         resumeHint: '<?php echo e(t('ipdb_dl_resume_hint', '检测到未完成的下载任务，可点击「继续」恢复下载。')); ?>',
-        startTimeout: '<?php echo e(t('ipdb_dl_start_timeout', '连接下载源超时，已自动终止下载。请检查服务器网络后重试。')); ?>'
+        startTimeout: '<?php echo e(t('ipdb_dl_start_timeout', '连接下载源超时，已自动终止下载。请检查服务器网络后重试。')); ?>',
+        finalizeFailed: '<?php echo e(t('ipdb_dl_finalize_failed', '校验安装失败')); ?>'
+    };
+
+    // 校验安装失败的错误码 -> 可读提示
+    var DL_ERR_MAP = {
+        incomplete: '<?php echo e(t('ipdb_dl_err_incomplete', '文件不完整')); ?>',
+        bad_xdb: '<?php echo e(t('ipdb_dl_err_bad_xdb', '文件不是合法的 ip2region 数据文件')); ?>',
+        type_mismatch: '<?php echo e(t('ipdb_dl_err_type_mismatch', '库版本与文件不匹配')); ?>',
+        bad_format: '<?php echo e(t('ipdb_dl_err_bad_format', '文件头无法解析')); ?>',
+        replace_failed: '<?php echo e(t('ipdb_dl_err_replace_failed', '写入 app/data 失败，请检查目录权限')); ?>',
+        not_found: '<?php echo e(t('ipdb_dl_err_not_found', '临时文件不存在')); ?>'
     };
 
     function verLabel(v) { return v === 'v6' ? DL_TXT.ipv6 : DL_TXT.ipv4; }
@@ -705,7 +716,16 @@ require_once dirname(__DIR__) . '/layout/header.php';
             .then(function (data) {
                 dl.busy = false;
                 if (!data.success) {
-                    dlSetMsg(esc(data.error || '<?php echo e(t('ipdb_dl_finalize_failed', '校验安装失败')); ?>'), true);
+                    // 展示具体失败原因（ver + 错误码），便于诊断
+                    var errDetail = [];
+                    if (data.errors) {
+                        Object.keys(data.errors).forEach(function (n) {
+                            var code = String(data.errors[n] || '').replace(/^install_failed:(.*)$/, '$1');
+                            var msg = DL_ERR_MAP[code] || code || DL_TXT.finalizeFailed;
+                            errDetail.push(verLabel(n) + '：' + msg);
+                        });
+                    }
+                    dlSetMsg(esc(data.error || '<?php echo e(t('ipdb_dl_finalize_failed', '校验安装失败')); ?>') + (errDetail.length ? '（' + esc(errDetail.join('；')) + '）' : ''), true);
                     dlRender();
                     return;
                 }

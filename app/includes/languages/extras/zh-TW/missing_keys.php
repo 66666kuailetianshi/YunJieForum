@@ -281,4 +281,11 @@
     'ipdb_delete_confirm' => '確定要刪除 IP 庫 xdb 檔案嗎？刪除後新訪問記錄將不再記錄地域資訊。',
     'ipdb_delete_ok' => 'IP 庫 xdb 檔案已刪除。',
     'ipdb_delete_failed' => '刪除 IP 庫 xdb 檔案失敗，請檢查檔案權限。',
+    'ipdb_dl_finalize_failed' => '校驗安裝失敗',
+    'ipdb_dl_err_incomplete' => '檔案不完整',
+    'ipdb_dl_err_bad_xdb' => '檔案不是合法的 ip2region 資料檔案',
+    'ipdb_dl_err_type_mismatch' => '庫版本與檔案不匹配',
+    'ipdb_dl_err_bad_format' => '檔案頭無法解析',
+    'ipdb_dl_err_replace_failed' => '寫入 app/data 失敗，請檢查目錄權限',
+    'ipdb_dl_err_not_found' => '臨時檔案不存在',
 ];
