@@ -47,7 +47,7 @@
 | Permissions / Roles | Permission groups based on `roles` (`has_permission`), supporting super admin, moderators, etc.; separate from **user groups** that auto-promote by points |
 | Content Moderation | Sensitive-word filtering engine (Trie + Aho-Corasick), supporting exact / whole-word / regex matching, whitelist, three-level handling (replace / block / manual review), hit logs; user reports, ban appeals, mute |
 | Email | Native SMTP sender implemented with `fsockopen` (no third-party dependencies), supports SSL/TLS, mail logs, bounce handling, mail statistics and notifications |
-| Ops & Monitoring | Traffic statistics (visit records), system status, database backup, automatic schema migration, installation/error logs |
+| Ops & Monitoring | Traffic statistics (visit records: exact PV counting + session-level UV dedup + crawler filtering, see [Section 10.4](#104-traffic-monitor-traffic_monitor)), system status, database backup, automatic schema migration, installation/error logs |
 | System Update | "System Update Center" supports manual/automatic update checking and applying: download → verify SHA256 hash → auto-backup → overwrite upgrade; historical update backups can be listed/downloaded/shared/deleted, see [Section 10.3](#103-system-update-center-update_center) |
 | Multi-language | Built-in `Simplified Chinese / Traditional Chinese / English`, auto-detected by URL, Cookie, config, and browser language |
 | Themes | Light/dark dual themes based on CSS variables (light / dark), customizable colors and skins |
@@ -486,6 +486,23 @@ Below the update settings, a "Update Backup History" card centrally manages the 
 - **Share**: generates a public link that downloads without login (48-char random token, 7-day expiry by default; the share record is cleaned up automatically when the backup is deleted); the link domain always follows the domain currently visited in the browser (auto-derived, unaffected by the `SITE_URL` setting — works out of the box on multi-domain / reverse-proxy deployments).
 - **Delete**: POST + CSRF validation; the corresponding share record is removed as well.
 
+### 10.4 Traffic Monitor (traffic_monitor)
+
+Entry at `/admin/traffic_monitor`, rendered by `app/admin/controllers/traffic_monitor.php` with data served by `app/admin/api/traffic_ajax.php`; the front end polls every 5 seconds, and total-level stats use a 30-second file cache (`data/cache/traffic_total_stats.json`) to avoid full-table scans on every poll.
+
+**Measurement methodology & accuracy design** (`track_visit()`, `app/includes/functions.php`):
+
+| Metric | Methodology |
+| --- | --- |
+| PV | **Exactly incremented** on every page view, no longer affected by throttling (rapid same-session browsing is no longer undercounted) |
+| UV | Deduplicated per "session × hour" (at most 1 per session per hour); never missed across hour boundaries |
+| Crawler filter | Requests whose UA matches known crawlers/CLI clients (e.g. googlebot, curl, python-requests) or with no UA are ignored |
+| Online count | Based on visitor-row `last_visit` (last 5 minutes), lagging ≤60s due to the session throttle |
+| Hot pages / device breakdown | Based on visitor-row `views`, an approximate per-session-window value (slightly undercounted during rapid same-session browsing) |
+| Total UV | Row count of `traffic_visitors`, i.e. "cumulative daily-visitor records" (the same IP is counted once per day) |
+
+> Tracking runs only on front-end pages (`app/includes/header.php`); public polling endpoints (`pm_poll.php`, `home_realtime.php`, etc.) and admin pages never trigger it, so polling traffic cannot pollute the data. IPs are stored as SHA-256 hashes, never in plain text.
+
 ---
 
 ## 11. API Endpoints
@@ -579,7 +596,7 @@ Below the update settings, a "Update Backup History" card centrally manages the 
 - **Migration & upgrade**: after overwriting the code with a new version, runtime `auto_migrate()` automatically creates missing tables/indexes — no manual database changes needed.
 - **Logs**: errors are recorded in `data/error.log`; installation-time DDL execution details can be inspected via `get_ddl_install_log()` (shown by the wizard on installation failure).
 - **Bounce handling**: `app/includes/bounce_processor.php` processes bounced emails and updates user email status.
-- **Traffic statistics**: `track_visit()` records visits, viewable under "Traffic monitor" in the admin panel.
+- **Traffic statistics**: `track_visit()` records visits (exact PV counting, session-level UV dedup, crawler filtering), viewable under "Traffic monitor" in the admin panel — see [Section 10.4](#104-traffic-monitor-traffic_monitor).
 
 ---
 

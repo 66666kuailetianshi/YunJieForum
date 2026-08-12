@@ -2003,17 +2003,22 @@ function suggest_forum_icon_key(string $name): string {
  * 记录页面访问（流量埋点）
  * 在 includes/header.php 中调用，每个页面访问都会记录。
  * 使用 IP 哈希（非明文）保护隐私，按日期+IP 去重统计 UV。
+ *
+ * 准确性设计（v1.5.2 优化）：
+ * - PV：每次页面访问都精确累加，不再被节流吞掉（修复同一会话快速翻页时 PV 严重低估）；
+ * - UV：按「会话 × 小时」去重，每小时每会话最多计 1，跨小时边界也不遗漏；
+ * - 爬虫：UA 命中已知爬虫/命令行抓取时直接忽略，避免机器人刷高 PV/UV；
+ * - 访客明细行（traffic_visitors）：仍按 60s 会话节流以控制写压力，
+ *   仅影响「热页/设备 views、在线人数滞后 ≤60s」等次要指标，主指标 PV/UV 保持精确。
  */
 function track_visit(): void {
     static $tracked = false;
     if ($tracked) return; // 防止同一请求多次记录
     $tracked = true;
 
-    // 跨请求节流：60 秒内同一会话只记录一次，显著降低每请求 2-3 次写入压力
-    //（仍保留按小时 UV 去重，统计口径为"活跃访问"，对报表精度影响可忽略）
-    if (isset($_SESSION['tv_last_ts']) && (time() - (int)$_SESSION['tv_last_ts']) < 60) {
-        return;
-    }
+    // 排除爬虫/非浏览器 UA（准确性：真实访客口径，避免机器人刷高 PV/UV）
+    $ua = substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 500);
+    if (is_crawler_ua($ua)) return;
 
     try {
         $db = get_db();
@@ -2028,14 +2033,9 @@ function track_visit(): void {
         $visitHour = (int)date('G');
 
         // 当前页面路径
-        $page = $_SERVER['REQUEST_URI'] ?? '/';
-        $page = substr($page, 0, 255);
+        $page = substr($_SERVER['REQUEST_URI'] ?? '/', 0, 255);
 
-        // User-Agent
-        $ua = $_SERVER['HTTP_USER_AGENT'] ?? '';
-        $ua = substr($ua, 0, 500);
-
-        // 来源（Referrer）
+        // 来源（Referrer）：仅记录站外来源，本站内跳转视为直接访问
         $referrer = '';
         if (!empty($_SERVER['HTTP_REFERER'])) {
             $ref = parse_url($_SERVER['HTTP_REFERER']);
@@ -2054,6 +2054,29 @@ function track_visit(): void {
             $deviceType = 'mobile';
         } else {
             $deviceType = 'desktop';
+        }
+
+        // ========== PV：每次访问都精确累加（不受节流影响）==========
+        $upsertClause2 = get_db_driver()->upsertConflictClause('stat_date, stat_hour');
+        $stmt2 = $db->prepare("INSERT INTO traffic_stats (stat_date, stat_hour, page_views, unique_visitors)
+            VALUES (:date, :hour, 1, 0)
+            {$upsertClause2} page_views = page_views + 1");
+        $stmt2->execute([':date' => $visitDate, ':hour' => $visitHour]);
+
+        // ========== UV：按「会话 × 小时」去重，跨小时不遗漏 ==========
+        $uvKey = 'tv_uv_' . $visitDate . '_' . $visitHour;
+        if (!isset($_SESSION[$uvKey])) {
+            $_SESSION[$uvKey] = true;
+            $stmt3 = $db->prepare("UPDATE traffic_stats SET unique_visitors = unique_visitors + 1
+                WHERE stat_date = :date AND stat_hour = :hour");
+            $stmt3->execute([':date' => $visitDate, ':hour' => $visitHour]);
+        }
+
+        // ========== 访客明细行：60s 会话节流（降低写压力）==========
+        // 说明：该行服务于「在线人数 / 最近访客 / 热页与设备分布」等次要指标，
+        // 节流仅使这些指标滞后 ≤60s 或按会话窗口近似，不影响 PV/UV 精确性。
+        if (isset($_SESSION['tv_last_ts']) && (time() - (int)$_SESSION['tv_last_ts']) < 60) {
+            return;
         }
 
         // 插入或更新访客记录（按 visit_date + ip_hash 去重）
@@ -2080,27 +2103,23 @@ function track_visit(): void {
             ':device2' => $deviceType,
         ]);
 
-        // 更新小时聚合表
-        $upsertClause2 = get_db_driver()->upsertConflictClause('stat_date, stat_hour');
-        $stmt2 = $db->prepare("INSERT INTO traffic_stats (stat_date, stat_hour, page_views, unique_visitors)
-            VALUES (:date, :hour, 1, 0)
-            {$upsertClause2} page_views = page_views + 1");
-        $stmt2->execute([':date' => $visitDate, ':hour' => $visitHour]);
-
-        // UV 按 Session+小时去重
-        $uvKey = 'tv_uv_' . $visitDate . '_' . $visitHour;
-        if (!isset($_SESSION[$uvKey])) {
-            $_SESSION[$uvKey] = true;
-            $stmt3 = $db->prepare("UPDATE traffic_stats SET unique_visitors = unique_visitors + 1
-                WHERE stat_date = :date AND stat_hour = :hour");
-            $stmt3->execute([':date' => $visitDate, ':hour' => $visitHour]);
-        }
-
-        // 记录本次写入时间，用于跨请求节流
+        // 记录本次写入时间，用于访客明细行节流
         $_SESSION['tv_last_ts'] = time();
     } catch (Exception $e) {
         // 流量统计失败不影响页面渲染
     }
+}
+
+/**
+ * 判断 UA 是否为爬虫 / 机器人 / 命令行抓取
+ * 命中返回 true（流量统计应忽略这类请求，保证真实访客口径）。
+ */
+function is_crawler_ua(string $ua): bool {
+    if ($ua === '') return true; // 无 UA 的请求（多为脚本/非浏览器客户端）不计入
+    return (bool)preg_match(
+        '~(?:googlebot|bingbot|baiduspider|yandexbot|sogou|bytespider|semrushbot|ahrefsbot|mj12bot|dotbot|petalbot|applebot|duckduckbot|facebookexternalhit|twitterbot|bingpreview|preview|bot|crawler|spider|slurp|scrapy|curl|wget|python-requests|urllib|httpclient|headless|phantomjs|lighthouse|pingdom)~i',
+        $ua
+    );
 }
 
 /**

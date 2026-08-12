@@ -47,7 +47,7 @@
 | 權限 / 角色 | 基於 `roles` 的權限組（`has_permission`），支持超級管理員、版主等；與按積分自動晉升的**用戶組**分離 |
 | 內容審核 | 敏感詞過濾引擎（Trie + Aho-Corasick），支持精確/整詞/正則三種匹配、白名單、三級處理（替換 / 攔截 / 人工審核）、命中日誌；用戶舉報、封禁申訴、禁言 |
 | 郵件 | 原生 `fsockopen` 實現的 SMTP 發送器（無第三方依賴），支持 SSL/TLS，郵件日誌、退信處理（bounce）、郵件統計與通知 |
-| 運維監控 | 流量統計（訪問記錄）、系統狀態、資料庫備份、自動 Schema 遷移、安裝/錯誤日誌 |
+| 運維監控 | 流量統計（訪問記錄：PV 精確計數 + 會話級 UV 去重 + 爬蟲過濾，詳見[第 10.4 節](#104-流量監測traffic_monitor)）、系統狀態、資料庫備份、自動 Schema 遷移、安裝/錯誤日誌 |
 | 系統更新 | 「系統更新中心」支援手動/自動檢查並應用版本更新：下載 → 校驗 SHA256 雜湊 → 自動備份 → 覆蓋升級；歷史更新備份可列表/下載/分享/刪除，詳見[第 10.3 節](#103-系統更新中心-update_center) |
 | 多語言 | 內置 `簡體中文 / 繁體中文 / English`，按 URL、Cookie、配置、瀏覽器語言自動識別 |
 | 主題 | 基於 CSS 變量的明暗雙主題（light / dark），可改色與換膚 |
@@ -487,6 +487,23 @@ location ~* \.(db|sqlite|sqlite3|sql|zip|gz|log|cache|lock)$ {
 - **分享**：產生無需登入即可下載的公開連結（48 位隨機令牌，預設 7 天過期，刪除備份時自動清理分享記錄）；連結域名始終跟隨瀏覽器當前訪問域名（自動推導，不受 `SITE_URL` 配置影響，多域名/反代部署點開即用）。
 - **刪除**：POST + CSRF 校驗，同步清理對應分享記錄。
 
+### 10.4 流量監測（traffic_monitor）
+
+入口 `/admin/traffic_monitor`，由 `app/admin/controllers/traffic_monitor.php` 渲染、`app/admin/api/traffic_ajax.php` 提供數據，前端每 5 秒輪詢刷新；總量級統計使用 30 秒檔案緩存（`data/cache/traffic_total_stats.json`），避免每次輪詢全表掃描。
+
+**統計口徑與準確性設計**（`track_visit()`，`app/includes/functions.php`）：
+
+| 指標 | 口徑 |
+| --- | --- |
+| PV | 每次頁面訪問**精確累加**，不再受節流影響（同一會話快速翻頁不再低估） |
+| UV | 按「會話 × 小時」去重，每小時每會話最多計 1，跨小時邊界不遺漏 |
+| 爬蟲過濾 | UA 命中已知爬蟲/命令行列抓取（如 googlebot、curl、python-requests 等）或缺失 UA 的請求直接忽略 |
+| 在線人數 | 依據訪客明細行 `last_visit`（最近 5 分鐘），隨 60 秒會話節流滯後 ≤60 秒 |
+| 熱頁 / 設備分布 | 基於訪客明細行 `views`，為會話視窗近似值（同會話快速翻頁時略低估） |
+| 累計 UV | `traffic_visitors` 行數，口徑為「累計訪客日人次」（同一 IP 不同日期各計一次） |
+
+> 統計入口僅在前台頁面（`app/includes/header.php`）調用；公共輪詢接口（`pm_poll.php`、`home_realtime.php` 等）與後台頁面不觸發埋點，避免輪詢請求污染數據。IP 以 SHA-256 雜湊存儲，不保留明文。
+
 ---
 
 ## 11. API 接口
@@ -580,7 +597,7 @@ location ~* \.(db|sqlite|sqlite3|sql|zip|gz|log|cache|lock)$ {
 - **遷移與升級**：新版本解壓覆蓋代碼後，運行期 `auto_migrate()` 會自動補全表/索引，無需手工改庫。
 - **日誌**：錯誤記錄在 `data/error.log`；安裝期 DDL 執行明細可通過 `get_ddl_install_log()` 查看（安裝失敗時嚮導會展示）。
 - **退信處理**：`app/includes/bounce_processor.php` 處理郵件退信並更新用戶郵箱狀態。
-- **流量統計**：`track_visit()` 記錄訪問，後臺「流量監控」可查看。
+- **流量統計**：`track_visit()` 記錄訪問（PV 精確計數、會話級 UV 去重、爬蟲過濾），後臺「流量監控」可查看，詳見[第 10.4 節](#104-流量監測traffic_monitor)。
 
 ---
 

@@ -47,7 +47,7 @@
 | 权限 / 角色 | 基于 `roles` 的权限组（`has_permission`），支持超级管理员、版主等；与按积分自动晋升的**用户组**分离 |
 | 内容审核 | 敏感词过滤引擎（Trie + Aho-Corasick），支持精确/整词/正则三种匹配、白名单、三级处理（替换 / 拦截 / 人工审核）、命中日志；用户举报、封禁申诉、禁言 |
 | 邮件 | 原生 `fsockopen` 实现的 SMTP 发送器（无第三方依赖），支持 SSL/TLS，邮件日志、退信处理（bounce）、邮件统计与通知 |
-| 运维监控 | 流量统计（访问记录）、系统状态（CPU/内存/温度/网络/磁盘/显卡，详见[第 10.1 节](#101-系统状态监控-system_status)）、数据库备份、自动 Schema 迁移、安装/错误日志 |
+| 运维监控 | 流量统计（访问记录：PV 精确计数 + 会话级 UV 去重 + 爬虫过滤，详见[第 10.4 节](#104-流量监测traffic_monitor)）、系统状态（CPU/内存/温度/网络/磁盘/显卡，详见[第 10.1 节](#101-系统状态监控-system_status)）、数据库备份、自动 Schema 迁移、安装/错误日志 |
 | 系统更新 | 「系统更新中心」支持手动/自动检查并应用版本更新：下载 → 校验 SHA256 哈希 → 自动备份 → 覆盖升级；历史更新备份可列表/下载/分享/删除，详见[第 10.3 节](#103-系统更新中心-update_center) |
 | 多语言 | 内置 `简体中文 / 繁體中文 / English`，按 URL、Cookie、配置、浏览器语言自动识别 |
 | 主题 | 基于 CSS 变量的明暗双主题（light / dark），可改色与换肤 |
@@ -484,6 +484,23 @@ location ~* \.(db|sqlite|sqlite3|sql|zip|gz|log|cache|lock)$ {
 - **分享**：生成无需登录即可下载的公开链接（48 位随机令牌，默认 7 天过期，删除备份时自动清理分享记录）；链接域名始终跟随浏览器当前访问域名（自动推导，不受 `SITE_URL` 配置影响，多域名/反代部署点开即用）。
 - **删除**：POST + CSRF 校验，同步清理对应分享记录。
 
+### 10.4 流量监测（traffic_monitor）
+
+入口 `/admin/traffic_monitor`，由 `app/admin/controllers/traffic_monitor.php` 渲染、`app/admin/api/traffic_ajax.php` 提供数据，前端每 5 秒轮询刷新；总量级统计使用 30 秒文件缓存（`data/cache/traffic_total_stats.json`），避免每次轮询全表扫描。
+
+**统计口径与准确性设计**（`track_visit()`，`app/includes/functions.php`）：
+
+| 指标 | 口径 |
+| --- | --- |
+| PV | 每次页面访问**精确累加**，不再受节流影响（同一会话快速翻页不再低估） |
+| UV | 按「会话 × 小时」去重，每小时每会话最多计 1，跨小时边界不遗漏 |
+| 爬虫过滤 | UA 命中已知爬虫/命令行抓取（如 googlebot、curl、python-requests 等）或缺失 UA 的请求直接忽略 |
+| 在线人数 | 依据访客明细行 `last_visit`（最近 5 分钟），随 60 秒会话节流滞后 ≤60 秒 |
+| 热页 / 设备分布 | 基于访客明细行 `views`，为会话窗口近似值（同会话快速翻页时略低估） |
+| 累计 UV | `traffic_visitors` 行数，口径为「累计访客日人次」（同一 IP 不同日期各计一次） |
+
+> 统计入口仅在前台页面（`app/includes/header.php`）调用；公共轮询接口（`pm_poll.php`、`home_realtime.php` 等）与后台页面不触发埋点，避免轮询请求污染数据。IP 以 SHA-256 哈希存储，不保留明文。
+
 ---
 
 ## 11. API 接口
@@ -586,7 +603,7 @@ location ~* \.(db|sqlite|sqlite3|sql|zip|gz|log|cache|lock)$ {
 - **迁移与升级**：新版本解压覆盖代码后，运行期 `auto_migrate()` 会自动补全表/索引，无需手工改库。
 - **日志**：错误记录在 `data/error.log`；安装期 DDL 执行明细可通过 `get_ddl_install_log()` 查看（安装失败时向导会展示）。
 - **退信处理**：`app/includes/bounce_processor.php` 处理邮件退信并更新用户邮箱状态。
-- **流量统计**：`track_visit()` 记录访问，后台「流量监控」可查看。
+- **流量统计**：`track_visit()` 记录访问（PV 精确计数、会话级 UV 去重、爬虫过滤），后台「流量监控」可查看，详见[第 10.4 节](#104-流量监测traffic_monitor)。
 
 ---
 
