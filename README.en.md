@@ -453,7 +453,7 @@ Entry `/admin/data_migration`, rendered by `app/admin/controllers/data_migration
 
 ### 10.3 System Update Center (update_center)
 
-Entry `/admin/update_center`, rendered by `app/admin/controllers/update_center.php` and served by `app/admin/api/update_ajax.php`, with core logic in `app/includes/update_center.php`. Used to check for and apply Yunjie Forum version updates online, supporting both **manual** and **automatic** methods.
+Entry `/admin/update_center`, rendered by `app/admin/controllers/update_center.php` and served by `app/admin/api/update_ajax.php`, with core logic in `app/includes/update_center.php`. Used to check for and apply Yunjie Forum version updates online, supporting three methods: **remote manual update**, **local package upload**, and **automatic update**.
 
 **Update settings**
 
@@ -477,6 +477,15 @@ Both a manual "Update now" click and an automatic trigger go through the same at
 5. **Overwrite**: extract the package to the install root; **path traversal is forbidden** and **overwriting `data/` is forbidden** (preserves user data, config, and the database).
 
 > Auto-update also goes through the full "verify + backup + overwrite" flow; if the source provides no `package_url`, name the package `update.zip` and place it under the `{channel}/` directory so the system derives it automatically.
+
+**Manual package upload**
+
+No remote update source is needed: choose a local `.zip` update package under the "Update Status" card. The system parses the in-package version (reading `APP_VERSION` in `app/includes/config.php`) and shows the file count, size, and its relation to the current version (upgrade / same-version reinstall / downgrade) before installing. Installation follows the same atomic "backup + overwrite" flow:
+
+- The upload is saved to `data/tmp/upload_update_input.zip`; only `.zip` is accepted (up to 256MB) and the file is removed automatically after installation;
+- The package must expose a readable `APP_VERSION` before installing (a safeguard against uploading the wrong archive);
+- Identical to remote updates: automatic code backup, path-traversal protection, and `data/` is never overwritten;
+- When the in-package version is lower than the current one (downgrade) or unreadable, the front end warns explicitly before you confirm.
 
 **Historical Update Backup Management**
 

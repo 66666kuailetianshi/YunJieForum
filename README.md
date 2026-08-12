@@ -451,7 +451,7 @@ location ~* \.(db|sqlite|sqlite3|sql|zip|gz|log|cache|lock)$ {
 
 ### 10.3 系统更新中心（update_center）
 
-入口 `/admin/update_center`，由 `app/admin/controllers/update_center.php` 渲染、`app/admin/api/update_ajax.php` 提供检查/更新接口，核心逻辑位于 `app/includes/update_center.php`。用于在线检查并应用云界论坛的版本更新，支持**手动**与**自动**两种方式。
+入口 `/admin/update_center`，由 `app/admin/controllers/update_center.php` 渲染、`app/admin/api/update_ajax.php` 提供检查/更新接口，核心逻辑位于 `app/includes/update_center.php`。用于在线检查并应用云界论坛的版本更新，支持**远程手动更新**、**本地上传更新**与**自动更新**三种方式。
 
 **更新设置**
 
@@ -475,6 +475,15 @@ location ~* \.(db|sqlite|sqlite3|sql|zip|gz|log|cache|lock)$ {
 5. **覆盖**：解压更新包到安装根目录，期间**禁止路径穿越**、**禁止覆盖 `data/`**（保留用户数据、配置与数据库）。
 
 > 自动更新同样走「校验 + 备份 + 覆盖」全流程；若更新源未提供 `package_url`，可将更新包命名为 `update.zip` 放在「{通道}/」目录下由系统自动推导。
+
+**手动上传更新包**
+
+无需配置远程更新源：在「更新状态」卡片下方选择本地的 `.zip` 更新包上传，系统解析包内版本（读取 `app/includes/config.php` 的 `APP_VERSION`）并显示文件数、大小及与当前版本的关系（升级 / 同版本重装 / 降级），确认后安装。安装同样走「备份 + 覆盖」原子化流程：
+
+- 上传包保存至 `data/tmp/upload_update_input.zip`，仅接受 `.zip`（上限 256MB），安装完成后自动清理；
+- 安装前要求包内必须能识别 `APP_VERSION`（防呆，防止误传其他压缩包）；
+- 与远程更新一致：自动备份当前代码、禁止路径穿越、禁止覆盖 `data/`；
+- 包内版本低于当前版本（降级）或无法识别时，前端会给出明确警告后再确认。
 
 **历史更新备份管理**
 

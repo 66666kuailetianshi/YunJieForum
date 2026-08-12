@@ -150,6 +150,21 @@ require_once dirname(__DIR__) . '/layout/header.php';
     <p class="form-hint mt-1"><?php echo e(t('update_manual_hint', '「立即更新」会在下载后校验文件哈希、先自动备份现有代码，再覆盖升级。请在操作前确认已开启自动备份。')); ?></p>
 </div>
 
+<!-- 手动上传更新包（无需配置远程更新源） -->
+<div class="card mb-2">
+    <h2 class="card-title mb-1"><?php echo e(t('update_upload_title', '手动上传更新包')); ?></h2>
+    <p class="form-hint mt-1"><?php echo e(t('update_upload_desc', '无需配置远程更新源：选择本地的云界论坛更新包（.zip），系统会校验包内版本、自动备份当前代码后覆盖升级。data/ 配置与数据不会被覆盖。')); ?></p>
+    <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;">
+        <input type="file" id="uploadPkgInput" accept=".zip" class="form-control" style="max-width:340px;">
+        <button type="button" class="btn btn-secondary" id="uploadPkgBtn"><?php echo e(t('update_upload_parse', '上传并解析')); ?></button>
+    </div>
+    <div id="uploadPkgInfo" style="display:none;margin-top:.75rem;padding:.75rem 1rem;background:var(--bg-subtle,#f6f6f6);border-radius:8px;"></div>
+    <div id="uploadInstallRow" style="display:none;margin-top:.75rem;">
+        <button type="button" class="btn btn-primary" id="installUploadBtn"><?php echo e(t('update_upload_install', '安装此更新包')); ?></button>
+    </div>
+    <div id="uploadResult" class="update-status mt-2" style="display:none;"></div>
+</div>
+
 <!-- 更新确认对话框（替代原生 confirm） -->
 <div class="modal-overlay" id="updateConfirmModal" style="display:none;">
     <div class="modal-box" style="max-width:460px;">
@@ -668,6 +683,133 @@ require_once dirname(__DIR__) . '/layout/header.php';
                 }
             })
             .catch(function () {});
+    }
+
+    // ===== 手动上传更新包 =====
+    var uploadInput   = document.getElementById('uploadPkgInput');
+    var uploadBtn     = document.getElementById('uploadPkgBtn');
+    var uploadInfo    = document.getElementById('uploadPkgInfo');
+    var installRow    = document.getElementById('uploadInstallRow');
+    var installBtn    = document.getElementById('installUploadBtn');
+    var uploadResult  = document.getElementById('uploadResult');
+    var lastUpload    = null; // { version, current, relation, files, size_text }
+
+    function showUploadResult(html, type) {
+        uploadResult.style.display = '';
+        uploadResult.className = 'update-status mt-2' + (type ? ' is-' + type : '');
+        uploadResult.innerHTML = html;
+    }
+
+    uploadBtn.addEventListener('click', function () {
+        if (!uploadInput.files || !uploadInput.files.length) {
+            showUploadResult('<?php echo e(t('update_upload_no_file', '请先选择 .zip 更新包文件。')); ?>', 'error');
+            return;
+        }
+        var file = uploadInput.files[0];
+        if (!/\.zip$/i.test(file.name)) {
+            showUploadResult('<?php echo e(t('update_upload_err_not_zip', '仅支持 .zip 格式的更新包。')); ?>', 'error');
+            return;
+        }
+        uploadBtn.disabled = true;
+        uploadBtn.innerHTML = '<?php echo e(t('update_upload_parsing', '解析中…')); ?>';
+        uploadInfo.style.display = 'none';
+        installRow.style.display = 'none';
+        var form = new FormData();
+        form.append('action', 'upload_inspect');
+        form.append('csrf_token', historyCsrf);
+        form.append('file', file);
+        fetch('/index.php?route=admin/api/update_ajax', { method: 'POST', body: form })
+            .then(function (r) { return r.json(); })
+            .then(function (res) {
+                if (!res.success) {
+                    var errMsg = res.error === 'no_file'
+                        ? '<?php echo e(t('update_upload_err_no_file', '未收到上传文件。')); ?>'
+                        : res.error === 'not_zip'
+                            ? '<?php echo e(t('update_upload_err_not_zip', '仅支持 .zip 格式的更新包。')); ?>'
+                            : res.error === 'file_too_large'
+                                ? '<?php echo e(t('update_upload_err_too_large', '文件过大（超过 256MB）。')); ?>'
+                                : res.error === 'invalid_zip'
+                                    ? '<?php echo e(t('update_upload_err_invalid_zip', '上传的 ZIP 文件无效或已损坏。')); ?>'
+                                    : ('<?php echo e(t('update_upload_parse_failed', '解析失败：')); ?>' + escapeHtml(res.error || ''));
+                    showUploadResult(errMsg, 'error');
+                    return;
+                }
+                lastUpload = res;
+                var relText = '';
+                if (res.relation === 'upgrade') relText = '<?php echo e(t('update_upload_relation_upgrade', '（升级）')); ?>';
+                else if (res.relation === 'same') relText = '<?php echo e(t('update_upload_relation_same', '（与当前版本相同，将重新安装）')); ?>';
+                else if (res.relation === 'downgrade') relText = '<?php echo e(t('update_upload_relation_downgrade', '（低于当前版本，将执行降级）')); ?>';
+                else relText = '<?php echo e(t('update_upload_relation_unknown', '（无法识别包内版本）')); ?>';
+                uploadInfo.innerHTML =
+                    '<div style="display:grid;grid-template-columns:auto 1fr;gap:.25rem .75rem;font-size:.9rem;">'
+                    + '<span style="color:var(--text-muted);"><?php echo e(t('update_upload_pkg_version', '包内版本')); ?></span><span><strong>' + escapeHtml(res.version || '?') + '</strong> ' + relText + '</span>'
+                    + '<span style="color:var(--text-muted);"><?php echo e(t('update_upload_current_version', '当前版本')); ?></span><span>' + escapeHtml(res.current) + '</span>'
+                    + '<span style="color:var(--text-muted);"><?php echo e(t('update_upload_files_count', '文件数')); ?></span><span>' + escapeHtml(res.files) + '</span>'
+                    + '<span style="color:var(--text-muted);"><?php echo e(t('update_upload_size', '大小')); ?></span><span>' + escapeHtml(res.size_text || fmtSize(res.size)) + '</span>'
+                    + '</div>';
+                uploadInfo.style.display = '';
+                installRow.style.display = '';
+                uploadResult.style.display = 'none';
+            })
+            .catch(function () { showUploadResult('<?php echo e(t('update_upload_parse_network_fail', '网络错误，解析失败。')); ?>', 'error'); })
+            .finally(function () {
+                uploadBtn.disabled = false;
+                uploadBtn.innerHTML = '<?php echo e(t('update_upload_parse', '上传并解析')); ?>';
+            });
+    });
+
+    installBtn.addEventListener('click', function () {
+        if (!lastUpload) return;
+        var confirmTitle = '<?php echo e(t('update_upload_confirm_title', '确认安装上传的更新包')); ?>';
+        var confirmText = '<?php echo e(t('update_upload_confirm', '确定要安装上传的更新包吗？系统将先自动备份当前代码，再覆盖升级。')); ?>';
+        if (lastUpload.relation === 'downgrade') {
+            confirmText = '<?php echo e(t('update_upload_confirm_downgrade', '该更新包版本低于当前版本，确定要执行降级安装吗？系统将先自动备份当前代码，再覆盖升级。')); ?>';
+        } else if (lastUpload.relation === 'unknown') {
+            confirmText = '<?php echo e(t('update_upload_confirm_unknown', '无法识别该更新包的版本，安装后可能无法正确记录版本号。确定要继续吗？系统将先自动备份当前代码，再覆盖升级。')); ?>';
+        }
+        openConfirm(confirmTitle, confirmText, true, doInstallUpload, '<?php echo e(t('update_upload_install_ok', '确认安装')); ?>');
+    });
+
+    function doInstallUpload() {
+        installBtn.disabled = true;
+        installBtn.innerHTML = '<?php echo e(t('update_upload_installing', '正在安装…')); ?>';
+        uploadBtn.disabled = true;
+        var form = new FormData();
+        form.append('action', 'install_upload');
+        form.append('csrf_token', historyCsrf);
+        fetch('/index.php?route=admin/api/update_ajax', { method: 'POST', body: form })
+            .then(function (r) { return r.json(); })
+            .then(function (res) {
+                if (res.success) {
+                    showUploadResult('<?php echo e(t('update_upload_success', '更新包安装成功：')); ?>' + escapeHtml(res.from) + ' → ' + escapeHtml(res.to)
+                        + '<br><?php echo e(t('update_backup_at', '备份文件')); ?>：' + escapeHtml(res.backup ? res.backup.split(/[\\/]/).pop() : '')
+                        + '（' + (res.files || 0) + ' <?php echo e(t('update_files', '个文件')); ?>）', 'ok');
+                    currentEl.textContent = res.to;
+                    uploadInfo.style.display = 'none';
+                    installRow.style.display = 'none';
+                    lastUpload = null;
+                    uploadInput.value = '';
+                    refreshBackupHistory();
+                } else {
+                    var msg = '<?php echo e(t('update_upload_failed', '更新包安装失败')); ?>';
+                    if (res.error === 'bad_package') msg = '<?php echo e(t('update_upload_bad_pkg', '上传的压缩包不是有效的云界论坛更新包（缺少 app/includes/config.php 或无法识别版本）。')); ?>';
+                    else if (res.error === 'pkg_not_found') msg = '<?php echo e(t('update_upload_pkg_lost', '上传的更新包已不存在，请重新上传。')); ?>';
+                    else if (res.error && res.error.indexOf('backup_failed') === 0) msg = '<?php echo e(t('update_backup_err', '更新前备份失败，已取消更新以防数据丢失。')); ?>';
+                    else if (res.error && res.error.indexOf('extract_failed') === 0) {
+                        msg = '<?php echo e(t('update_extract_failed', '更新文件解压失败')); ?>' + (res.failed && res.failed.length ? '（' + res.failed.length + ' 个）' : '') + '，更新不完整，请检查文件权限或从备份恢复。';
+                        if (res.failed && res.failed.length) msg += '<br><small style="color:var(--text-muted);word-break:break-word">' + escapeHtml(res.failed.slice(0, 8).join('<br>')) + '</small>';
+                    }
+                    else msg += '：' + escapeHtml(res.error || '');
+                    if (res.backup) msg += '<br><?php echo e(t('update_backup_kept', '已保留备份')); ?>：' + escapeHtml(res.backup.split(/[\\/]/).pop());
+                    showUploadResult(msg, 'error');
+                }
+            })
+            .catch(function () { showUploadResult('<?php echo e(t('update_upload_network_fail', '网络错误，安装失败。')); ?>', 'error'); })
+            .finally(function () {
+                installBtn.disabled = false;
+                installBtn.innerHTML = '<?php echo e(t('update_upload_install', '安装此更新包')); ?>';
+                uploadBtn.disabled = false;
+            });
     }
 
     document.querySelectorAll('.update-history-delete-btn').forEach(bindHistoryDeleteBtn);

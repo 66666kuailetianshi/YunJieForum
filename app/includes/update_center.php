@@ -635,6 +635,130 @@ if (!function_exists('uc_get_current_version')) {
     }
 
     /**
+     * 保存手动上传的更新包（.zip）到 data/tmp/upload_update_input.zip
+     *
+     * 与远程更新的区别：上传包来自管理员本地文件，无需下载与哈希校验；
+     * 仍会做基础校验（扩展名、大小、ZIP 有效性）。
+     */
+    function uc_save_upload_package(array $file): array {
+        if (empty($file) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+            return ['ok' => false, 'error' => 'no_file'];
+        }
+        $name = strtolower((string)($file['name'] ?? ''));
+        if (substr($name, -4) !== '.zip') {
+            return ['ok' => false, 'error' => 'not_zip'];
+        }
+        // 与数据迁移 ZIP 上限保持一致
+        $maxSize = 256 * 1024 * 1024;
+        if ((int)($file['size'] ?? 0) > $maxSize) {
+            return ['ok' => false, 'error' => 'file_too_large'];
+        }
+        if (!class_exists('ZipArchive')) {
+            return ['ok' => false, 'error' => 'zip_extension_missing'];
+        }
+        $tmpDir = DATA_PATH . 'tmp' . DIRECTORY_SEPARATOR;
+        if (!is_dir($tmpDir)) {
+            @mkdir($tmpDir, 0755, true);
+        }
+        $dest = $tmpDir . 'upload_update_input.zip';
+        if (!move_uploaded_file($file['tmp_name'], $dest)) {
+            return ['ok' => false, 'error' => 'move_failed'];
+        }
+        // 用 ZipArchive 打开校验压缩包有效性，无效则清理并拒绝
+        $zip = new ZipArchive();
+        if ($zip->open($dest) !== true || $zip->numFiles < 1) {
+            $zip->close();
+            @unlink($dest);
+            return ['ok' => false, 'error' => 'invalid_zip'];
+        }
+        $zip->close();
+        return ['ok' => true, 'path' => $dest, 'size' => (int)$file['size']];
+    }
+
+    /**
+     * 解析已保存的上传更新包信息（包内版本 / 文件数 / 与当前版本的关系）
+     * 供前端在安装前预览确认。
+     */
+    function uc_inspect_upload_package(string $zipPath): array {
+        if (!is_file($zipPath)) {
+            return ['ok' => false, 'error' => 'pkg_not_found'];
+        }
+        $pkgVersion = uc_package_version($zipPath);
+        $fileCount  = 0;
+        if (class_exists('ZipArchive')) {
+            $zip = new ZipArchive();
+            if ($zip->open($zipPath) === true) {
+                $fileCount = $zip->numFiles;
+                $zip->close();
+            }
+        }
+        $current = uc_get_current_version();
+        $cmp = ($pkgVersion === '') ? 0 : version_compare($pkgVersion, $current);
+        return [
+            'ok'       => true,
+            'version'  => $pkgVersion,
+            'current'  => $current,
+            'relation' => $pkgVersion === '' ? 'unknown' : ($cmp > 0 ? 'upgrade' : ($cmp < 0 ? 'downgrade' : 'same')),
+            'files'    => $fileCount,
+            'size'     => (int)@filesize($zipPath),
+        ];
+    }
+
+    /**
+     * 执行手动上传更新包的安装：备份 → 解压覆盖 → 记录版本
+     *
+     * 安全约束：
+     *   - 包内必须能识别 APP_VERSION（缺少 config.php 视为无效更新包，拒绝安装，防呆）；
+     *   - 安装前自动备份当前代码（uc_backup_files），失败即中止；
+     *   - 解压沿用 uc_extract_package 的路径穿越防护与 data/ 保护。
+     *
+     * @param string $zipPath 已保存到 data/tmp/ 的上传包路径
+     */
+    function uc_perform_upload_update(string $zipPath): array {
+        // 防呆：必须是能识别版本的云界论坛更新包
+        $pkgVersion = uc_package_version($zipPath);
+        if ($pkgVersion === '') {
+            @unlink($zipPath);
+            return ['success' => false, 'error' => 'bad_package'];
+        }
+
+        // 阶段 1：备份当前代码
+        uc_progress_write(['stage' => 'backing_up', 'stage_label' => 'backing_up', 'progress' => 10, 'total' => 0, 'downloaded' => 0, 'message' => '', 'error' => null, 'done' => false]);
+        $backup = uc_backup_files();
+        if (!$backup['ok']) {
+            @unlink($zipPath);
+            return ['success' => false, 'error' => 'backup_failed: ' . ($backup['error'] ?? ''), 'backup' => ''];
+        }
+
+        // 阶段 2：解压覆盖
+        uc_progress_write(['stage' => 'extracting', 'stage_label' => 'extracting', 'progress' => 60, 'total' => 0, 'downloaded' => 0, 'message' => '', 'error' => null, 'done' => false]);
+        $extract = uc_extract_package($zipPath);
+        @unlink($zipPath); // 安装完成（或失败）后清理上传包
+        if (!$extract['ok']) {
+            return [
+                'success' => false,
+                'error'   => 'extract_failed: ' . ($extract['error'] ?? ''),
+                'failed'  => $extract['failed'] ?? [],
+                'backup'  => $backup['path'],
+            ];
+        }
+
+        // 阶段 3：记录本次安装的版本
+        if (function_exists('set_site_setting')) {
+            set_site_setting('update_last_version', $pkgVersion);
+            set_site_setting('update_last_check', (string)time());
+        }
+        uc_progress_write(['stage' => 'done', 'stage_label' => 'done', 'progress' => 100, 'total' => 0, 'downloaded' => 0, 'message' => '', 'error' => null, 'done' => true]);
+        return [
+            'success' => true,
+            'from'    => uc_get_current_version(),
+            'to'      => $pkgVersion,
+            'backup'  => $backup['path'],
+            'files'   => $extract['files'],
+        ];
+    }
+
+    /**
      * 历史更新备份目录（与数据备份共用 data/backups/，以 update_pre_ 前缀区分）
      */
     function uc_update_backup_dir(): string {

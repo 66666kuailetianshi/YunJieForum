@@ -454,7 +454,7 @@ location ~* \.(db|sqlite|sqlite3|sql|zip|gz|log|cache|lock)$ {
 
 ### 10.3 系統更新中心（update_center）
 
-入口 `/admin/update_center`，由 `app/admin/controllers/update_center.php` 渲染、`app/admin/api/update_ajax.php` 提供檢查/更新接口，核心邏輯位於 `app/includes/update_center.php`。用於在線檢查並應用雲界論壇的版本更新，支援**手動**與**自動**兩種方式。
+入口 `/admin/update_center`，由 `app/admin/controllers/update_center.php` 渲染、`app/admin/api/update_ajax.php` 提供檢查/更新接口，核心邏輯位於 `app/includes/update_center.php`。用於在線檢查並應用雲界論壇的版本更新，支援**遠端手動更新**、**本地上傳更新**與**自動更新**三種方式。
 
 **更新設定**
 
@@ -478,6 +478,15 @@ location ~* \.(db|sqlite|sqlite3|sql|zip|gz|log|cache|lock)$ {
 5. **覆蓋**：解壓更新包到安裝根目錄，期間**禁止路徑穿越**、**禁止覆蓋 `data/`**（保留用戶資料、配置與資料庫）。
 
 > 自動更新同樣走「校驗 + 備份 + 覆蓋」全流程；若更新源未提供 `package_url`，可將更新包命名為 `update.zip` 放在「{通道}/」目錄下由系統自動推導。
+
+**手動上傳更新套件**
+
+無需設定遠端更新來源：在「更新狀態」卡片下方選擇本地的 `.zip` 更新套件上傳，系統解析套件內版本（讀取 `app/includes/config.php` 的 `APP_VERSION`）並顯示檔案數、大小及與目前版本的關係（升級 / 同版本重裝 / 降級），確認後安裝。安裝同樣走「備份 + 覆蓋」原子化流程：
+
+- 上傳套件儲存至 `data/tmp/upload_update_input.zip`，僅接受 `.zip`（上限 256MB），安裝完成後自動清理；
+- 安裝前要求套件內必須能識別 `APP_VERSION`（防呆，防止誤傳其他壓縮檔）；
+- 與遠端更新一致：自動備份目前程式碼、禁止路徑穿越、禁止覆蓋 `data/`；
+- 套件內版本低於目前版本（降級）或無法識別時，前端會給出明確警告後再確認。
 
 **歷史更新備份管理**
 
