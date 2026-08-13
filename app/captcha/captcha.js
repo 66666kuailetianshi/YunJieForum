@@ -402,6 +402,13 @@
                     } else {
                         var failMsg = data && data.error ? ('验证失败 (' + data.error + ')') : '';
                         var failSub = data && data.message ? data.message : '请点击重新验证';
+                        // 服务器环境问题（缺 GD / 会话未保持 / 其它异常）：明确提示并输出完整响应到控制台，
+                        // 管理员可按响应的 diag 字段（session id、gd、目录可写性）直接定位根因
+                        if (data && (data.error === 'server_error' || data.error === 'gd_unavailable')) {
+                            try { console.error('[captcha] 服务器端验证失败，完整响应：', data); } catch (e) {}
+                            failMsg = '验证环境异常，无法完成验证';
+                            if (data && data.message) failSub = data.message;
+                        }
                         fail(failMsg, failSub);
                     }
                 })

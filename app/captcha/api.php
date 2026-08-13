@@ -49,25 +49,26 @@ try {
         } else {
             $resp = array_merge($resp, captcha_new());
         }
-        // ===== 临时诊断：在 get 响应附带 session_id，便于与 check 响应比对是否同一会话 =====
-        $resp['_diag'] = ['session_id' => session_id()];
+        // 环境诊断：随 get 响应返回，便于 F12 快速定位「点击就失败 / 验证码状态丢失」类问题
+        $resp['diag'] = captcha_diag_env('get');
     } elseif ($action === 'check') {
         $raw = file_get_contents('php://input');
         $in  = json_decode($raw ?: '', true);
         if (!is_array($in)) {
             $in = [];
         }
-        // ===== 临时诊断：在 check 之前记录 session 中是否已有验证码，便于排查 invalid =====
+        // 在调用校验函数之前记录会话状态，用于判断 invalid 是否源于会话未保持
         $capPresentBefore = isset($_SESSION['captcha']);
         $capTokenBefore   = ($_SESSION['captcha']['token'] ?? null);
+        $tokenReceived    = ($in['token'] ?? null);
         $signals = is_array($in['signals'] ?? null) ? $in['signals'] : [];
         $resp = array_merge($resp, captcha_check($in['token'] ?? '', $signals, !empty($in['refresh'])));
-        $resp['_diag'] = [
-            'session_id'            => session_id(),
-            'captcha_present_before' => $capPresentBefore,
-            'captcha_token_before'   => $capTokenBefore,
-            'token_received'         => ($in['token'] ?? null),
-        ];
+        $resp['diag'] = captcha_diag_env('check');
+        $resp['diag']['captcha_present_before'] = $capPresentBefore;
+        $resp['diag']['captcha_token_before']   = $capTokenBefore;
+        $resp['diag']['token_received']         = $tokenReceived;
+        // token 是否与会话中一致：为 false 时基本可判定为「会话未保持 / cookie 未携带」
+        $resp['diag']['token_matched']          = $capPresentBefore && $capTokenBefore === $tokenReceived;
     } elseif ($action === 'slider') {
         $raw = file_get_contents('php://input');
         $in  = json_decode($raw ?: '', true);
@@ -120,8 +121,14 @@ try {
     }
 } catch (Throwable $e) {
     $resp['error'] = 'server_error';
+    // 非调试模式也返回异常概要（类型 + 行号），让管理员可直接定位「点击就失败」的异常源；
+    // 完整消息与服务器文件路径仅在调试模式（captcha_debug）下输出，避免泄露路径。
+    $resp['message'] = '服务器内部错误：' . get_class($e) . '（第 ' . $e->getLine() . ' 行）';
     if ($debug) {
         $resp['debug']['exception'] = get_class($e) . ': ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine();
+    }
+    if (function_exists('captcha_diag_env')) {
+        $resp['diag'] = captcha_diag_env($action);
     }
 }
 

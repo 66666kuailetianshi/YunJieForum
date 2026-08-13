@@ -487,6 +487,32 @@ function captcha_enabled(): bool {
 }
 
 /**
+ * 验证码运行环境诊断（供 api.php 附在响应中，按 F12 即可定位「点击就失败」类问题）
+ *
+ * 覆盖三大根因：
+ *   - 会话持久化失败（data/sessions 不可写）→ get/check 会话不一致 → 返回 invalid
+ *   - GD 图片扩展缺失 → 无法下发改图挑战 → 返回 gd_unavailable / server_error
+ *   - data 目录或密钥文件不可写 → 签名密钥每次请求变化 → 挑战校验恒失败
+ */
+function captcha_diag_env(string $action): array {
+    $sessPath  = function_exists('session_save_path') ? (string)session_save_path() : '';
+    $secretDir = APP_ROOT . 'data';
+    $secretFile = $secretDir . DIRECTORY_SEPARATOR . 'captcha_secret.php';
+    return [
+        'action'            => $action,
+        'session_started'   => session_status() === PHP_SESSION_ACTIVE,
+        'session_id'        => session_id(),
+        'session_save_path' => $sessPath,
+        'sessions_writable' => $sessPath !== '' && is_dir($sessPath) && is_writable($sessPath),
+        'gd'                => function_exists('imagecreatetruecolor') && function_exists('imagecolorallocate') && function_exists('imagepng'),
+        'gd_png'            => function_exists('imagepng'),
+        'data_writable'     => is_dir($secretDir) && is_writable($secretDir),
+        'secret_writable'   => is_file($secretFile) ? is_writable($secretFile) : (is_dir($secretDir) ? is_writable($secretDir) : false),
+        'cache_writable'    => (is_dir(APP_ROOT . 'data/cache') ? is_writable(APP_ROOT . 'data/cache') : (is_dir($secretDir) ? is_writable($secretDir) : false)),
+    ];
+}
+
+/**
  * 初始化新挑战，返回前端 token 与拼图尺寸信息
  */
 function captcha_new(): array {
@@ -565,6 +591,16 @@ function captcha_check(string $token, array $signals, bool $refresh = false): ar
     }
 
     $style = captcha_style();
+    // 环境检查：下发改图挑战（slider/click/swap/letter）均依赖 GD 图像处理。
+    // 若服务器缺少 GD 扩展，直接给出明确错误，避免抛异常被上层吞成笼统的 server_error，
+    // 让管理员能一眼定位「点击就失败」的真实原因。
+    if (!function_exists('imagecreatetruecolor') || !function_exists('imagecolorallocate') || !function_exists('imagepng')) {
+        return [
+            'ok'      => false,
+            'error'   => 'gd_unavailable',
+            'message' => t('captcha_gd_missing', '服务器缺少 GD 图片处理扩展（php-gd），无法生成验证挑战。请管理员安装启用 GD 扩展，或在站点配置中暂时关闭人机验证。'),
+        ];
+    }
     if ($style === 'auto') {
         // 启用轮换时随机选一种（含图片字母验证）；升级时强制滑块（位置型对机器人最难）
         $styles = captcha_rotation_enabled() ? ['slider', 'click', 'swap', 'letter'] : ['slider'];

@@ -261,7 +261,14 @@ if (!function_exists('uc_get_current_version')) {
             if (!empty($res['body'])) {
                 $err .= ' | ' . uc_body_preview((string)$res['body']);
             }
-            return ['ok' => false, 'error' => $err];
+            // 透传 HTTP 层诊断信息（状态码 / 响应头 / 响应体），供上层组装完整错误输出
+            return [
+                'ok'      => false,
+                'error'   => $err,
+                'code'    => $res['code'] ?? null,
+                'headers' => $res['headers'] ?? null,
+                'body'    => $res['body'] ?? null,
+            ];
         }
 
         $body = trim($res['data']);
@@ -296,10 +303,24 @@ if (!function_exists('uc_get_current_version')) {
 
         // JSON 解析成功但无 version 字段
         if (is_array($json)) {
-            return ['ok' => false, 'error' => 'metadata_no_version', 'debug_keys' => array_keys($json)];
+            return [
+                'ok'         => false,
+                'error'      => 'metadata_no_version',
+                'debug_keys' => array_keys($json),
+                'code'       => $res['code'] ?? null,
+                'headers'    => $res['headers'] ?? null,
+                'body'       => $body,
+            ];
         }
 
-        return ['ok' => false, 'error' => 'metadata_invalid_json', 'preview' => substr($body, 0, 200)];
+        return [
+            'ok'      => false,
+            'error'   => 'metadata_invalid_json',
+            'preview' => substr($body, 0, 200),
+            'code'    => $res['code'] ?? null,
+            'headers' => $res['headers'] ?? null,
+            'body'    => $body,
+        ];
     }
 
     /**
@@ -309,10 +330,23 @@ if (!function_exists('uc_get_current_version')) {
         $current = uc_get_current_version();
         $fetch   = uc_fetch_metadata();
         if (!$fetch['ok']) {
+            // 失败时附带完整诊断信息：请求地址、HTTP 状态/响应头/响应体预览、服务器环境。
+            // 前端「检查更新」失败分支与独立诊断页均据此输出，便于排查更新源连接问题。
             return [
                 'success' => false,
                 'error'   => $fetch['error'],
                 'current' => $current,
+                'details' => [
+                    'metadata_url' => uc_metadata_url(),
+                    'channel'      => uc_get_setting('update_channel', 'stable'),
+                    'ssl_verify'   => uc_get_setting('update_ssl_verify', '1') === '1' ? 'on' : 'off',
+                    'error_code'   => $fetch['error'],
+                    'http_code'    => $fetch['code'] ?? null,
+                    'headers'      => $fetch['headers'] ?? null,
+                    'body_preview' => (isset($fetch['body']) && (string)$fetch['body'] !== '') ? uc_body_preview((string)$fetch['body']) : null,
+                    'debug_keys'   => $fetch['debug_keys'] ?? null,
+                    'env'          => uc_env_snapshot(),
+                ],
             ];
         }
         $meta   = $fetch['meta'];
@@ -779,6 +813,36 @@ if (!function_exists('uc_get_current_version')) {
             'owner'         => $owner,
             'perms'         => $perms,
             'hint'          => $writable ? '' : '目录不存在或 Web 用户（如 www-data）无写权限。可执行：chown -R www-data:www-data ' . rtrim(DATA_PATH, '/\\') . ' 后再试（或 chmod -R 775）。',
+        ];
+    }
+
+    /**
+     * 服务器环境快照：PHP 版本/扩展、上传限制、关键目录可写性、磁盘空间。
+     * 供「检测更新」失败诊断与独立诊断页输出，覆盖 Linux 上最常见的两类根因：
+     * 更新源网络不可达、data/ 目录不可写。
+     */
+    function uc_env_snapshot(): array {
+        $curlAvailable = function_exists('curl_init');
+        $curlVer = '';
+        if ($curlAvailable && function_exists('curl_version')) {
+            $cv = curl_version();
+            $curlVer = is_array($cv) ? (string)($cv['version'] ?? '') : '';
+        }
+        $dataPath = rtrim(DATA_PATH, '/\\');
+        return [
+            'php_version'         => PHP_VERSION,
+            'php_sapi'            => PHP_SAPI,
+            'curl'                => $curlAvailable ? ($curlVer !== '' ? 'available (' . $curlVer . ')' : 'available') : 'not loaded',
+            'openssl'             => extension_loaded('openssl') ? (defined('OPENSSL_VERSION_TEXT') ? (string)OPENSSL_VERSION_TEXT : 'loaded') : 'not loaded',
+            'allow_url_fopen'     => ini_get('allow_url_fopen') ? 'on' : 'off',
+            'zip_archive'         => class_exists('ZipArchive') ? 'available' : 'not loaded',
+            'upload_max_filesize' => (string)ini_get('upload_max_filesize'),
+            'post_max_size'       => (string)ini_get('post_max_size'),
+            'max_file_uploads'    => (string)ini_get('max_file_uploads'),
+            'upload_tmp_dir'      => (string)ini_get('upload_tmp_dir') ?: '(system default)',
+            'data_tmp'            => uc_dir_writability_report($dataPath . DIRECTORY_SEPARATOR . 'tmp' . DIRECTORY_SEPARATOR, 'data/tmp/'),
+            'data_backups'        => uc_dir_writability_report($dataPath . DIRECTORY_SEPARATOR . 'backups' . DIRECTORY_SEPARATOR, 'data/backups/'),
+            'disk_free_data'      => (($f = @disk_free_space($dataPath)) !== false) ? uc_format_bytes((int)$f) : 'unknown',
         ];
     }
 

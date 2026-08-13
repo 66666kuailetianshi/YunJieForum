@@ -37,6 +37,214 @@ if (($_GET['action'] ?? '') === 'download') {
     exit;
 }
 
+// 更新诊断页：独立页面输出「检测更新」的完整错误与环境信息（GET、无状态，实时重新检查一次）。
+// 当「检查更新」失败时，前端提供入口跳转到本页；页面内容可整体复制，便于发给开发者排查。
+if (($_GET['action'] ?? '') === 'check_diag') {
+    header('Cache-Control: no-store, no-cache, must-revalidate');
+
+    $diagCfg = [
+        'update_source_url' => uc_get_setting('update_source_url', ''),
+        'update_channel'    => uc_get_setting('update_channel', 'stable'),
+        'update_ssl_verify' => uc_get_setting('update_ssl_verify', '1') === '1' ? 'on' : 'off',
+        'update_skip_hash'  => uc_get_setting('update_skip_hash', '0') === '1' ? 'on' : 'off',
+        'update_last_check' => (int)uc_get_setting('update_last_check', '0'),
+        'current_version'   => uc_get_current_version(),
+    ];
+    try {
+        $diagCheck = uc_check_for_update();
+    } catch (\Throwable $e) {
+        // 检查过程本身抛出的 PHP 异常也完整呈现
+        $diagCheck = [
+            'success' => false,
+            'error'   => 'exception: ' . $e->getMessage(),
+            'details' => [
+                'exception' => $e->getMessage(),
+                'file'      => $e->getFile(),
+                'line'      => $e->getLine(),
+            ],
+        ];
+    }
+    $diagEnv = uc_env_snapshot();
+
+    // 将嵌套数组扁平化为「缩进 + 键 + 值」行，页面表格与复制文本共用
+    $diagRows = []; // ['d' => 缩进深度, 'k' => 键, 'v' => 值]
+    $diagCollect = function ($data, $depth = 0) use (&$diagCollect, &$diagRows) {
+        foreach ((array)$data as $k => $v) {
+            if (is_array($v)) {
+                $diagRows[] = ['d' => $depth, 'k' => (string)$k, 'v' => ''];
+                $diagCollect($v, $depth + 1);
+            } else {
+                $diagRows[] = ['d' => $depth, 'k' => (string)$k, 'v' => is_bool($v) ? ($v ? 'true' : 'false') : (string)$v];
+            }
+        }
+    };
+    $diagCollect(['config' => $diagCfg, 'check' => $diagCheck, 'env' => $diagEnv]);
+
+    $diagTextLines = [];
+    foreach ($diagRows as $r) {
+        $diagTextLines[] = str_repeat('  ', $r['d']) . $r['k'] . ': ' . $r['v'];
+    }
+    $diagText = implode("\n", $diagTextLines);
+    $diagTextEsc = e($diagText); // 嵌入 <pre> 前必须转义（值可能含 < > & 等）
+
+    $isOk = !empty($diagCheck['success']);
+    $resultTitle = $isOk ? t('update_diag_check_ok', '更新检查成功') : t('update_diag_check_fail', '更新检查失败');
+    $resultClass = $isOk ? 'diag-ok' : 'diag-fail';
+    $resultDetail = '';
+    if ($isOk) {
+        $resultDetail = e(t('update_diag_latest', '最新版本') . '：') . e((string)($diagCheck['latest'] ?? ''))
+            . '　' . e(t('update_diag_available', '存在可用更新') . '：') . (!empty($diagCheck['update_available']) ? 'yes' : 'no');
+        if (!empty($diagCheck['changelog'])) {
+            $resultDetail .= '<pre class="diag-pre">' . e((string)$diagCheck['changelog']) . '</pre>';
+        }
+    } else {
+        $resultDetail = '<strong>' . e((string)($diagCheck['error'] ?? '')) . '</strong>';
+        if (!empty($diagCheck['details'])) {
+            $resultDetail .= '<p class="diag-muted">' . e(t('update_diag_details_hint', '完整诊断字段见下方「诊断数据」表。')) . '</p>';
+        }
+    }
+    $resultDetail .= '<pre class="diag-pre">' . e(json_encode($diagCheck, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)) . '</pre>';
+
+    // 按顶层前缀过滤渲染扁平表格（config / env），嵌套对象以缩进展示
+    $renderSection = function (string $prefix) use ($diagRows) {
+        $html = '<table class="diag-table">';
+        foreach ($diagRows as $r) {
+            if ($r['d'] === 0) {
+                continue; // 跳过分区头
+            }
+            if (strpos($r['k'], $prefix . '.') !== 0) {
+                continue;
+            }
+            $key = substr($r['k'], strlen($prefix) + 1);
+            $indent = str_repeat('&nbsp;&nbsp;', $r['d'] - 1);
+            $html .= '<tr><td class="diag-k">' . $indent . e($key) . '</td><td class="diag-v">' . e($r['v']) . '</td></tr>';
+        }
+        return $html . '</table>';
+    };
+
+    $cfgTable = $renderSection('config');
+    $envTable = $renderSection('env');
+
+    // 全部诊断数据（含嵌套对象头行），供「诊断数据」表展示
+    $allRowsHtml = '';
+    foreach ($diagRows as $r) {
+        $indent = str_repeat('&nbsp;&nbsp;', $r['d']);
+        $allRowsHtml .= '<tr><td class="diag-k">' . $indent . e($r['k']) . '</td><td class="diag-v">' . e($r['v']) . '</td></tr>';
+    }
+
+    // 页面文案
+    $copyBtnText = e(t('update_diag_copy', '复制诊断信息'));
+    $copiedText  = e(t('update_diag_copied', '已复制'));
+    $backText    = e(t('update_diag_back', '← 返回更新中心'));
+    $backUrl     = e(site_url('admin/update_center'));
+    $cfgTitle    = e(t('update_diag_cfg_title', '更新配置'));
+    $envTitle    = e(t('update_diag_env_title', '服务器环境'));
+    $diagTitle   = e(t('update_diag_title', '诊断数据'));
+    $diagNote    = e(t('update_diag_note', '诊断页为实时重新检查的结果（无缓存）。点击右上角「复制诊断信息」可将全部字段发给开发者协助排查。'));
+    $pageTitle   = e(t('update_title', '系统更新'));
+    $refreshHref = e((string)($_SERVER['REQUEST_URI'] ?? ''));
+
+    header('Content-Type: text/html; charset=utf-8');
+    echo <<<HTML
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{$resultTitle} - {$pageTitle}</title>
+<style>
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Microsoft YaHei",sans-serif;background:#f5f6f8;margin:0;padding:24px;color:#222;}
+  .wrap{max-width:960px;margin:0 auto;}
+  .diag-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.75rem;margin-bottom:1rem;}
+  .diag-title{font-size:1.3rem;font-weight:700;margin:0;}
+  .diag-back{color:#3370ff;text-decoration:none;font-size:.9rem;}
+  .diag-copy{background:#3370ff;color:#fff;border:0;border-radius:6px;padding:.5rem .9rem;font-size:.85rem;cursor:pointer;}
+  .diag-copy:disabled{opacity:.6;cursor:default;}
+  .diag-banner{padding:.9rem 1.1rem;border-radius:8px;font-size:.95rem;line-height:1.6;word-break:break-all;margin-bottom:1rem;}
+  .diag-ok{background:#e6f7ec;color:#0a6b2f;border:1px solid #b7e8c8;}
+  .diag-fail{background:#fdeeee;color:#b3251c;border:1px solid #f3c0bc;}
+  .card{background:#fff;border:1px solid #e3e5e8;border-radius:10px;padding:1rem 1.25rem;margin-bottom:1rem;}
+  .card h2{margin:0 0 .75rem;font-size:1.05rem;}
+  .diag-table{width:100%;border-collapse:collapse;font-size:.85rem;}
+  .diag-table td{padding:.35rem .6rem;border-bottom:1px solid #f0f1f3;vertical-align:top;}
+  .diag-k{white-space:nowrap;color:#666;font-family:Consolas,Menlo,monospace;}
+  .diag-v{word-break:break-all;}
+  .diag-pre{background:#f6f8fa;border:1px solid #e3e5e8;border-radius:6px;padding:.75rem;font-size:.78rem;line-height:1.5;overflow:auto;max-height:340px;white-space:pre-wrap;word-break:break-all;}
+  .diag-muted{color:#888;font-size:.82rem;margin:.5rem 0 0;}
+  .diag-hidden{position:absolute;left:-9999px;top:0;}
+  .diag-note{color:#999;font-size:.8rem;margin-top:.5rem;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="diag-head">
+    <h1 class="diag-title">{$resultTitle}</h1>
+    <div>
+      <a class="diag-back" href="{$refreshHref}">⟳</a>
+      <button type="button" class="diag-copy" id="diagCopyBtn">{$copyBtnText}</button>
+      <a class="diag-back" href="{$backUrl}" style="margin-left:.75rem;">{$backText}</a>
+    </div>
+  </div>
+
+  <div class="diag-banner {$resultClass}">{$resultDetail}</div>
+
+  <div class="card">
+    <h2>{$cfgTitle}</h2>
+    {$cfgTable}
+  </div>
+
+  <div class="card">
+    <h2>{$envTitle}</h2>
+    {$envTable}
+  </div>
+
+  <div class="card">
+    <h2>{$diagTitle}</h2>
+    <table class="diag-table">{$allRowsHtml}</table>
+    <p class="diag-note">{$diagNote}</p>
+  </div>
+
+  <pre class="diag-hidden" id="diagRaw">{$diagTextEsc}</pre>
+</div>
+<script>
+(function () {
+  var btn = document.getElementById('diagCopyBtn');
+  var raw = document.getElementById('diagRaw');
+  btn.addEventListener('click', function () {
+    var text = raw.textContent;
+    var done = function () {
+      btn.textContent = '{$copiedText}';
+      btn.disabled = true;
+      setTimeout(function () {
+        btn.textContent = '{$copyBtnText}';
+        btn.disabled = false;
+      }, 2000);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done).catch(function () { fallbackCopy(text); done(); });
+    } else {
+      fallbackCopy(text);
+      done();
+    }
+  });
+  function fallbackCopy(text) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); } catch (e) {}
+    document.body.removeChild(ta);
+  }
+})();
+</script>
+</body>
+</html>
+HTML;
+    exit;
+}
+
 $errors   = [];
 $autoResult = null;
 
@@ -358,6 +566,11 @@ require_once dirname(__DIR__) . '/layout/header.php';
                     // 显示额外调试信息
                     if (res.debug_keys) msg += ' [keys: ' + escapeHtml(res.debug_keys.join(', ')) + ']';
                     if (res.preview) msg += '<br><small style="color:var(--text-muted);word-break:break-all">' + escapeHtml(res.preview) + '</small>';
+                    // 完整诊断输出：折叠块展示关键字段（放宽行数上限），并提供独立诊断页入口
+                    if (res.details) msg += diagBlock(res.details, 60);
+                    if (res.error !== 'update_source_not_configured') {
+                        msg += '<br><a href="<?php echo e(site_url('admin/update_center', ['action' => 'check_diag'])); ?>" target="_blank" rel="noopener" class="btn btn-secondary btn-sm" style="margin-top:.5rem;display:inline-block;"><?php echo e(t('update_diag_open_btn', '在新页面查看完整诊断')); ?></a>';
+                    }
                     showStatus(msg, 'error');
                     return;
                 }
@@ -696,13 +909,15 @@ require_once dirname(__DIR__) . '/layout/header.php';
     var lastUpload    = null; // { version, current, relation, files, size_text }
 
     // 渲染后端返回的诊断信息（details）为可折叠块，便于排查上传/安装失败根因
-    function diagBlock(d) {
+    // maxLines 控制最多展示的字段行数（检查失败等场景可放宽，完整内容在独立诊断页）
+    function diagBlock(d, maxLines) {
         if (!d) return '';
+        if (typeof maxLines !== 'number' || maxLines < 1) maxLines = 16;
         var lines = [];
         (function walk(obj, prefix) {
-            if (lines.length >= 16) return;
+            if (lines.length >= maxLines) return;
             for (var k in obj) {
-                if (!Object.prototype.hasOwnProperty.call(obj, k) || lines.length >= 16) continue;
+                if (!Object.prototype.hasOwnProperty.call(obj, k) || lines.length >= maxLines) continue;
                 var v = obj[k];
                 if (v === null || v === undefined || v === '') continue;
                 var label = prefix ? prefix + '.' + k : k;
