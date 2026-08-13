@@ -152,6 +152,9 @@ function ensure_core_tables(PDO $db): void {
         login_locked_until DATETIME DEFAULT NULL,
         register_ip VARCHAR(45) DEFAULT '',
         last_ip VARCHAR(45) DEFAULT '',
+        last_visit DATETIME DEFAULT NULL,
+        timezone VARCHAR(64) DEFAULT 'Asia/Shanghai',
+        online_time INTEGER DEFAULT 0,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )");
     ddl_exec("CREATE TABLE IF NOT EXISTS forum_categories (
@@ -245,7 +248,7 @@ function mark_migration_done(): void {
  */
 function ensure_schema_patch(PDO $db): void {
     $patchFile = DATA_PATH . 'db_patch_version.lock';
-    if ((int)@file_get_contents($patchFile) >= 9) {
+    if ((int)@file_get_contents($patchFile) >= 10) {
         return;
     }
     ensure_mail_logs_table($db);
@@ -279,7 +282,11 @@ function ensure_schema_patch(PDO $db): void {
     migrate_column($db, 'users', 'register_ip', "VARCHAR(45) DEFAULT ''");
     migrate_column($db, 'users', 'last_ip', "VARCHAR(45) DEFAULT ''");
     migrate_column($db, 'posts', 'ip', "VARCHAR(45) DEFAULT ''");
-    @file_put_contents($patchFile, '9', LOCK_EX);
+    // v10：个人中心账户信息（最后访问 / 所在时区 / 累计在线时长）
+    migrate_column($db, 'users', 'last_visit', 'DATETIME DEFAULT NULL');
+    migrate_column($db, 'users', 'timezone', "VARCHAR(64) DEFAULT 'Asia/Shanghai'");
+    migrate_column($db, 'users', 'online_time', 'INTEGER DEFAULT 0');
+    @file_put_contents($patchFile, '10', LOCK_EX);
 }
 
 /**
@@ -349,6 +356,10 @@ function auto_migrate(): void {
             migrate_column($db, 'users', 'register_ip', "VARCHAR(45) DEFAULT ''");
             migrate_column($db, 'users', 'last_ip', "VARCHAR(45) DEFAULT ''");
             migrate_column($db, 'posts', 'ip', "VARCHAR(45) DEFAULT ''");
+            // 个人中心账户信息：最后访问 / 所在时区 / 累计在线时长
+            migrate_column($db, 'users', 'last_visit', 'DATETIME DEFAULT NULL');
+            migrate_column($db, 'users', 'timezone', "VARCHAR(64) DEFAULT 'Asia/Shanghai'");
+            migrate_column($db, 'users', 'online_time', 'INTEGER DEFAULT 0');
             ensure_reports_table($db);
             ensure_notifications_table($db);
             ensure_mail_logs_table($db);

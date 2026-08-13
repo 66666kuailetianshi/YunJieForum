@@ -1,12 +1,12 @@
 # 云界论坛 (Cloud Forum)
 
-> **Current Status: Stable** (v1.5.3) | Lightweight community forum · PHP + SQLite · Out-of-the-box
+> **Current Status: Stable** (v1.5.4) | Lightweight community forum · PHP + SQLite · Out-of-the-box
 
 **[简体中文](README.md) · [繁體中文](README.zh-TW.md)**
 
 `Cloud Forum` is a lightweight community forum (BBS) system written entirely in PHP. It uses a SQLite file database by default, so it can run without a standalone database server — suitable for personal blog communities, interest groups, intranet knowledge bases, and similar scenarios. The system includes a built-in user system, forums/posts/replies, private messages, notifications, daily check-ins with points, medals and roles, content moderation (sensitive words), email and traffic statistics, and provides a visual installation wizard and admin panel.
 
-- **Current Version:** `1.5.3`
+- **Current Version:** `1.5.4`
 - **Language:** PHP 7.4+
 - **Default Database:** SQLite (also supports MySQL / PostgreSQL)
 - **Frontend:** Native HTML + CSS + a small amount of native JS, no frontend build step
@@ -39,7 +39,7 @@
 
 | Module | Description |
 | --- | --- |
-| User System | Registration, login, remember me, profile, change password, email verification code (requires SMTP), password recovery, forced password change, ban appeal |
+| User System | Registration, login, remember me, profile, change password, email verification code (requires SMTP), password recovery, forced password change, ban appeal; the profile page adds an "Account Info" card (online time / registration time / last visit / last activity / last post / timezone, with a customizable timezone) |
 | Content System | Multi-level forums (category → forum), topics, replies (reply-within-reply / quote), sticky, featured, locked, favorites, search, sharing (links automatically follow the current access domain) |
 | Points / Levels | Earn points and coins for posting/reply/receiving replies/being favorited, with daily reward caps to prevent farming; **user groups** and titles are automatically assigned by points; **medal** system |
 | Check-in | Daily check-in earns points + coins, consecutive check-ins increase rewards, 7/30-day milestones give extra rewards |
@@ -345,7 +345,7 @@ Core tables (SQLite dialect; PostgreSQL/MySQL are translated by the installer). 
 
 | Table | Purpose |
 | --- | --- |
-| `users` | Users (username/email/password/points/coins/role/check-in/ban-mute status) |
+| `users` | Users (username/email/password/points/coins/role/check-in/ban-mute status; three new columns `last_visit`/`timezone`/`online_time` power the profile Account Info) |
 | `forum_categories` | Forum categories |
 | `forums` | Forums (parent category, icon, topic count, post count, last post) |
 | `posts` | Topics (title/content/views/reply count/sticky/featured/locked) |
@@ -378,7 +378,7 @@ Core tables (SQLite dialect; PostgreSQL/MySQL are translated by the installer). 
 
 - **Browsing**: home aggregation (stats, announcements, forums, hot/latest), forum topic lists, topic detail (with quoted replies, pagination), search.
 - **Posting**: new posts, replies (supports BBCode, emoji, quotes, image uploads), profile editing, favorites, post sharing (one-click copy of the full link on the current access domain).
-- **Account**: registration (optional email verification), login (remember me), forgot/reset password, forced password change, ban appeal.
+- **Account**: registration (optional email verification), login (remember me), forgot/reset password, forced password change, ban appeal; the profile "Account Info" card shows online time, registration time, last visit, last activity, last post and timezone (timezone can be set in profile editing).
 - **Interaction**: private messages (real-time unread via polling), system notifications, daily check-in, points/coins and level display, medal wall.
 - **Feedback**: feedback tickets (submit issues, track progress, follow-up replies); new tickets notify admins automatically.
 
@@ -551,6 +551,8 @@ Both the admin User Management and Post Management lists now include an **IP Loc
 
 > The schema upgrade runs automatically through `init_db()` / `ensure_schema_patch()` (patch version v9), adding the columns above to `users` and `posts` with no manual steps required.
 
+> The schema upgrade also runs automatically through `init_db()` / `ensure_schema_patch()` (patch version v10), adding the `last_visit` / `timezone` / `online_time` columns to `users` to power the profile Account Info; existing databases need no manual steps.
+
 ---
 
 ## 11. API Endpoints
@@ -682,7 +684,7 @@ In "Site Settings → CAPTCHA Settings", find the "Display Mode" dropdown and se
 
 ---
 
-> Documentation compiled from the project source (`index.php`, `install.php`, `app/includes/*`, `public/*`), version `1.5.3`.
+> Documentation compiled from the project source (`index.php`, `install.php`, `app/includes/*`, `public/*`), version `1.5.4`.
 > If it differs from the actual implementation, please follow the code and the installation wizard prompts.
 
 

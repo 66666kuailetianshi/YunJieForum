@@ -43,6 +43,29 @@ if (!$isOwnProfile && !in_array($tab, ['profile', 'posts', 'replies'])) {
 // 积分流水
 $pointsLog = get_user_points_log($user['id'], 50);
 
+// 可选时区列表（个人中心「所在时区」设置）
+$TIMEZONES = [
+    'Asia/Shanghai'   => t('tz_asia_shanghai', '中国标准时间 (UTC+8)'),
+    'Asia/Hong_Kong'  => t('tz_asia_hong_kong', '香港 (UTC+8)'),
+    'Asia/Taipei'     => t('tz_asia_taipei', '台北 (UTC+8)'),
+    'Asia/Tokyo'      => t('tz_asia_tokyo', '东京 (UTC+9)'),
+    'Asia/Seoul'      => t('tz_asia_seoul', '首尔 (UTC+9)'),
+    'Asia/Singapore'  => t('tz_asia_singapore', '新加坡 (UTC+8)'),
+    'Asia/Kolkata'    => t('tz_asia_kolkata', '加尔各答 (UTC+5:30)'),
+    'Asia/Dubai'      => t('tz_asia_dubai', '迪拜 (UTC+4)'),
+    'Asia/Bangkok'    => t('tz_asia_bangkok', '曼谷 (UTC+7)'),
+    'Europe/London'   => t('tz_europe_london', '伦敦 (UTC+0)'),
+    'Europe/Paris'    => t('tz_europe_paris', '巴黎 (UTC+1)'),
+    'Europe/Moscow'   => t('tz_europe_moscow', '莫斯科 (UTC+3)'),
+    'America/New_York'    => t('tz_america_new_york', '纽约 (UTC-5)'),
+    'America/Chicago'     => t('tz_america_chicago', '芝加哥 (UTC-6)'),
+    'America/Los_Angeles' => t('tz_america_los_angeles', '洛杉矶 (UTC-8)'),
+    'America/Sao_Paulo'   => t('tz_america_sao_paulo', '圣保罗 (UTC-3)'),
+    'Australia/Sydney'    => t('tz_australia_sydney', '悉尼 (UTC+10)'),
+    'Pacific/Auckland'    => t('tz_pacific_auckland', '奥克兰 (UTC+12)'),
+    'UTC'                 => t('tz_utc', '协调世界时 (UTC+0)'),
+];
+
 $errors = [];
 $success = '';
 
@@ -54,6 +77,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $tab === 'profile') {
         $username = trim($_POST['username'] ?? '');
         $avatar = trim($_POST['avatar'] ?? '');
         $signature = trim($_POST['signature'] ?? '');
+        $timezone = trim($_POST['timezone'] ?? '');
 
         // 处理本地上传头像
         $uploadedAvatar = '';
@@ -134,15 +158,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $tab === 'profile') {
             $errors[] = t('profile_signature_too_long', '个性签名不能超过 255 个字符。');
         }
 
+        // 时区校验：必须落在白名单内，否则回退为账号已有值
+        if ($timezone === '' || !isset($TIMEZONES[$timezone])) {
+            $timezone = $user['timezone'] ?? 'Asia/Shanghai';
+        }
+
         // 敏感词过滤签名
         $processedSignature = sw_process_content($signature, 'signature', (int)$_SESSION['user_id'], null, $errors);
 
         if (empty($errors)) {
-            $stmt = $db->prepare("UPDATE users SET username = :username, avatar = :avatar, signature = :signature WHERE id = :id");
+            $stmt = $db->prepare("UPDATE users SET username = :username, avatar = :avatar, signature = :signature, timezone = :timezone WHERE id = :id");
             $stmt->execute([
                 ':username' => $username,
                 ':avatar' => $avatar,
                 ':signature' => $processedSignature,
+                ':timezone' => $timezone,
                 ':id' => $_SESSION['user_id'],
             ]);
             unset($_SESSION['user']); // 刷新缓存
@@ -299,6 +329,18 @@ $stmt = $db->prepare("SELECT COUNT(*) FROM favorites WHERE user_id = :user_id");
 $stmt->execute([':user_id' => $user['id']]);
 $favoriteCount = (int)$stmt->fetchColumn();
 
+// 上次发表时间（帖子或回复中最晚的一条创建时间）
+$lastPublishTime = null;
+$stmt = $db->prepare("SELECT MAX(created_at) FROM posts WHERE user_id = :uid");
+$stmt->execute([':uid' => $user['id']]);
+$maxPost = $stmt->fetchColumn();
+$stmt = $db->prepare("SELECT MAX(created_at) FROM replies WHERE user_id = :uid");
+$stmt->execute([':uid' => $user['id']]);
+$maxReply = $stmt->fetchColumn();
+if ($maxPost !== null || $maxReply !== null) {
+    $lastPublishTime = max((string)$maxPost, (string)$maxReply);
+}
+
 // 用户等级头衔（统一使用 posts_count + replies_count 口径）
 $userGroup = get_user_group((int)$user['points']);
 
@@ -436,6 +478,15 @@ include APP_ROOT . 'app/includes/header.php';
                     <label class="form-label" for="signature"><?php echo e(t('profile_label_signature', '个性签名')); ?></label>
                     <input type="text" class="form-control" id="signature" name="signature" value="<?php echo e($user['signature']); ?>" maxlength="255" placeholder="<?php echo e(t('profile_signature_placeholder', '写点什么...')); ?>">
                 </div>
+                <div class="form-group">
+                    <label class="form-label" for="timezone"><?php echo e(t('profile_label_timezone', '所在时区')); ?></label>
+                    <select class="form-control" id="timezone" name="timezone">
+                        <?php foreach ($TIMEZONES as $tzValue => $tzLabel): ?>
+                            <option value="<?php echo e($tzValue); ?>"<?php echo ($user['timezone'] ?? 'Asia/Shanghai') === $tzValue ? ' selected' : ''; ?>><?php echo e($tzValue . ' — ' . $tzLabel); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <p class="form-hint"><?php echo e(t('profile_timezone_hint', '用于展示你的所在时区信息。')); ?></p>
+                </div>
                 <button type="submit" class="btn btn-primary"><?php echo e(t('profile_save', '保存修改')); ?></button>
             </form>
         <?php else: ?>
@@ -456,6 +507,71 @@ include APP_ROOT . 'app/includes/header.php';
                 </div>
             </div>
         <?php endif; ?>
+    </div>
+
+    <div class="profile-card">
+        <h2 class="profile-card-title"><?php echo e(t('profile_account_info', '账户信息')); ?></h2>
+        <?php $tz = $user['timezone'] ?? 'Asia/Shanghai'; ?>
+        <div class="account-info-grid">
+            <div class="account-info-item">
+                <div class="ai-icon ai-icon-register"><?php echo ui_icon('calendar', 18); ?></div>
+                <div class="ai-body">
+                    <div class="ai-label"><?php echo e(t('profile_ai_register', '注册时间')); ?></div>
+                    <div class="ai-value"><?php echo e(db_datetime_tz($user['created_at'], $tz, 'Y-m-d H:i')); ?></div>
+                    <div class="ai-sub"><?php echo e(time_ago($user['created_at'])); ?></div>
+                </div>
+            </div>
+            <div class="account-info-item">
+                <div class="ai-icon ai-icon-online"><?php echo ui_icon('zap', 18); ?></div>
+                <div class="ai-body">
+                    <div class="ai-label"><?php echo e(t('profile_ai_online', '在线时间')); ?></div>
+                    <div class="ai-value"><?php echo e(format_duration((int)($user['online_time'] ?? 0))); ?></div>
+                </div>
+            </div>
+            <div class="account-info-item">
+                <div class="ai-icon ai-icon-visit"><?php echo ui_icon('log-in', 18); ?></div>
+                <div class="ai-body">
+                    <div class="ai-label"><?php echo e(t('profile_ai_last_visit', '最后访问')); ?></div>
+                    <?php if (!empty($user['last_visit'])): ?>
+                        <div class="ai-value"><?php echo e(db_datetime_tz($user['last_visit'], $tz, 'Y-m-d H:i')); ?></div>
+                        <div class="ai-sub"><?php echo e(time_ago($user['last_visit'])); ?></div>
+                    <?php else: ?>
+                        <div class="ai-value"><?php echo e(t('profile_never', '从未')); ?></div>
+                    <?php endif; ?>
+                </div>
+            </div>
+            <div class="account-info-item">
+                <div class="ai-icon ai-icon-active"><?php echo ui_icon('eye', 18); ?></div>
+                <div class="ai-body">
+                    <div class="ai-label"><?php echo e(t('profile_ai_last_active', '上次活动时间')); ?></div>
+                    <?php if (!empty($user['last_active'])): ?>
+                        <div class="ai-value"><?php echo e(db_datetime_tz($user['last_active'], $tz, 'Y-m-d H:i')); ?></div>
+                        <div class="ai-sub"><?php echo e(time_ago($user['last_active'])); ?></div>
+                    <?php else: ?>
+                        <div class="ai-value"><?php echo e(t('profile_never', '从未')); ?></div>
+                    <?php endif; ?>
+                </div>
+            </div>
+            <div class="account-info-item">
+                <div class="ai-icon ai-icon-publish"><?php echo ui_icon('file-text', 18); ?></div>
+                <div class="ai-body">
+                    <div class="ai-label"><?php echo e(t('profile_ai_last_publish', '上次发表时间')); ?></div>
+                    <?php if (!empty($lastPublishTime)): ?>
+                        <div class="ai-value"><?php echo e(db_datetime_tz($lastPublishTime, $tz, 'Y-m-d H:i')); ?></div>
+                        <div class="ai-sub"><?php echo e(time_ago($lastPublishTime)); ?></div>
+                    <?php else: ?>
+                        <div class="ai-value"><?php echo e(t('profile_never', '从未')); ?></div>
+                    <?php endif; ?>
+                </div>
+            </div>
+            <div class="account-info-item">
+                <div class="ai-icon ai-icon-tz"><?php echo ui_icon('globe', 18); ?></div>
+                <div class="ai-body">
+                    <div class="ai-label"><?php echo e(t('profile_ai_timezone', '所在时区')); ?></div>
+                    <div class="ai-value"><?php echo e($user['timezone'] ?? 'Asia/Shanghai'); ?></div>
+                </div>
+            </div>
+        </div>
     </div>
 
 <?php elseif ($tab === 'security' && $isOwnProfile): ?>

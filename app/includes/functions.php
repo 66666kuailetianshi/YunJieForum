@@ -845,6 +845,32 @@ function db_datetime(string $datetime, string $format = 'Y-m-d H:i:s'): string {
 }
 
 /**
+ * 按指定时区格式化数据库 UTC 时间字符串
+ * - 若不指定时区或时区无效，回退到 PHP 默认时区（与 db_datetime 行为一致）
+ * - 时间底层以 UTC 解析，再转换到目标时区，避免服务器时区导致的偏移
+ */
+function db_datetime_tz(string $datetime, string $tz = '', string $format = 'Y-m-d H:i'): string {
+    $ts = db_time($datetime);
+    if ($ts <= 0) {
+        return $datetime;
+    }
+    $tzObj = null;
+    if ($tz !== '' && in_array($tz, timezone_identifiers_list(), true)) {
+        try {
+            $tzObj = new DateTimeZone($tz);
+        } catch (Exception $e) {
+            $tzObj = null;
+        }
+    }
+    if ($tzObj instanceof DateTimeZone) {
+        $dt = new DateTime('@' . $ts);
+        $dt->setTimezone($tzObj);
+        return $dt->format($format);
+    }
+    return date($format, $ts);
+}
+
+/**
  * 格式化时间
  */
 function time_ago(string $datetime): string {
@@ -1524,17 +1550,44 @@ function update_last_active(): void {
     if (!is_logged_in()) return;
     // 节流：5 分钟内只写库一次，降低 SQLite 写压力
     $lastSync = $_SESSION['last_active_sync'] ?? 0;
-    if (time() - $lastSync < 300) {
+    $now = time();
+    if ($now - $lastSync < 300) {
         return;
     }
-    $_SESSION['last_active_sync'] = time();
+    // 累计在线时长：取本次同步与上次同步之间的真实间隔（封顶 1 小时，避免异常跳变）
+    $elapsed = $lastSync > 0 ? max(0, min($now - $lastSync, 3600)) : 0;
+    $_SESSION['last_active_sync'] = $now;
     try {
         $db = get_db();
-        $stmt = $db->prepare("UPDATE users SET last_active = CURRENT_TIMESTAMP, last_ip = :ip WHERE id = :id");
-        $stmt->execute([':id' => $_SESSION['user_id'], ':ip' => client_ip()]);
+        $stmt = $db->prepare("UPDATE users SET last_active = CURRENT_TIMESTAMP, last_ip = :ip, online_time = COALESCE(online_time, 0) + :inc WHERE id = :id");
+        $stmt->execute([':id' => $_SESSION['user_id'], ':ip' => client_ip(), ':inc' => $elapsed]);
     } catch (Exception $e) {
         // 数据库异常不影响页面渲染
     }
+}
+
+/**
+ * 将秒数格式化为「X 天 X 小时 X 分钟」形式（自动省略为 0 的时间单位）
+ */
+function format_duration(int $seconds): string {
+    $seconds = max(0, (int)$seconds);
+    if ($seconds < 60) {
+        return t('common_duration_less_than_min', '不到 1 分钟');
+    }
+    $days = intdiv($seconds, 86400);
+    $hours = intdiv($seconds % 86400, 3600);
+    $minutes = intdiv($seconds % 3600, 60);
+    $parts = [];
+    if ($days > 0) {
+        $parts[] = $days . t('common_unit_day', ' 天');
+    }
+    if ($hours > 0) {
+        $parts[] = $hours . t('common_unit_hour', ' 小时');
+    }
+    if ($minutes > 0) {
+        $parts[] = $minutes . t('common_unit_min', ' 分钟');
+    }
+    return implode(' ', $parts);
 }
 
 /**
@@ -2246,6 +2299,9 @@ function ui_icon(string $name, int $size = 24): string {
         'crown'       => '<path d="m2 4 3 12h14l3-12-6 7-4-7-4 7-6-7zm3 16h14"/>',
         'diamond'     => '<path d="M6 2h12l6 8-12 12L0 10l6-8z"/><path d="M12 22V10"/><path d="M12 10 0 10"/><path d="M12 10 24 10"/>',
         'trophy'      => '<path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M9 5v7a3 3 0 0 0 6 0V5"/><path d="M12 22v-5"/>',
+        'clock'       => '<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/>',
+        'globe'       => '<circle cx="12" cy="12" r="9"/><line x1="3" y1="12" x2="21" y2="12"/><path d="M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18z"/>',
+        'log-in'      => '<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/>',
     ];
     $path = $icons[$name] ?? $icons['file-text'];
     return '<svg xmlns="http://www.w3.org/2000/svg" width="' . $size . '" height="' . $size . '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">' . $path . '</svg>';

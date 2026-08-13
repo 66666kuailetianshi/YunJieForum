@@ -8,7 +8,7 @@ if (!defined('ROOT_PATH')) {
 }
 
 define('APP_NAME', t('common_bb1a21','云界论坛'));
-define('APP_VERSION', '1.5.3');
+define('APP_VERSION', '1.5.4');
 define('SITE_URL', ''); // 留空则自动检测；设置后仅影响邮件等对外场景的规范域名，分享链接始终按当前访问域名生成
 
 define('DATA_PATH', ROOT_PATH . 'data' . DIRECTORY_SEPARATOR);

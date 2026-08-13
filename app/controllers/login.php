@@ -86,9 +86,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 // 登录成功：清零失败计数与锁定状态
                 login_lock_clear($account);
-                // 记录本次登录 IP（后台「用户管理」IP 定位显示）
+                // 记录本次登录 IP 与最后访问时间（后台「用户管理」IP 定位显示 / 个人中心账户信息）
                 try {
-                    $db->prepare("UPDATE users SET last_ip = :ip WHERE id = :id")
+                    $db->prepare("UPDATE users SET last_ip = :ip, last_visit = CURRENT_TIMESTAMP WHERE id = :id")
                         ->execute([':ip' => client_ip(), ':id' => (int)$user['id']]);
                 } catch (Exception $e) {
                     // IP 记录失败不影响登录流程
@@ -96,6 +96,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // 重新生成 session id，防止会话固定攻击
                 session_regenerate_id(true);
                 $_SESSION['user_id'] = (int)$user['id'];
+                // 以登录时刻作为在线时长累计起点
+                $_SESSION['last_active_sync'] = time();
                 unset($_SESSION['user'], $_SESSION['banned_info']);
                 // 轮换 CSRF token，防止登录前获取的 token 被复用
                 rotate_csrf_token();
