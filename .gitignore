@@ -39,3 +39,8 @@ uploads/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# ===== 测试 / 辅助脚本（不随代码分发，禁止推送到 GitHub） =====
+# tools/_src/ 仅存放本地开发用的测试/辅助 Python 脚本，不应进入版本库与远程仓库。
+# 注意：该目录下的绑定库（Searcher.class.php）与数据文件（*.txt / *.json）仍需随代码分发，故只忽略 *.py。
+tools/_src/*.py
