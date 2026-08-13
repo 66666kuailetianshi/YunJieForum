@@ -1747,6 +1747,7 @@ return [
     'update_no_package_hash' => '更新包缺少哈希校验值（package_hash）。为安全起见默认禁止无校验更新。请在 version.json 中加入 package_hash（sha256 值）后重试，或在「更新设置」中开启「跳过哈希校验」。',
     'update_check_error' => '检查失败：',
     'update_check_network_fail' => '网络错误，检查失败。',
+    'update_check_http_error' => '服务器返回异常状态码 {code}（响应非 JSON，可能为 500 错误页），请打开下方诊断页排查。',
     'update_settings_saved' => '更新中心设置已保存。',
     'update_upload_title' => '手动上传更新包',
     'update_upload_desc' => '无需配置远程更新源：选择本地的云界论坛更新包（.zip），系统会校验包内版本、自动备份当前代码后覆盖升级。data/ 配置与数据不会被覆盖。',

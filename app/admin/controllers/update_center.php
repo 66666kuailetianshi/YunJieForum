@@ -557,7 +557,12 @@ require_once dirname(__DIR__) . '/layout/header.php';
         checkBtn.innerHTML = '<?php echo e(t('update_checking', '检查中…')); ?>';
         updateBtn.disabled = true;
         fetch('/index.php?route=admin/api/update_ajax&action=check')
-            .then(function (r) { return r.json(); })
+            .then(function (r) {
+                return r.json().catch(function () {
+                    // 响应不是 JSON（如 PHP 500 输出 HTML 错误页）→ 抛出带状态码的对象，由下方 .catch 统一呈现
+                    throw { __httpStatus: r.status, __raw: r };
+                });
+            })
             .then(function (res) {
                 if (!res.success) {
                     var msg = res.error === 'update_source_not_configured'
@@ -600,8 +605,17 @@ require_once dirname(__DIR__) . '/layout/header.php';
                     showStatus('<?php echo e(t('update_up_to_date', '已是最新版本（')); ?>' + escapeHtml(res.current) + '）' + '<?php echo e(t('update_up_to_date_force_hint', ' 如需重新应用更新包，可点击「强制更新」')); ?>', 'ok');
                 }
             })
-            .catch(function () {
-                showStatus('<?php echo e(t('update_check_network_fail', '网络错误，检查失败。')); ?>', 'error');
+            .catch(function (err) {
+                var msg = '<?php echo e(t('update_check_network_fail', '网络错误，检查失败。')); ?>';
+                if (err && err.__httpStatus) {
+                    // fetch 成功但响应非 JSON（PHP 500 错误页等）→ 展示真实 HTTP 状态码
+                    msg = '<?php echo e(t('update_check_http_error', '服务器返回异常状态码 {code}（响应非 JSON，可能为 500 错误页），请打开下方诊断页排查。')); ?>'
+                        .replace('{code}', String(err.__httpStatus));
+                } else if (err && err.message) {
+                    msg += ' ' + escapeHtml(err.message);
+                }
+                msg += '<br><a href="<?php echo e(site_url('admin/update_center', ['action' => 'check_diag'])); ?>" target="_blank" rel="noopener" class="btn btn-secondary btn-sm" style="margin-top:.5rem;display:inline-block;"><?php echo e(t('update_diag_open_btn', '在新页面查看完整诊断')); ?></a>';
+                showStatus(msg, 'error');
             })
             .finally(function () {
                 checkBtn.disabled = false;

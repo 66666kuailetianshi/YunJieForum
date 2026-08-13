@@ -39,7 +39,23 @@ if (!is_super_admin()) {
 $action = (string)($_GET['action'] ?? ($_POST['action'] ?? ''));
 
 if ($action === 'check') {
-    $result = uc_check_for_update();
+    try {
+        $result = uc_check_for_update();
+    } catch (\Throwable $e) {
+        // 与 update/install_upload 分支一致：捕获 PHP 异常并附现场信息，避免前端只看到 500 空白
+        $result = [
+            'success' => false,
+            'error'   => 'exception: ' . $e->getMessage(),
+            'details' => [
+                'exception' => $e->getMessage(),
+                'file'      => $e->getFile(),
+                'line'      => $e->getLine(),
+            ],
+        ];
+    }
+    if (empty($result['details'])) {
+        $result['details'] = null;
+    }
     ob_end_clean();
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode($result, JSON_UNESCAPED_UNICODE);

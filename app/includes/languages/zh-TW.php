@@ -1745,6 +1745,7 @@ return [
     'update_no_package_hash' => '更新包缺少雜湊校驗值（package_hash）。為安全起見預設禁止無校驗更新。請在 version.json 中加入 package_hash（sha256 值）後重試，或在「更新設定」中開啟「跳過雜湊校驗」。',
     'update_check_error' => '檢查失敗：',
     'update_check_network_fail' => '網路錯誤，檢查失敗。',
+    'update_check_http_error' => '伺服器回傳異常狀態碼 {code}（回應非 JSON，可能為 500 錯誤頁），請開啟下方診斷頁排查。',
     'update_settings_saved' => '更新中心設定已儲存。',
     'update_upload_title' => '手動上傳更新套件',
     'update_upload_desc' => '無需設定遠端更新來源：選擇本地的雲界論壇更新套件（.zip），系統會校驗套件內版本、自動備份目前程式碼後覆蓋升級。data/ 設定與資料不會被覆蓋。',
