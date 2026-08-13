@@ -107,6 +107,17 @@ require_once dirname(__DIR__) . '/layout/header.php';
             <input type="file" id="ipdb-upload-file" class="form-input" accept=".xdb">
             <button type="button" class="btn btn-primary" id="ipdb-upload-btn"><?php echo e(t('ipdb_upload_btn', '上传并导入')); ?></button>
         </div>
+        <!-- 上传进度（XHR upload progress：百分比 / 已传字节 / 实时速度） -->
+        <div id="ipdb-upload-progress" style="display:none;margin-top:0.75rem;">
+            <div class="update-progress-header">
+                <span class="update-progress-stage" id="ipdb-upload-stage"></span>
+                <span class="update-progress-pct" id="ipdb-upload-pct">0%</span>
+            </div>
+            <div class="update-progress-bar-outer">
+                <div class="update-progress-bar-inner" id="ipdb-upload-bar" style="width:0%"></div>
+            </div>
+            <div class="update-progress-detail" id="ipdb-upload-detail"></div>
+        </div>
         <div id="ipdb-upload-result" class="mt-2"></div>
     </div>
 </div>
@@ -280,8 +291,70 @@ require_once dirname(__DIR__) . '/layout/header.php';
             });
     });
 
-    // ========== 上传更新 ==========
+    // ========== 上传更新（XHR 上传进度 + 实时速度） ==========
     var uploadBtn = document.getElementById('ipdb-upload-btn');
+    var upProgWrap = document.getElementById('ipdb-upload-progress');
+    var upStage = document.getElementById('ipdb-upload-stage');
+    var upPct = document.getElementById('ipdb-upload-pct');
+    var upBar = document.getElementById('ipdb-upload-bar');
+    var upDetail = document.getElementById('ipdb-upload-detail');
+    var UP_TXT = {
+        stageUploading: '<?php echo e(t('ipdb_upload_stage_uploading', '正在上传…')); ?>',
+        stageImporting: '<?php echo e(t('ipdb_upload_stage_importing', '上传完成，服务器校验导入中…')); ?>',
+        speed: '<?php echo e(t('ipdb_upload_speed', '速度')); ?>',
+        nonJson: '<?php echo e(t('ipdb_upload_non_json', '服务器返回了非 JSON 响应')); ?>'
+    };
+
+    // 与 postForm 等价，但改用 XMLHttpRequest 以获取 upload progress 事件（fetch 不支持上传进度）；
+    // 同样支持 404 时切换「路由 / 直连」通道重试一次
+    function postFormWithProgress(action, formData, onProgress) {
+        formData.append('csrf_token', csrfToken);
+        var attempt = function (isRetry) {
+            return new Promise(function (resolve, reject) {
+                var xhr = new XMLHttpRequest();
+                xhr.open('POST', apiUrlFor(action));
+                if (onProgress && xhr.upload) {
+                    xhr.upload.addEventListener('progress', function (e) {
+                        if (e.lengthComputable) onProgress(e.loaded, e.total);
+                    }, false);
+                }
+                xhr.onload = function () {
+                    if (!isRetry && !apiSwitched && xhr.status === 404) {
+                        apiSwitched = true;
+                        apiUseDirect = !apiUseDirect;
+                        console.warn('[ipdb] 接口 404，切换通道重试 -> ' + (apiUseDirect ? '直连' : '路由'));
+                        resolve(attempt(true));
+                        return;
+                    }
+                    try {
+                        resolve(JSON.parse(xhr.responseText));
+                    } catch (e) {
+                        resolve({ success: false, error: 'HTTP ' + xhr.status + '：' + UP_TXT.nonJson });
+                    }
+                };
+                xhr.onerror = function () { reject(new Error('network')); };
+                xhr.send(formData);
+            });
+        };
+        return attempt(false);
+    }
+
+    function upRenderProgress(loaded, total, startedAt, importing) {
+        var pct = total > 0 ? Math.min(100, Math.floor(loaded / total * 100)) : 0;
+        upBar.style.width = pct + '%';
+        upPct.textContent = pct + '%';
+        if (importing) {
+            upStage.textContent = UP_TXT.stageImporting;
+        } else {
+            upStage.textContent = UP_TXT.stageUploading;
+            var el = (Date.now() - startedAt) / 1000;
+            var speed = el > 0 ? loaded / el : 0;
+            var detail = fmtSize(loaded) + ' / ' + (total ? fmtSize(total) : '--');
+            if (speed > 0) detail += ' · ' + UP_TXT.speed + ' ' + fmtSize(speed) + '/s';
+            upDetail.textContent = detail;
+        }
+    }
+
     uploadBtn.addEventListener('click', function () {
         var fileInput = document.getElementById('ipdb-upload-file');
         var resultEl = document.getElementById('ipdb-upload-result');
@@ -291,12 +364,26 @@ require_once dirname(__DIR__) . '/layout/header.php';
         fd.append('file', file);
         uploadBtn.disabled = true;
         uploadBtn.textContent = '<?php echo e(t('ipdb_uploading', '导入中…')); ?>';
-        postForm('upload', fd)
+        // 重置并显示进度条
+        upProgWrap.style.display = '';
+        upBar.className = 'update-progress-bar-inner';
+        upDetail.textContent = '';
+        upRenderProgress(0, file.size, Date.now(), false);
+        var upStartedAt = Date.now();
+        postFormWithProgress('upload', fd, function (loaded, total) {
+            // 上传完成（loaded === total）后进入服务器校验导入阶段
+            upRenderProgress(loaded, total, upStartedAt, total > 0 && loaded >= total);
+        })
             .then(function (data) {
                 if (!data.success) {
+                    upBar.classList.add('is-error');
                     showMsg(resultEl, esc(data.error), true);
                     return;
                 }
+                upBar.style.width = '100%';
+                upPct.textContent = '100%';
+                upBar.classList.add('is-done');
+                upProgWrap.style.display = 'none';
                 var msg = '';
                 if (data.ok) {
                     // zip 包：可能导入 v4/v6 一个或两个
@@ -314,6 +401,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
                 loadStatus();
             })
             .catch(function () {
+                upBar.classList.add('is-error');
                 showMsg(resultEl, '<?php echo e(t('ipdb_upload_failed', '上传失败，请稍后重试。')); ?>', true);
             })
             .finally(function () {

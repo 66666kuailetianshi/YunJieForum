@@ -503,15 +503,31 @@ if (!function_exists('uc_get_current_version')) {
      */
     function uc_extract_package(string $zipPath): array {
         if (!class_exists('ZipArchive')) {
-            return ['ok' => false, 'error' => 'zip_extension_missing'];
+            return ['ok' => false, 'error' => 'zip_extension_missing', 'failed' => [], 'failed_items' => []];
         }
         $root = rtrim(APP_ROOT, '/\\');
         $zip  = new ZipArchive();
-        if ($zip->open($zipPath) !== true) {
-            return ['ok' => false, 'error' => 'package_open_failed'];
+        $openRes = $zip->open($zipPath);
+        if ($openRes !== true) {
+            // 附带打开错误码与文件状态，供解压失败诊断页输出更精确的原因
+            return [
+                'ok'          => false,
+                'error'       => 'package_open_failed',
+                'open_result' => is_int($openRes) ? $openRes : (string)$openRes,
+                'zip_exists'  => is_file($zipPath),
+                'zip_size'    => is_file($zipPath) ? (int)@filesize($zipPath) : 0,
+                'failed'      => [],
+                'failed_items'=> [],
+            ];
         }
         $count  = 0;
         $failed = [];
+        $failedItems = []; // 结构化失败清单：{name, phase: mkdir|read|write, why}，供诊断页逐条展示
+        // 取最近一次 OS 级错误（如 Permission denied），拿不到时回退通用文案
+        $ucLastErr = function (): string {
+            $lastErr = error_get_last();
+            return (($lastErr['message'] ?? '') !== '') ? $lastErr['message'] : '';
+        };
         for ($i = 0; $i < $zip->numFiles; $i++) {
             $name = $zip->getNameIndex($i);
             if ($name === false) {
@@ -530,7 +546,9 @@ if (!function_exists('uc_get_current_version')) {
             // 目录条目：确保目录存在
             if (substr($norm, -1) === '/') {
                 if (!is_dir($dest) && !@mkdir($dest, 0755, true)) {
-                    $failed[] = $norm . ' (mkdir)';
+                    $why = $ucLastErr() ?: 'mkdir_failed';
+                    $failed[] = $norm . ' (mkdir): ' . $why;
+                    $failedItems[] = ['name' => $norm, 'phase' => 'mkdir', 'why' => $why];
                 } else {
                     $count++;
                 }
@@ -539,7 +557,9 @@ if (!function_exists('uc_get_current_version')) {
             // 文件条目：确保父目录存在
             $parent = dirname($dest);
             if (!is_dir($parent) && !@mkdir($parent, 0755, true)) {
-                $failed[] = $norm . ' (mkdir)';
+                $why = $ucLastErr() ?: 'mkdir_failed';
+                $failed[] = $norm . ' (mkdir): ' . $why;
+                $failedItems[] = ['name' => $norm, 'phase' => 'mkdir', 'why' => $why];
                 continue;
             }
             // Windows 上只读文件会导致写入失败：先解除只读再写入
@@ -549,20 +569,21 @@ if (!function_exists('uc_get_current_version')) {
             $content = $zip->getFromIndex($i);
             if ($content === false) {
                 $failed[] = $norm . ' (read)';
+                $failedItems[] = ['name' => $norm, 'phase' => 'read', 'why' => 'getFromIndex_failed'];
                 continue;
             }
             if (@file_put_contents($dest, $content) === false) {
-                // 附上 OS 级错误信息（如 Permission denied），便于 Linux 权限问题排查
-                $lastErr = error_get_last();
-                $why = ($lastErr['message'] ?? '') !== '' ? $lastErr['message'] : 'write_failed';
+                // 附上 OS 级错误信息（如 Permission denied / 拒绝访问），便于 Linux 权限与 Windows 占用问题排查
+                $why = $ucLastErr() ?: 'write_failed';
                 $failed[] = $norm . ' (write): ' . $why;
+                $failedItems[] = ['name' => $norm, 'phase' => 'write', 'why' => $why];
                 continue;
             }
             $count++;
         }
         $zip->close();
         if (!empty($failed)) {
-            return ['ok' => false, 'files' => $count, 'failed' => $failed, 'error' => 'partial_extract_failed'];
+            return ['ok' => false, 'files' => $count, 'failed' => $failed, 'failed_items' => $failedItems, 'error' => 'partial_extract_failed'];
         }
         return ['ok' => true, 'files' => $count];
     }
@@ -738,12 +759,15 @@ if (!function_exists('uc_get_current_version')) {
         $extract = uc_extract_package($pkgPath);
         @unlink($pkgPath);
         if (!$extract['ok']) {
+            // 保存完整诊断报告（含目录权限与逐条失败原因），供后台独立诊断页查看
+            uc_save_extract_error_report(uc_build_extract_error_report($extract, 'remote_update', $backup['path']));
             uc_progress_write(['stage' => 'error', 'stage_label' => 'error', 'progress' => 95, 'total' => $dlTotalSize, 'downloaded' => $dlDownloaded, 'message' => '', 'error' => 'extract_failed: ' . ($extract['error'] ?? ''), 'done' => true]);
             return [
                 'success' => false,
                 'error'   => 'extract_failed: ' . ($extract['error'] ?? ''),
                 'failed'  => $extract['failed'] ?? [],
                 'backup'  => $backup['path'],
+                'has_error_report' => true,
             ];
         }
 
@@ -812,7 +836,158 @@ if (!function_exists('uc_get_current_version')) {
             'writable'      => $writable,
             'owner'         => $owner,
             'perms'         => $perms,
-            'hint'          => $writable ? '' : '目录不存在或 Web 用户（如 www-data）无写权限。可执行：chown -R www-data:www-data ' . rtrim(DATA_PATH, '/\\') . ' 后再试（或 chmod -R 775）。',
+            'hint'          => $writable ? '' : (uc_os_is_windows()
+                ? '目录不存在或 Web 进程（IIS 应用程序池标识 / Apache 服务账户）无写权限。可用 icacls 为 Web 用户授予修改权限，并检查文件只读属性或杀毒软件拦截。'
+                : '目录不存在或 Web 用户（如 www-data）无写权限。可执行：chown -R www-data:www-data ' . rtrim(DATA_PATH, '/\\') . ' 后再试（或 chmod -R 775）。'),
+        ];
+    }
+
+    /**
+     * 是否 Windows 环境（PHP_OS_FAMILY 需 PHP 7.2+，回退 PHP_OS 前缀判断）
+     */
+    function uc_os_is_windows(): bool {
+        return stripos(PHP_OS, 'WIN') === 0;
+    }
+
+    /**
+     * 当前 Web 进程运行用户（Linux 优先 posix 解析用户名，Windows 回退 get_current_user）
+     */
+    function uc_process_user(): string {
+        if (function_exists('posix_geteuid')) {
+            $uid = @posix_geteuid();
+            $pw  = @posix_getpwuid($uid);
+            if (is_array($pw) && !empty($pw['name'])) {
+                return $pw['name'] . ' (uid:' . (int)$uid . ')';
+            }
+        }
+        return (string)@get_current_user();
+    }
+
+    /** 解压失败诊断报告路径（最近一次失败覆盖保存，供独立诊断页读取） */
+    function uc_extract_error_report_path(): string {
+        return DATA_PATH . 'tmp' . DIRECTORY_SEPARATOR . 'update_extract_error.json';
+    }
+
+    function uc_save_extract_error_report(array $report): void {
+        $dir = DATA_PATH . 'tmp' . DIRECTORY_SEPARATOR;
+        if (!is_dir($dir)) { @mkdir($dir, 0755, true); }
+        @file_put_contents(uc_extract_error_report_path(), json_encode($report, JSON_UNESCAPED_UNICODE), LOCK_EX);
+    }
+
+    function uc_load_extract_error_report(): ?array {
+        $path = uc_extract_error_report_path();
+        if (!is_file($path)) {
+            return null;
+        }
+        $raw = @file_get_contents($path);
+        $j = ($raw !== false) ? json_decode($raw, true) : null;
+        return is_array($j) ? $j : null;
+    }
+
+    /**
+     * 构建解压失败完整诊断报告（供独立诊断页展示）
+     *
+     * 内容包括：失败概要、服务器环境（OS/PHP/Web 进程用户/磁盘空间）、
+     * 关键目录与失败条目所在目录的权限检查、逐条失败原因、按操作系统
+     * 给出的修复命令建议。Windows / Linux 均适用。
+     *
+     * @param array  $extract    uc_extract_package 的返回结果
+     * @param string $source     失败来源：remote_update | upload_install
+     * @param string $backupPath 更新前备份文件路径（如有）
+     */
+    function uc_build_extract_error_report(array $extract, string $source, string $backupPath = ''): array {
+        $root     = rtrim(APP_ROOT, '/\\');
+        $dataPath = rtrim(DATA_PATH, '/\\');
+        $win      = uc_os_is_windows();
+
+        // 逐条失败记录（上限 500 条，附所在目录权限快照，避免报告过大）
+        $items = [];
+        foreach ((array)($extract['failed_items'] ?? []) as $it) {
+            if (count($items) >= 500) {
+                break;
+            }
+            $name = (string)($it['name'] ?? '');
+            $dest = $root . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $name);
+            // 失败条目的诊断对象是其所在父目录
+            $dir  = dirname($dest);
+            $perms = '';
+            if (!$win && ($p = @fileperms($dir)) !== false) {
+                $perms = substr(sprintf('%o', $p), -4);
+            }
+            $items[] = [
+                'name'         => $name,
+                'phase'        => (string)($it['phase'] ?? 'write'),
+                'why'          => (string)($it['why'] ?? ''),
+                'dir'          => $dir,
+                'dir_exists'   => is_dir($dir),
+                'dir_writable' => is_dir($dir) && is_writable($dir),
+                'dir_perms'    => $perms,
+            ];
+        }
+
+        // 关键目录 + 失败条目所在目录（去重），输出可写性诊断
+        $dirs = [];
+        $seen = [];
+        $addDir = function (string $path, string $label) use (&$dirs, &$seen) {
+            $key = strtolower(str_replace('\\', '/', rtrim($path, '/\\')));
+            if (isset($seen[$key])) {
+                return;
+            }
+            $seen[$key] = true;
+            $dirs[] = uc_dir_writability_report($path, $label);
+        };
+        $addDir($root, 'root');
+        $addDir($root . DIRECTORY_SEPARATOR . 'app', 'app/');
+        $addDir($root . DIRECTORY_SEPARATOR . 'public', 'public/');
+        $addDir($dataPath, 'data/');
+        $addDir($dataPath . DIRECTORY_SEPARATOR . 'tmp', 'data/tmp/');
+        $addDir($dataPath . DIRECTORY_SEPARATOR . 'backups', 'data/backups/');
+        foreach ($items as $it) {
+            $addDir($it['dir'], 'failed_dir');
+        }
+
+        // 按操作系统给出可直接执行的修复命令（带真实路径）
+        $procUser = uc_process_user();
+        if ($win) {
+            $hints = [
+                'Windows 上解压失败最常见原因：目标文件被其他进程占用（IIS 应用程序池 / php-cgi / 杀毒软件实时防护）或无 NTFS 写权限。',
+                '若提示「拒绝访问 / Permission denied」：在安装根目录上为 Web 用户授予修改权限，例如命令行执行 icacls "' . $root . '" /grant "IIS_IUSRS:(OI)(CI)M" /T（Apache 请换成对应服务账户）。',
+                '若提示文件被占用：先停止站点对应的 IIS 应用程序池（或重启 php-cgi），必要时临时关闭杀毒软件实时防护，再重试更新。',
+                '若目标文件带只读属性：执行 attrib -R "' . $root . '\\*" /S /D 清除只读后重试。',
+                '当前 Web 进程用户：' . $procUser . '。修复后重新执行更新即可，更新前已自动备份（备份：' . ($backupPath !== '' ? basename($backupPath) : '无') . '）。',
+            ];
+        } else {
+            $hints = [
+                'Linux 上解压失败最常见原因：代码目录属主不是 Web 用户（如 www-data / nginx / nobody），Web 进程无写权限。',
+                '把安装根目录属主改为 Web 用户（以 www-data 为例）：sudo chown -R www-data:www-data "' . $root . '"，或放宽写权限：sudo chmod -R u+w "' . $root . '"。',
+                '若开启了 SELinux，可能还需：sudo chcon -R -t httpd_sys_rw_t "' . $root . '"（或 setenforce 0 临时验证）。',
+                '若磁盘空间不足（当前剩余见上方环境信息），先清理磁盘再重试。',
+                '当前 Web 进程用户：' . $procUser . '。修复后重新执行更新即可，更新前已自动备份（备份：' . ($backupPath !== '' ? basename($backupPath) : '无') . '）。',
+            ];
+        }
+
+        return [
+            'generated_at'  => time(),
+            'source'        => $source,
+            'error'         => 'extract_failed: ' . (string)($extract['error'] ?? ''),
+            'extract_error' => (string)($extract['error'] ?? ''),
+            'open_result'   => $extract['open_result'] ?? null,
+            'files_ok'      => (int)($extract['files'] ?? 0),
+            'failed_count'  => count((array)($extract['failed'] ?? [])),
+            'backup'        => $backupPath,
+            'env'           => [
+                'os'              => $win ? 'Windows' : 'Linux',
+                'os_detail'       => php_uname('s') . ' ' . php_uname('r') . ' ' . php_uname('m'),
+                'php_version'     => PHP_VERSION,
+                'sapi'            => PHP_SAPI,
+                'server_software' => (string)($_SERVER['SERVER_SOFTWARE'] ?? ''),
+                'process_user'    => $procUser,
+                'zip_archive'     => class_exists('ZipArchive') ? 'available' : 'not loaded',
+                'disk_free'       => (($f = @disk_free_space($root)) !== false) ? uc_format_bytes((int)$f) : 'unknown',
+            ],
+            'dirs'          => $dirs,
+            'failed_items'  => $items,
+            'hints'         => $hints,
         ];
     }
 
@@ -1039,11 +1214,14 @@ if (!function_exists('uc_get_current_version')) {
         $extract = uc_extract_package($zipPath);
         @unlink($zipPath); // 安装完成（或失败）后清理上传包
         if (!$extract['ok']) {
+            // 保存完整诊断报告（含目录权限与逐条失败原因），供后台独立诊断页查看
+            uc_save_extract_error_report(uc_build_extract_error_report($extract, 'upload_install', $backup['path']));
             return [
                 'success' => false,
                 'error'   => 'extract_failed: ' . ($extract['error'] ?? ''),
                 'failed'  => $extract['failed'] ?? [],
                 'backup'  => $backup['path'],
+                'has_error_report' => true,
             ];
         }
 

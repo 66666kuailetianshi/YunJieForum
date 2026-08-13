@@ -182,6 +182,8 @@ if ($action === 'install_upload') {
         exit;
     }
     try {
+        // 安装开始即写初始进度（覆盖可能残留的旧进度文件），供前端轮询展示
+        uc_progress_write(['stage' => 'preparing', 'stage_label' => 'preparing', 'progress' => 0, 'total' => 0, 'downloaded' => 0, 'message' => '', 'error' => null, 'done' => false]);
         $result = uc_perform_upload_update($zipPath);
     } catch (\Throwable $e) {
         // 安装过程抛出的 PHP 异常（如 ZipArchive / 文件系统错误）附现场信息返回

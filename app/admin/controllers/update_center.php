@@ -245,6 +245,332 @@ HTML;
     exit;
 }
 
+// 解压失败诊断页：独立页面展示最近一次「解压覆盖失败」的完整诊断（GET、仅超管）：
+// 失败概要 / 服务器环境 / 关键目录与失败条目所在目录的权限检查 / 逐条失败原因 / 按
+// 操作系统（Windows / Linux）给出的修复命令建议。数据来自失败时保存的报告文件。
+if (($_GET['action'] ?? '') === 'extract_error') {
+    header('Cache-Control: no-store, no-cache, must-revalidate');
+    header('Content-Type: text/html; charset=utf-8');
+
+    $errReport = uc_load_extract_error_report();
+    $errCopyBtnText = e(t('update_extract_err_copy', '复制诊断信息'));
+    $errCopiedText  = e(t('update_extract_err_copied', '已复制'));
+    $errBackText    = e(t('update_extract_err_back', '← 返回更新中心'));
+    $errBackUrl     = e(site_url('admin/update_center'));
+    $errPageTitle   = e(t('update_extract_err_title', '解压失败诊断'));
+
+    if ($errReport === null) {
+        $errEmptyText = e(t('update_extract_err_empty', '暂无解压失败记录。仅当最近一次系统更新解压失败时，本页才会显示详细诊断。'));
+        echo <<<HTML
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{$errPageTitle}</title>
+<style>
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Microsoft YaHei",sans-serif;background:#f5f6f8;margin:0;padding:24px;color:#222;}
+  .wrap{max-width:960px;margin:0 auto;}
+  .diag-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.75rem;margin-bottom:1rem;}
+  .diag-title{font-size:1.3rem;font-weight:700;margin:0;}
+  .diag-back{color:#3370ff;text-decoration:none;font-size:.9rem;}
+  .diag-banner{padding:.9rem 1.1rem;border-radius:8px;font-size:.95rem;line-height:1.6;background:#eef1f5;color:#555;border:1px solid #dde2e8;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="diag-head">
+    <h1 class="diag-title">{$errPageTitle}</h1>
+    <a class="diag-back" href="{$errBackUrl}">{$errBackText}</a>
+  </div>
+  <div class="diag-banner">{$errEmptyText}</div>
+</div>
+</body>
+</html>
+HTML;
+        exit;
+    }
+
+    $errIsWin = (string)($errReport['env']['os'] ?? '') === 'Windows';
+
+    // 关键目录 label → 可读名称（root/failed_dir 为报告内标记，其余直接展示）
+    $errDirLabel = function (string $label) {
+        if ($label === 'root') {
+            return t('update_extract_err_dir_root', '安装根目录');
+        }
+        if ($label === 'failed_dir') {
+            return t('update_extract_err_dir_failed', '失败条目所在目录');
+        }
+        return $label;
+    };
+
+    // 失败阶段 → 可读名称
+    $errPhaseLabel = function (string $phase) {
+        if ($phase === 'mkdir') {
+            return t('update_extract_err_phase_mkdir', '创建目录');
+        }
+        if ($phase === 'read') {
+            return t('update_extract_err_phase_read', '读取压缩包');
+        }
+        return t('update_extract_err_phase_write', '写入文件');
+    };
+
+    $errYes = t('update_extract_err_yes', '是');
+    $errNo  = t('update_extract_err_no', '否');
+
+    // ===== 概要 =====
+    $errSourceText = ($errReport['source'] ?? '') === 'upload_install'
+        ? t('update_extract_err_source_upload', '手动上传更新包安装')
+        : t('update_extract_err_source_remote', '在线更新（下载并解压）');
+    $errBannerHtml = '<strong>' . e((string)($errReport['error'] ?? '')) . '</strong><br>'
+        . e(t('update_extract_err_source', '失败来源')) . '：' . e($errSourceText)
+        . '　' . e(t('update_extract_err_generated', '生成时间')) . '：' . e(date('Y-m-d H:i:s', (int)($errReport['generated_at'] ?? 0))) . '<br>'
+        . e(t('update_extract_err_files_ok', '成功写入')) . '：' . (int)($errReport['files_ok'] ?? 0) . ' '
+        . e(t('update_extract_err_files_unit', '个文件')) . '　' . e(t('update_extract_err_failed_total', '失败条目')) . '：' . (int)($errReport['failed_count'] ?? 0);
+    if (!empty($errReport['backup'])) {
+        $errBannerHtml .= '<br>' . e(t('update_backup_kept', '已保留备份')) . '：' . e(basename((string)$errReport['backup']));
+    }
+    if (($errReport['extract_error'] ?? '') === 'package_open_failed' && $errReport['open_result'] !== null) {
+        $errBannerHtml .= '<br>ZipArchive open error: ' . e((string)$errReport['open_result']);
+    }
+
+    // ===== 环境信息表 =====
+    $errEnvHtml = '';
+    foreach ((array)($errReport['env'] ?? []) as $ek => $ev) {
+        $errEnvHtml .= '<tr><td class="diag-k">' . e((string)$ek) . '</td><td class="diag-v">' . e((string)$ev) . '</td></tr>';
+    }
+
+    // ===== 目录权限表 =====
+    $errDirsHtml = '';
+    foreach ((array)($errReport['dirs'] ?? []) as $d) {
+        $writable = !empty($d['writable']);
+        $owner = $d['owner'] ?? '';
+        $ownerText = ($owner === false || $owner === '') ? '—' : (string)$owner;
+        if ($errIsWin && is_numeric($ownerText)) {
+            $ownerText = '—（NTFS ACL）'; // Windows 上 fileowner 返回的 UID 无意义
+        }
+        $permsText = ($d['perms'] ?? '') !== '' ? (string)$d['perms'] : ($errIsWin ? '—（NTFS ACL）' : '—');
+        $errDirsHtml .= '<tr>'
+            . '<td class="diag-k">' . e($errDirLabel((string)($d['label'] ?? ''))) . '<br><small>' . e((string)($d['path'] ?? '')) . '</small></td>'
+            . '<td>' . (!empty($d['exists']) ? $errYes : '<span class="err-bad">' . $errNo . '</span>') . '</td>'
+            . '<td>' . ($writable ? '<span class="err-ok">' . $errYes . '</span>' : '<span class="err-bad">' . $errNo . '</span>') . '</td>'
+            . '<td>' . e($permsText) . '</td>'
+            . '<td>' . e($ownerText) . '</td>'
+            . '<td>' . e((string)($d['hint'] ?? '')) . '</td>'
+            . '</tr>';
+    }
+
+    // ===== 失败文件表（页面上限 200 行，全量在复制文本中） =====
+    $errItems = (array)($errReport['failed_items'] ?? []);
+    $errShown = min(count($errItems), 200);
+    $errFilesHtml = '';
+    for ($ei = 0; $ei < $errShown; $ei++) {
+        $it = $errItems[$ei];
+        $dirCell = e((string)($it['dir'] ?? ''));
+        if (!empty($it['dir_writable'])) {
+            $dirCell .= '<br><small class="err-ok">' . e($errYes) . '</small>';
+        } else {
+            $dirCell .= '<br><small class="err-bad">' . e($errNo);
+            if (($it['dir_perms'] ?? '') !== '') {
+                $dirCell .= '（' . e((string)$it['dir_perms']) . '）';
+            }
+            $dirCell .= '</small>';
+        }
+        $errFilesHtml .= '<tr>'
+            . '<td class="diag-k">' . e((string)($it['name'] ?? '')) . '</td>'
+            . '<td>' . e($errPhaseLabel((string)($it['phase'] ?? 'write'))) . '</td>'
+            . '<td class="diag-v">' . e((string)($it['why'] ?? '')) . '</td>'
+            . '<td class="diag-v">' . $dirCell . '</td>'
+            . '</tr>';
+    }
+    $errFilesMore = count($errItems) > $errShown
+        ? '<p class="diag-muted">' . e(t('update_extract_err_files_more', '共 {n} 个失败条目，此处仅显示前 {shown} 个。', ['n' => count($errItems), 'shown' => $errShown])) . '</p>'
+        : '';
+    $errFilesEmpty = count($errItems) === 0
+        ? '<p class="diag-muted">' . e(t('update_extract_err_no_items', '无逐条失败记录（可能是压缩包打开失败等早期错误，见上方概要）。')) . '</p>'
+        : '';
+
+    // ===== 修复建议 =====
+    $errHintsHtml = '';
+    foreach ((array)($errReport['hints'] ?? []) as $h) {
+        $errHintsHtml .= '<li>' . e((string)$h) . '</li>';
+    }
+
+    // ===== 可复制的纯文本诊断（含全部失败条目） =====
+    $errTextLines = [
+        'error: ' . (string)($errReport['error'] ?? ''),
+        'source: ' . $errSourceText,
+        'generated_at: ' . date('Y-m-d H:i:s', (int)($errReport['generated_at'] ?? 0)),
+        'files_ok: ' . (int)($errReport['files_ok'] ?? 0),
+        'failed_count: ' . (int)($errReport['failed_count'] ?? 0),
+        'backup: ' . (string)($errReport['backup'] ?? ''),
+        'env:',
+    ];
+    foreach ((array)($errReport['env'] ?? []) as $ek => $ev) {
+        $errTextLines[] = '  ' . $ek . ': ' . $ev;
+    }
+    $errTextLines[] = 'dirs:';
+    foreach ((array)($errReport['dirs'] ?? []) as $d) {
+        $errTextLines[] = '  - ' . ($d['label'] ?? '') . ' | path: ' . ($d['path'] ?? '')
+            . ' | exists: ' . (!empty($d['exists']) ? 'yes' : 'no')
+            . ' | writable: ' . (!empty($d['writable']) ? 'yes' : 'no')
+            . ' | perms: ' . (($d['perms'] ?? '') !== '' ? $d['perms'] : '-')
+            . ' | owner: ' . (($d['owner'] === false || ($d['owner'] ?? '') === '') ? '-' : (string)$d['owner']);
+    }
+    $errTextLines[] = 'failed_items (' . count($errItems) . '):';
+    foreach ($errItems as $it) {
+        $errTextLines[] = '  - [' . ($it['phase'] ?? '') . '] ' . ($it['name'] ?? '')
+            . ' | why: ' . ($it['why'] ?? '')
+            . ' | dir: ' . ($it['dir'] ?? '')
+            . ' | dir_writable: ' . (!empty($it['dir_writable']) ? 'yes' : 'no');
+    }
+    $errTextLines[] = 'hints:';
+    foreach ((array)($errReport['hints'] ?? []) as $h) {
+        $errTextLines[] = '  - ' . $h;
+    }
+    $errRawText    = implode("\n", $errTextLines);
+    $errRawTextEsc = e($errRawText);
+
+    // 页面文案
+    $errSummaryTitle = e(t('update_extract_err_summary', '失败概要'));
+    $errEnvTitle     = e(t('update_extract_err_env_title', '服务器环境'));
+    $errDirsTitle    = e(t('update_extract_err_dirs_title', '目录权限检查'));
+    $errFilesTitle   = e(t('update_extract_err_files_title', '失败文件清单'));
+    $errHintsTitle   = e(t('update_extract_err_hints_title', '修复建议'));
+    $errNote         = e(t('update_extract_err_note', '本页数据来自最近一次解压失败时保存的诊断记录（data/tmp/update_extract_error.json）。修复问题后重新执行更新即可；新的失败会覆盖旧记录。'));
+    $errColDir       = e(t('update_extract_err_col_dir', '目录'));
+    $errColExists    = e(t('update_extract_err_col_exists', '存在'));
+    $errColWritable  = e(t('update_extract_err_col_writable', '可写'));
+    $errColPerms     = e(t('update_extract_err_col_perms', '权限'));
+    $errColOwner     = e(t('update_extract_err_col_owner', '属主'));
+    $errColHint      = e(t('update_extract_err_col_hint', '说明'));
+    $errColFile      = e(t('update_extract_err_col_file', '文件'));
+    $errColPhase     = e(t('update_extract_err_col_phase', '阶段'));
+    $errColError     = e(t('update_extract_err_col_error', '错误信息'));
+    $errColDirPerm   = e(t('update_extract_err_col_dirperm', '所在目录（可写）'));
+
+    echo <<<HTML
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{$errPageTitle}</title>
+<style>
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Microsoft YaHei",sans-serif;background:#f5f6f8;margin:0;padding:24px;color:#222;}
+  .wrap{max-width:1080px;margin:0 auto;}
+  .diag-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.75rem;margin-bottom:1rem;}
+  .diag-title{font-size:1.3rem;font-weight:700;margin:0;}
+  .diag-back{color:#3370ff;text-decoration:none;font-size:.9rem;}
+  .diag-copy{background:#3370ff;color:#fff;border:0;border-radius:6px;padding:.5rem .9rem;font-size:.85rem;cursor:pointer;}
+  .diag-copy:disabled{opacity:.6;cursor:default;}
+  .diag-banner{padding:.9rem 1.1rem;border-radius:8px;font-size:.92rem;line-height:1.7;word-break:break-all;margin-bottom:1rem;background:#fdeeee;color:#b3251c;border:1px solid #f3c0bc;}
+  .card{background:#fff;border:1px solid #e3e5e8;border-radius:10px;padding:1rem 1.25rem;margin-bottom:1rem;}
+  .card h2{margin:0 0 .75rem;font-size:1.05rem;}
+  .diag-table{width:100%;border-collapse:collapse;font-size:.85rem;}
+  .diag-table th{text-align:left;padding:.4rem .6rem;border-bottom:2px solid #e3e5e8;color:#555;font-size:.8rem;white-space:nowrap;}
+  .diag-table td{padding:.35rem .6rem;border-bottom:1px solid #f0f1f3;vertical-align:top;}
+  .diag-k{color:#333;font-family:Consolas,Menlo,monospace;word-break:break-all;}
+  .diag-v{word-break:break-all;}
+  .err-ok{color:#0a6b2f;font-weight:600;}
+  .err-bad{color:#b3251c;font-weight:600;}
+  .diag-muted{color:#888;font-size:.82rem;margin:.5rem 0 0;}
+  .diag-note{color:#999;font-size:.8rem;margin-top:.5rem;}
+  .diag-hidden{position:absolute;left:-9999px;top:0;}
+  .err-hints{margin:0;padding-left:1.25rem;font-size:.88rem;line-height:1.9;}
+  .scroll-box{max-height:420px;overflow:auto;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="diag-head">
+    <h1 class="diag-title">{$errPageTitle}</h1>
+    <div>
+      <button type="button" class="diag-copy" id="errCopyBtn">{$errCopyBtnText}</button>
+      <a class="diag-back" href="{$errBackUrl}" style="margin-left:.75rem;">{$errBackText}</a>
+    </div>
+  </div>
+
+  <div class="diag-banner">{$errBannerHtml}</div>
+
+  <div class="card">
+    <h2>{$errEnvTitle}</h2>
+    <table class="diag-table">{$errEnvHtml}</table>
+  </div>
+
+  <div class="card">
+    <h2>{$errDirsTitle}</h2>
+    <div class="scroll-box">
+    <table class="diag-table">
+      <thead><tr>
+        <th>{$errColDir}</th><th>{$errColExists}</th><th>{$errColWritable}</th><th>{$errColPerms}</th><th>{$errColOwner}</th><th>{$errColHint}</th>
+      </tr></thead>
+      <tbody>{$errDirsHtml}</tbody>
+    </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>{$errFilesTitle}</h2>
+    {$errFilesEmpty}
+    <div class="scroll-box">
+    <table class="diag-table">
+      <thead><tr>
+        <th>{$errColFile}</th><th>{$errColPhase}</th><th>{$errColError}</th><th>{$errColDirPerm}</th>
+      </tr></thead>
+      <tbody>{$errFilesHtml}</tbody>
+    </table>
+    </div>
+    {$errFilesMore}
+  </div>
+
+  <div class="card">
+    <h2>{$errHintsTitle}</h2>
+    <ul class="err-hints">{$errHintsHtml}</ul>
+    <p class="diag-note">{$errNote}</p>
+  </div>
+
+  <pre class="diag-hidden" id="errRaw">{$errRawTextEsc}</pre>
+</div>
+<script>
+(function () {
+  var btn = document.getElementById('errCopyBtn');
+  var raw = document.getElementById('errRaw');
+  btn.addEventListener('click', function () {
+    var text = raw.textContent;
+    var done = function () {
+      btn.textContent = '{$errCopiedText}';
+      btn.disabled = true;
+      setTimeout(function () {
+        btn.textContent = '{$errCopyBtnText}';
+        btn.disabled = false;
+      }, 2000);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done).catch(function () { errFallbackCopy(text); done(); });
+    } else {
+      errFallbackCopy(text);
+      done();
+    }
+  });
+  function errFallbackCopy(text) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); } catch (e) {}
+    document.body.removeChild(ta);
+  }
+})();
+</script>
+</body>
+</html>
+HTML;
+    exit;
+}
+
 $errors   = [];
 $autoResult = null;
 
@@ -365,6 +691,18 @@ require_once dirname(__DIR__) . '/layout/header.php';
     <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;">
         <input type="file" id="uploadPkgInput" accept=".zip" class="form-control" style="max-width:340px;">
         <button type="button" class="btn btn-secondary" id="uploadPkgBtn"><?php echo e(t('update_upload_parse', '上传并解析')); ?></button>
+    </div>
+    <!-- 上传/安装进度：上传阶段由 XHR upload progress 驱动（百分比/已传字节/实时速度），
+         安装阶段轮询后端进度文件（备份 → 解压覆盖 → 完成） -->
+    <div id="uploadPkgProgress" class="update-progress-wrap" style="display:none;margin-top:.75rem;">
+        <div class="update-progress-header">
+            <span class="update-progress-stage" id="uploadPkgProgStage"></span>
+            <span class="update-progress-pct" id="uploadPkgProgPct">0%</span>
+        </div>
+        <div class="update-progress-bar-outer">
+            <div class="update-progress-bar-inner" id="uploadPkgProgBar" style="width:0%"></div>
+        </div>
+        <div class="update-progress-detail" id="uploadPkgProgDetail"></div>
     </div>
     <div id="uploadPkgInfo" style="display:none;margin-top:.75rem;padding:.75rem 1rem;background:var(--bg-subtle,#f6f6f6);border-radius:8px;"></div>
     <div id="uploadInstallRow" style="display:none;margin-top:.75rem;">
@@ -724,8 +1062,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
                     else if (res.error === 'hash_mismatch') msg = '<?php echo e(t('update_hash_fail', '更新包校验失败（哈希不匹配），已自动取消以保障安全。')); ?>';
                     else if (res.error === 'package_version_mismatch') msg = '<?php echo e(t('update_pkg_version_mismatch', '更新包版本名不副实：包内版本 {pkg} ≠ 声明版本 {declared}，已取消更新。请重新制作更新包（config.php 的 APP_VERSION 与 version.json 保持一致）。')); ?>'.replace('{pkg}', escapeHtml(res.package_version || '')).replace('{declared}', escapeHtml(res.declared || ''));
                     else if (res.error && res.error.indexOf('extract_failed') === 0) {
-                        msg = '<?php echo e(t('update_extract_failed', '更新文件解压失败')); ?>' + (res.failed && res.failed.length ? '（' + res.failed.length + ' 个）' : '') + '，更新不完整，请检查文件权限或从备份恢复。';
-                        if (res.failed && res.failed.length) msg += '<br><small style="color:var(--text-muted);word-break:break-word">' + escapeHtml(res.failed.slice(0, 8).join('<br>')) + '</small>';
+                        msg = extractFailedMsg(res);
                     }
                     else if (res.error === 'backup_failed') msg = '<?php echo e(t('update_backup_err', '更新前备份失败，已取消更新以防数据丢失。')); ?>';
                     else if (res.error && res.error.indexOf('check_failed') === 0) msg = '<?php echo e(t('update_check_failed', '检查更新失败（网络错误或更新源不可用）：')); ?>' + escapeHtml((res.error || '').replace('check_failed: ', ''));
@@ -922,6 +1259,64 @@ require_once dirname(__DIR__) . '/layout/header.php';
     var uploadResult  = document.getElementById('uploadResult');
     var lastUpload    = null; // { version, current, relation, files, size_text }
 
+    // ===== 上传/安装进度面板 =====
+    // 上传阶段：XHR upload progress 实时百分比/已传字节/速度（fetch 不支持上传进度）；
+    // 安装阶段：轮询 action=progress（后端 uc_perform_upload_update 写进度文件）。
+    var upkgProgWrap   = document.getElementById('uploadPkgProgress');
+    var upkgProgStage  = document.getElementById('uploadPkgProgStage');
+    var upkgProgPct    = document.getElementById('uploadPkgProgPct');
+    var upkgProgBar    = document.getElementById('uploadPkgProgBar');
+    var upkgProgDetail = document.getElementById('uploadPkgProgDetail');
+    var upkgProgTimer  = null;
+    var upkgProgTxt = {
+        uploading:  '<?php echo e(t('update_upload_prog_uploading', '正在上传…')); ?>',
+        parsing:    '<?php echo e(t('update_upload_prog_parsing', '上传完成，服务器解析中…')); ?>',
+        speed:      '<?php echo e(t('update_upload_prog_speed', '速度')); ?>',
+        installing: '<?php echo e(t('update_upload_installing', '正在安装…')); ?>'
+    };
+    // 安装阶段后端 stage → 文案（与「立即更新」进度条共用同一套词）
+    var upkgStageMap = {
+        preparing:     '<?php echo e(t('update_progress_preparing', '准备中…')); ?>',
+        backing_up:    '<?php echo e(t('update_progress_backing_up', '备份当前代码…')); ?>',
+        verifying_pkg: '<?php echo e(t('update_progress_verifying_pkg', '校验包内版本…')); ?>',
+        extracting:    '<?php echo e(t('update_progress_extracting', '解压并覆盖文件…')); ?>',
+        done:          '<?php echo e(t('update_progress_done', '更新完成')); ?>',
+        error:         '<?php echo e(t('update_progress_error', '出错')); ?>'
+    };
+    function upkgProgShow(stageText) {
+        upkgProgWrap.style.display = '';
+        upkgProgStage.textContent = stageText;
+        upkgProgPct.textContent = '0%';
+        upkgProgBar.style.width = '0%';
+        upkgProgDetail.textContent = '';
+    }
+    function upkgProgSet(stageText, pct, detail) {
+        upkgProgStage.textContent = stageText;
+        upkgProgPct.textContent = pct + '%';
+        upkgProgBar.style.width = pct + '%';
+        upkgProgDetail.textContent = detail || '';
+    }
+    function upkgProgHide() {
+        upkgProgWrap.style.display = 'none';
+        if (upkgProgTimer) { clearInterval(upkgProgTimer); upkgProgTimer = null; }
+    }
+    function upkgInstallPollStart() {
+        upkgProgShow(upkgProgTxt.installing);
+        var poll = function () {
+            fetch('/index.php?route=admin/api/update_ajax&action=progress')
+                .then(function (r) { return r.json(); })
+                .then(function (p) {
+                    if (!p || !p.stage) return;
+                    var pct = Math.min(100, Math.max(0, p.progress || 0));
+                    upkgProgSet(upkgStageMap[p.stage] || p.stage, pct, '');
+                    if (p.done && upkgProgTimer) { clearInterval(upkgProgTimer); upkgProgTimer = null; }
+                })
+                .catch(function () {});
+        };
+        poll();
+        upkgProgTimer = setInterval(poll, 800);
+    }
+
     // 渲染后端返回的诊断信息（details）为可折叠块，便于排查上传/安装失败根因
     // maxLines 控制最多展示的字段行数（检查失败等场景可放宽，完整内容在独立诊断页）
     function diagBlock(d, maxLines) {
@@ -946,6 +1341,20 @@ require_once dirname(__DIR__) . '/layout/header.php';
             + '</details>';
     }
 
+    // 解压失败的详细错误输出：前 8 条失败条目内联展示 + 独立诊断页入口
+    // （诊断页含逐条失败原因、目录权限与修复建议，Windows/Linux 适配）
+    function extractFailedMsg(res) {
+        var msg = '<?php echo e(t('update_extract_failed', '更新文件解压失败')); ?>'
+            + (res.failed && res.failed.length ? '（' + res.failed.length + ' <?php echo e(t('update_extract_err_items_unit', '个')); ?>）' : '')
+            + '<?php echo e(t('update_extract_err_inline_hint', '，更新不完整，请检查文件权限或从备份恢复。')); ?>';
+        if (res.failed && res.failed.length) {
+            msg += '<br><small style="color:var(--text-muted);word-break:break-word">'
+                + res.failed.slice(0, 8).map(escapeHtml).join('<br>') + '</small>';
+        }
+        msg += '<br><a href="<?php echo e(site_url('admin/update_center', ['action' => 'extract_error'])); ?>" target="_blank" rel="noopener" class="btn btn-secondary btn-sm" style="margin-top:.5rem;display:inline-block;"><?php echo e(t('update_extract_view_detail', '在新页面查看解压失败详情（含目录权限）')); ?></a>';
+        return msg;
+    }
+
     function showUploadResult(html, type) {
         uploadResult.style.display = '';
         uploadResult.className = 'update-status mt-2' + (type ? ' is-' + type : '');
@@ -963,17 +1372,21 @@ require_once dirname(__DIR__) . '/layout/header.php';
             return;
         }
         uploadBtn.disabled = true;
-        uploadBtn.innerHTML = '<?php echo e(t('update_upload_parsing', '解析中…')); ?>';
+        uploadBtn.innerHTML = upkgProgTxt.uploading;
         uploadInfo.style.display = 'none';
         installRow.style.display = 'none';
-        var form = new FormData();
-        form.append('action', 'upload_inspect');
-        form.append('csrf_token', historyCsrf);
-        form.append('file', file);
-        fetch('/index.php?route=admin/api/update_ajax', { method: 'POST', body: form })
-            .then(function (r) { return r.json(); })
-            .then(function (res) {
-                if (!res.success) {
+        uploadResult.style.display = 'none';
+        upkgProgShow(upkgProgTxt.uploading);
+
+        var restoreUploadBtn = function () {
+            uploadBtn.disabled = false;
+            uploadBtn.innerHTML = '<?php echo e(t('update_upload_parse', '上传并解析')); ?>';
+        };
+
+        // 解析结果渲染（错误映射与原逻辑一致）
+        var handleInspectResult = function (res) {
+            upkgProgHide();
+            if (!res.success) {
                     var errMsg = res.error === 'no_file' || res.error === 'upload_err_no_file'
                         ? '<?php echo e(t('update_upload_err_no_file', '未收到上传文件。')); ?>'
                         : res.error === 'not_zip'
@@ -995,6 +1408,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
                                                         : ('<?php echo e(t('update_upload_parse_failed', '解析失败：')); ?>' + escapeHtml(res.error || ''));
                     if (res.details) errMsg += diagBlock(res.details);
                     showUploadResult(errMsg, 'error');
+                    restoreUploadBtn();
                     return;
                 }
                 lastUpload = res;
@@ -1013,12 +1427,53 @@ require_once dirname(__DIR__) . '/layout/header.php';
                 uploadInfo.style.display = '';
                 installRow.style.display = '';
                 uploadResult.style.display = 'none';
-            })
-            .catch(function () { showUploadResult('<?php echo e(t('update_upload_parse_network_fail', '网络错误，解析失败。')); ?>', 'error'); })
-            .finally(function () {
-                uploadBtn.disabled = false;
-                uploadBtn.innerHTML = '<?php echo e(t('update_upload_parse', '上传并解析')); ?>';
+                restoreUploadBtn();
+        };
+
+        // 改用 XMLHttpRequest：fetch 不支持上传进度，XHR 可获得 upload progress 事件
+        var xhr = new XMLHttpRequest();
+        var upkgLastLoaded = 0, upkgLastTs = Date.now();
+        if (xhr.upload) {
+            xhr.upload.addEventListener('progress', function (ev) {
+                if (!ev.lengthComputable || ev.total <= 0) return;
+                var pct = Math.min(99, Math.floor(ev.loaded / ev.total * 100));
+                var detail = fmtSize(ev.loaded) + ' / ' + fmtSize(ev.total);
+                var now = Date.now();
+                if (now - upkgLastTs >= 500 && ev.loaded > upkgLastLoaded) {
+                    var bps = (ev.loaded - upkgLastLoaded) / ((now - upkgLastTs) / 1000);
+                    detail += ' · ' + upkgProgTxt.speed + ' ' + fmtSize(Math.round(bps)) + '/s';
+                    upkgLastLoaded = ev.loaded;
+                    upkgLastTs = now;
+                }
+                upkgProgSet(upkgProgTxt.uploading, pct, detail);
             });
+            // 上传完成 → 等待服务端保存与解析（进度停 100%）
+            xhr.upload.addEventListener('load', function () {
+                upkgProgSet(upkgProgTxt.parsing, 100, '');
+            });
+        }
+        xhr.open('POST', '/index.php?route=admin/api/update_ajax');
+        xhr.onload = function () {
+            var res = null;
+            try { res = JSON.parse(xhr.responseText); } catch (err) { res = null; }
+            if (!res || typeof res !== 'object') {
+                upkgProgHide();
+                showUploadResult('<?php echo e(t('update_upload_parse_network_fail', '网络错误，解析失败。')); ?>', 'error');
+                restoreUploadBtn();
+                return;
+            }
+            handleInspectResult(res);
+        };
+        xhr.onerror = function () {
+            upkgProgHide();
+            showUploadResult('<?php echo e(t('update_upload_parse_network_fail', '网络错误，解析失败。')); ?>', 'error');
+            restoreUploadBtn();
+        };
+        var form = new FormData();
+        form.append('action', 'upload_inspect');
+        form.append('csrf_token', historyCsrf);
+        form.append('file', file);
+        xhr.send(form);
     });
 
     installBtn.addEventListener('click', function () {
@@ -1037,6 +1492,9 @@ require_once dirname(__DIR__) . '/layout/header.php';
         installBtn.disabled = true;
         installBtn.innerHTML = '<?php echo e(t('update_upload_installing', '正在安装…')); ?>';
         uploadBtn.disabled = true;
+        uploadResult.style.display = 'none';
+        // 启动安装进度轮询（后端 uc_perform_upload_update 会写进度文件：备份 → 解压 → 完成）
+        upkgInstallPollStart();
         var form = new FormData();
         form.append('action', 'install_upload');
         form.append('csrf_token', historyCsrf);
@@ -1044,6 +1502,10 @@ require_once dirname(__DIR__) . '/layout/header.php';
             .then(function (r) { return r.json(); })
             .then(function (res) {
                 if (res.success) {
+                    // 安装成功：进度条定格 100% 后收起
+                    upkgProgSet(upkgStageMap.done, 100, '');
+                    if (upkgProgTimer) { clearInterval(upkgProgTimer); upkgProgTimer = null; }
+                    setTimeout(upkgProgHide, 900);
                     showUploadResult('<?php echo e(t('update_upload_success', '更新包安装成功：')); ?>' + escapeHtml(res.from) + ' → ' + escapeHtml(res.to)
                         + '<br><?php echo e(t('update_backup_at', '备份文件')); ?>：' + escapeHtml(res.backup ? res.backup.split(/[\\/]/).pop() : '')
                         + '（' + (res.files || 0) + ' <?php echo e(t('update_files', '个文件')); ?>）', 'ok');
@@ -1054,13 +1516,13 @@ require_once dirname(__DIR__) . '/layout/header.php';
                     uploadInput.value = '';
                     refreshBackupHistory();
                 } else {
+                    upkgProgHide();
                     var msg = '<?php echo e(t('update_upload_failed', '更新包安装失败')); ?>';
                     if (res.error === 'bad_package') msg = '<?php echo e(t('update_upload_bad_pkg', '上传的压缩包不是有效的云界论坛更新包（缺少 app/includes/config.php 或无法识别版本）。')); ?>';
                     else if (res.error === 'pkg_not_found') msg = '<?php echo e(t('update_upload_pkg_lost', '上传的更新包已不存在，请重新上传。')); ?>';
                     else if (res.error && res.error.indexOf('backup_failed') === 0) msg = '<?php echo e(t('update_backup_err', '更新前备份失败，已取消更新以防数据丢失。')); ?>';
                     else if (res.error && res.error.indexOf('extract_failed') === 0) {
-                        msg = '<?php echo e(t('update_extract_failed', '更新文件解压失败')); ?>' + (res.failed && res.failed.length ? '（' + res.failed.length + ' 个）' : '') + '，更新不完整，请检查文件权限或从备份恢复。';
-                        if (res.failed && res.failed.length) msg += '<br><small style="color:var(--text-muted);word-break:break-word">' + escapeHtml(res.failed.slice(0, 8).join('<br>')) + '</small>';
+                        msg = extractFailedMsg(res);
                     }
                     else msg += '：' + escapeHtml(res.error || '');
                     if (res.backup) msg += '<br><?php echo e(t('update_backup_kept', '已保留备份')); ?>：' + escapeHtml(res.backup.split(/[\\/]/).pop());
@@ -1068,7 +1530,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
                     showUploadResult(msg, 'error');
                 }
             })
-            .catch(function () { showUploadResult('<?php echo e(t('update_upload_network_fail', '网络错误，安装失败。')); ?>', 'error'); })
+            .catch(function () { upkgProgHide(); showUploadResult('<?php echo e(t('update_upload_network_fail', '网络错误，安装失败。')); ?>', 'error'); })
             .finally(function () {
                 installBtn.disabled = false;
                 installBtn.innerHTML = '<?php echo e(t('update_upload_install', '安装此更新包')); ?>';
