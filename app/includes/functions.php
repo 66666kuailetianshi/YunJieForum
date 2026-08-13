@@ -263,6 +263,15 @@ function try_cookie_login(): void {
         $userId = $stmt->fetchColumn();
         if ($userId) {
             $_SESSION['user_id'] = (int)$userId;
+            // 以 remember-me 自动登录时刻作为在线时长累计起点，并记录最后访问/活动/IP，
+            // 避免账户信息卡片出现「最后访问：从未」「在线时间：不到 1 分钟」。
+            $_SESSION['last_active_sync'] = time();
+            try {
+                $db->prepare("UPDATE users SET last_visit = CURRENT_TIMESTAMP, last_active = CURRENT_TIMESTAMP, last_ip = :ip WHERE id = :id")
+                    ->execute([':ip' => client_ip(), ':id' => (int)$userId]);
+            } catch (Exception $e) {
+                // 记录失败不影响本次自动登录
+            }
             // 命中 remember token 后轮换 token：即使旧 token 泄漏也即刻失效。
             // 轮换失败不阻断本次自动登录，仅记录日志。
             try {
@@ -1544,14 +1553,15 @@ function format_points_type(string $type): string {
 }
 
 /**
- * 更新用户最后活跃时间（节流：5 分钟内只写一次，容错）
+ * 更新用户最后活跃时间（节流：1 分钟内只写一次，容错）
  */
 function update_last_active(): void {
     if (!is_logged_in()) return;
-    // 节流：5 分钟内只写库一次，降低 SQLite 写压力
+    // 节流：1 分钟内只写库一次，在准确度和 SQLite 写压力之间取平衡。
+    // 改为 1 分钟可使「在线时间」更接近真实在线时长；同时仍避免每个请求都写库。
     $lastSync = $_SESSION['last_active_sync'] ?? 0;
     $now = time();
-    if ($now - $lastSync < 300) {
+    if ($now - $lastSync < 60) {
         return;
     }
     // 累计在线时长：取本次同步与上次同步之间的真实间隔（封顶 1 小时，避免异常跳变）
@@ -1559,7 +1569,7 @@ function update_last_active(): void {
     $_SESSION['last_active_sync'] = $now;
     try {
         $db = get_db();
-        $stmt = $db->prepare("UPDATE users SET last_active = CURRENT_TIMESTAMP, last_ip = :ip, online_time = COALESCE(online_time, 0) + :inc WHERE id = :id");
+        $stmt = $db->prepare("UPDATE users SET last_active = CURRENT_TIMESTAMP, last_ip = :ip, online_time = COALESCE(online_time, 0) + :inc, last_visit = COALESCE(last_visit, CURRENT_TIMESTAMP) WHERE id = :id");
         $stmt->execute([':id' => $_SESSION['user_id'], ':ip' => client_ip(), ':inc' => $elapsed]);
     } catch (Exception $e) {
         // 数据库异常不影响页面渲染
@@ -1605,7 +1615,7 @@ function format_duration(int $seconds): string {
 function realtime_cache(string $key, int $ttl, callable $callback) {
     $cacheDir = APP_ROOT . 'data/cache';
     if (!is_dir($cacheDir)) {
-        @mkdir($cacheDir, 0777, true);
+        @mkdir($cacheDir, 0755, true);
     }
     $cacheFile = $cacheDir . '/rt_' . md5($key) . '.json';
 
@@ -2004,6 +2014,304 @@ function is_favorited(int $postId): bool {
     $stmt = $db->prepare("SELECT COUNT(*) FROM favorites WHERE user_id = :uid AND post_id = :pid");
     $stmt->execute([':uid' => $_SESSION['user_id'], ':pid' => $postId]);
     return (int)$stmt->fetchColumn() > 0;
+}
+
+// ==================== 功能增强：板块订阅 / 标签 / 阅读权限 / 编辑历史 / 投票 / 悬赏 ====================
+
+/**
+ * 扣除用户积分（add_user_points 仅支持增加，悬赏等消耗场景专用）
+ * 余额不足时返回 false 且不修改数据。
+ */
+function spend_user_points(int $userId, int $points, string $type, ?string $sourceType = null, ?int $sourceId = null, ?string $description = null): bool {
+    if ($points <= 0) return false;
+    try {
+        $db = get_db();
+        $db->beginTransaction();
+        $stmt = $db->prepare("SELECT points FROM users WHERE id = :id");
+        $stmt->execute([':id' => $userId]);
+        $balance = (int)$stmt->fetchColumn();
+        if ($balance < $points) {
+            $db->rollBack();
+            return false;
+        }
+        $stmt = $db->prepare("UPDATE users SET points = points - :points WHERE id = :id");
+        $stmt->execute([':points' => $points, ':id' => $userId]);
+        $stmt = $db->prepare("INSERT INTO user_points_log (user_id, points, coins, type, source_type, source_id, description) VALUES (:user_id, :points, 0, :type, :source_type, :source_id, :description)");
+        $stmt->execute([
+            ':user_id'     => $userId,
+            ':points'      => -$points,
+            ':type'        => $type,
+            ':source_type' => $sourceType,
+            ':source_id'   => $sourceId,
+            ':description' => $description ?? '',
+        ]);
+        $db->commit();
+        unset($_SESSION['user']);
+        return true;
+    } catch (Exception $e) {
+        try { $db->rollBack(); } catch (Exception $ignored) {}
+        error_log(t('func_spend_points_fail', '扣除积分失败：') . $e->getMessage());
+        return false;
+    }
+}
+
+/** 当前用户是否已订阅某版块 */
+function is_subscribed(int $forumId): bool {
+    if (!is_logged_in()) return false;
+    $db = get_db();
+    $stmt = $db->prepare("SELECT COUNT(*) FROM forum_subscriptions WHERE user_id = :uid AND forum_id = :fid");
+    $stmt->execute([':uid' => $_SESSION['user_id'], ':fid' => $forumId]);
+    return (int)$stmt->fetchColumn() > 0;
+}
+
+/** 订阅版块（重复订阅幂等） */
+function subscribe_forum(int $forumId): bool {
+    if (!is_logged_in()) return false;
+    $db = get_db();
+    $stmt = sql_prepare($db, "INSERT OR IGNORE INTO forum_subscriptions (user_id, forum_id) VALUES (:uid, :fid)");
+    $stmt->execute([':uid' => $_SESSION['user_id'], ':fid' => $forumId]);
+    return $stmt->rowCount() > 0;
+}
+
+/** 取消订阅 */
+function unsubscribe_forum(int $forumId): bool {
+    if (!is_logged_in()) return false;
+    $db = get_db();
+    $stmt = $db->prepare("DELETE FROM forum_subscriptions WHERE user_id = :uid AND forum_id = :fid");
+    $stmt->execute([':uid' => $_SESSION['user_id'], ':fid' => $forumId]);
+    return $stmt->rowCount() > 0;
+}
+
+/** 获取某版块的订阅用户 ID 列表（用于新帖通知） */
+function get_forum_subscriber_ids(int $forumId): array {
+    try {
+        $db = get_db();
+        $stmt = $db->prepare("SELECT user_id FROM forum_subscriptions WHERE forum_id = :fid");
+        $stmt->execute([':fid' => $forumId]);
+        return array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+    } catch (Exception $e) {
+        return [];
+    }
+}
+
+/** 标准化标签名（去多余空白、限长） */
+function normalize_tag_name(string $name): string {
+    $name = trim(preg_replace('/\s+/u', ' ', $name));
+    return mb_substr($name, 0, 50, 'UTF-8');
+}
+
+/** 生成标签 slug（小写、非字母数字替换为短横），中文标签保留原字符 */
+function tag_slug(string $name): string {
+    $s = preg_replace('/[^\p{L}\p{N}]+/u', '-', $name);
+    return trim(mb_strtolower($s, 'UTF-8'), '-');
+}
+
+/** 获取或创建标签，返回标签 ID */
+function get_or_create_tag(string $name): ?int {
+    $name = normalize_tag_name($name);
+    if ($name === '') return null;
+    $db = get_db();
+    $stmt = $db->prepare("SELECT id FROM post_tags WHERE name = :name");
+    $stmt->execute([':name' => $name]);
+    $id = $stmt->fetchColumn();
+    if ($id) return (int)$id;
+    $stmt = $db->prepare("INSERT INTO post_tags (name, slug) VALUES (:name, :slug)");
+    $stmt->execute([':name' => $name, ':slug' => tag_slug($name)]);
+    return (int)$db->lastInsertId();
+}
+
+/** 保存帖子标签（覆盖式：先清后写），并重建 usage_count */
+function save_post_tags(int $postId, array $tagNames): void {
+    $db = get_db();
+    $db->prepare("DELETE FROM post_tag_map WHERE post_id = :pid")->execute([':pid' => $postId]);
+    $seen = [];
+    foreach ($tagNames as $raw) {
+        $name = normalize_tag_name((string)$raw);
+        if ($name === '' || isset($seen[$name])) continue;
+        $seen[$name] = true;
+        $tagId = get_or_create_tag($name);
+        if (!$tagId) continue;
+        sql_prepare($db, "INSERT OR IGNORE INTO post_tag_map (post_id, tag_id) VALUES (:pid, :tid)")
+            ->execute([':pid' => $postId, ':tid' => $tagId]);
+    }
+    $db->exec("UPDATE post_tags SET usage_count = (SELECT COUNT(*) FROM post_tag_map WHERE tag_id = post_tags.id)");
+}
+
+/** 获取帖子标签列表 */
+function get_post_tags(int $postId): array {
+    try {
+        $db = get_db();
+        $stmt = $db->prepare("SELECT t.id, t.name, t.slug FROM post_tag_map m JOIN post_tags t ON t.id = m.tag_id WHERE m.post_id = :pid ORDER BY t.name");
+        $stmt->execute([':pid' => $postId]);
+        return $stmt->fetchAll();
+    } catch (Exception $e) {
+        return [];
+    }
+}
+
+/** 热门标签（用于发帖自动补全/标签云） */
+function get_popular_tags(int $limit = 30): array {
+    try {
+        $db = get_db();
+        $stmt = $db->prepare("SELECT id, name, slug, usage_count FROM post_tags WHERE usage_count > 0 ORDER BY usage_count DESC, name ASC LIMIT :limit");
+        $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+        $stmt->execute();
+        return $stmt->fetchAll();
+    } catch (Exception $e) {
+        return [];
+    }
+}
+
+/** 判断当前用户是否有权查看帖子（阅读权限：公开/会员/积分门槛） */
+function can_view_post(array $post): bool {
+    if (is_admin()) return true;
+    $perm = $post['read_permission'] ?? 'public';
+    if ($perm === 'public') return true;
+    if (!is_logged_in()) return false;
+    if ($perm === 'members') return true;
+    if ($perm === 'points') {
+        $min = (int)($post['min_points'] ?? 0);
+        if ($min <= 0) return true;
+        try {
+            $db = get_db();
+            $stmt = $db->prepare("SELECT points FROM users WHERE id = :id");
+            $stmt->execute([':id' => (int)$_SESSION['user_id']]);
+            return (int)$stmt->fetchColumn() >= $min;
+        } catch (Exception $e) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/** 记录帖子编辑历史 */
+function record_post_edit(int $postId, int $userId, string $oldTitle, string $oldContent, string $reason = ''): void {
+    try {
+        $db = get_db();
+        $stmt = $db->prepare("INSERT INTO post_edits (post_id, user_id, old_title, old_content, edit_reason, created_at) VALUES (:pid, :uid, :ot, :oc, :reason, CURRENT_TIMESTAMP)");
+        $stmt->execute([
+            ':pid'    => $postId,
+            ':uid'    => $userId,
+            ':ot'     => $oldTitle,
+            ':oc'     => $oldContent,
+            ':reason' => mb_substr($reason, 0, 200, 'UTF-8'),
+        ]);
+    } catch (Exception $e) {}
+}
+
+/** 获取帖子编辑历史 */
+function get_post_edits(int $postId): array {
+    try {
+        $db = get_db();
+        $stmt = $db->prepare("SELECT e.*, u.username FROM post_edits e JOIN users u ON e.user_id = u.id OR e.user_id = u.uid WHERE e.post_id = :pid ORDER BY e.created_at ASC");
+        $stmt->execute([':pid' => $postId]);
+        return $stmt->fetchAll();
+    } catch (Exception $e) {
+        return [];
+    }
+}
+
+/** 获取投票帖主体 */
+function get_poll_by_post(int $postId): ?array {
+    try {
+        $db = get_db();
+        $stmt = $db->prepare("SELECT * FROM polls WHERE post_id = :pid");
+        $stmt->execute([':pid' => $postId]);
+        $poll = $stmt->fetch();
+        return $poll ?: null;
+    } catch (Exception $e) {
+        return null;
+    }
+}
+
+/** 获取投票选项 */
+function get_poll_options(int $pollId): array {
+    try {
+        $db = get_db();
+        $stmt = $db->prepare("SELECT * FROM poll_options WHERE poll_id = :pid ORDER BY sort_order ASC, id ASC");
+        $stmt->execute([':pid' => $pollId]);
+        return $stmt->fetchAll();
+    } catch (Exception $e) {
+        return [];
+    }
+}
+
+/** 统计各选项票数：option_id => count */
+function count_poll_votes(int $pollId): array {
+    try {
+        $db = get_db();
+        $stmt = $db->prepare("SELECT option_id, COUNT(*) AS cnt FROM poll_votes WHERE poll_id = :pid GROUP BY option_id");
+        $stmt->execute([':pid' => $pollId]);
+        $map = [];
+        foreach ($stmt->fetchAll() as $row) {
+            $map[(int)$row['option_id']] = (int)$row['cnt'];
+        }
+        return $map;
+    } catch (Exception $e) {
+        return [];
+    }
+}
+
+/** 用户是否已投票 */
+function has_user_voted_poll(int $pollId, int $userId): bool {
+    if ($userId <= 0) return false;
+    try {
+        $db = get_db();
+        $stmt = $db->prepare("SELECT COUNT(*) FROM poll_votes WHERE poll_id = :pid AND user_id = :uid");
+        $stmt->execute([':pid' => $pollId, ':uid' => $userId]);
+        return (int)$stmt->fetchColumn() > 0;
+    } catch (Exception $e) {
+        return false;
+    }
+}
+
+/** 投票（单选时先清旧票，多选可累加） */
+function vote_poll(int $pollId, array $optionIds, int $userId, bool $multi): bool {
+    if ($userId <= 0 || empty($optionIds)) return false;
+    $optionIds = array_unique(array_map('intval', $optionIds));
+    if (!$multi && count($optionIds) > 1) $optionIds = array_slice($optionIds, 0, 1);
+    $db = get_db();
+    try {
+        $db->beginTransaction();
+        if (!$multi) {
+            $db->prepare("DELETE FROM poll_votes WHERE poll_id = :pid AND user_id = :uid")
+                ->execute([':pid' => $pollId, ':uid' => $userId]);
+        }
+        foreach ($optionIds as $oid) {
+            $stmt = sql_prepare($db, "INSERT OR IGNORE INTO poll_votes (poll_id, option_id, user_id) VALUES (:pid, :oid, :uid)");
+            $stmt->execute([':pid' => $pollId, ':oid' => $oid, ':uid' => $userId]);
+        }
+        $db->commit();
+        return true;
+    } catch (Exception $e) {
+        try { $db->rollBack(); } catch (Exception $ignored) {}
+        return false;
+    }
+}
+
+/** 采纳悬赏答案：将悬赏积分发放给回复者并锁定帖子 */
+function award_bounty(int $postId, int $replyId): bool {
+    $db = get_db();
+    try {
+        $db->beginTransaction();
+        $stmt = $db->prepare("SELECT p.bounty_points, p.bounty_status, p.user_id, p.title, r.user_id AS reply_user FROM posts p JOIN replies r ON r.id = :rid AND r.post_id = :pid WHERE p.id = :pid");
+        $stmt->execute([':rid' => $replyId, ':pid' => $postId]);
+        $row = $stmt->fetch();
+        if (!$row) { $db->rollBack(); return false; }
+        if ((int)$row['bounty_points'] <= 0 || $row['bounty_status'] !== 'open') { $db->rollBack(); return false; }
+        $winnerId = (int)$row['reply_user'];
+        // 不能采纳楼主自己的回复（防止楼主自问自答把悬赏赚回自己口袋）
+        if ($winnerId === (int)$row['user_id']) { $db->rollBack(); return false; }
+        $points = (int)$row['bounty_points'];
+        add_user_points($winnerId, $points, true, 'bounty_received', 'reply', $replyId, t('bounty_award_desc', '悬赏采纳奖励'));
+        $db->prepare("UPDATE posts SET bounty_status = 'paid', is_locked = 1 WHERE id = :pid")->execute([':pid' => $postId]);
+        $db->commit();
+        return true;
+    } catch (Exception $e) {
+        try { $db->rollBack(); } catch (Exception $ignored) {}
+        error_log('award_bounty failed: ' . $e->getMessage());
+        return false;
+    }
 }
 
 /**

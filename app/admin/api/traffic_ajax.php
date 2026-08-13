@@ -450,7 +450,7 @@ function traffic_total_cache($db): array {
         'expires'   => $now + 30,
     ];
 
-    if (!is_dir($cacheDir)) @mkdir($cacheDir, 0777, true);
+    if (!is_dir($cacheDir)) @mkdir($cacheDir, 0755, true);
     if (is_dir($cacheDir)) @file_put_contents($cacheFile, json_encode($data));
 
     return $data;

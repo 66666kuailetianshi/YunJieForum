@@ -28,6 +28,32 @@ if (!$forum) {
     exit;
 }
 
+// 板块订阅 / 取消订阅（POST + csrf）
+$subAction = isset($_REQUEST['sub_action']) ? $_REQUEST['sub_action'] : '';
+if ($subAction === 'subscribe' || $subAction === 'unsubscribe') {
+    if (!is_logged_in()) {
+        set_flash(t('sub_login_required', '请先登录后再订阅版块。'), 'error');
+        redirect(site_url('login'));
+    }
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        set_flash(t('sub_method_changed', '操作方式已变更，请刷新页面重试。'), 'error');
+        redirect(site_url('forum', ['id' => $forumId]));
+    }
+    if (!validate_csrf(isset($_POST['csrf_token']) ? $_POST['csrf_token'] : '')) {
+        set_flash(t('sub_csrf_failed', '操作失败，安全验证未通过。'), 'error');
+        redirect(site_url('forum', ['id' => $forumId]));
+    }
+    if ($subAction === 'subscribe') {
+        subscribe_forum($forumId);
+        set_flash(t('sub_subscribed', '已订阅该版块，新帖将通知你。'), 'success');
+    } else {
+        unsubscribe_forum($forumId);
+        set_flash(t('sub_unsubscribed', '已取消订阅。'), 'success');
+    }
+    redirect(site_url('forum', ['id' => $forumId]));
+}
+$subscribed = is_subscribed($forumId);
+
 // 该版块下的主题总数
 $stmt = $db->prepare("SELECT COUNT(*) FROM posts WHERE forum_id = :fid");
 $stmt->execute([':fid' => $forumId]);
@@ -35,7 +61,7 @@ $total = (int)$stmt->fetchColumn();
 
 // 取帖子列表（置顶优先，其次按更新时间倒序）
 $stmt = $db->prepare("SELECT p.id, p.title, p.views, p.replies_count, p.is_pinned, p.is_essence, p.is_locked,
-    p.created_at, p.updated_at,
+    p.post_type, p.read_permission, p.created_at, p.updated_at,
     u.username, u.avatar, u.posts_count, u.points
     FROM posts p
     JOIN users u ON p.user_id = u.id OR p.user_id = u.uid
@@ -72,6 +98,19 @@ include APP_ROOT . 'app/includes/header.php';
     </div>
     <?php if (is_logged_in()): ?>
         <a href="<?php echo site_url('new_post', ['forum_id' => $forumId]); ?>" class="btn btn-primary"><?php echo e(t('forum_new_post', '发新帖')); ?></a>
+        <?php if ($subscribed): ?>
+            <form method="post" action="<?php echo e(site_url('forum', ['id' => $forumId])); ?>" class="inline-form">
+                <input type="hidden" name="csrf_token" value="<?php echo e(csrf_token()); ?>">
+                <input type="hidden" name="sub_action" value="unsubscribe">
+                <button type="submit" class="btn btn-secondary"><?php echo e(t('forum_unsubscribe', '取消订阅')); ?></button>
+            </form>
+        <?php else: ?>
+            <form method="post" action="<?php echo e(site_url('forum', ['id' => $forumId])); ?>" class="inline-form">
+                <input type="hidden" name="csrf_token" value="<?php echo e(csrf_token()); ?>">
+                <input type="hidden" name="sub_action" value="subscribe">
+                <button type="submit" class="btn btn-secondary"><?php echo e(t('forum_subscribe', '订阅')); ?></button>
+            </form>
+        <?php endif; ?>
     <?php else: ?>
         <a href="<?php echo site_url('login'); ?>" class="btn btn-secondary"><?php echo e(t('forum_login_to_post', '登录后发帖')); ?></a>
     <?php endif; ?>
@@ -107,6 +146,10 @@ include APP_ROOT . 'app/includes/header.php';
                             <?php if ($post['is_pinned']): ?><span class="badge badge-warning"><?php echo e(t('forum_badge_pinned', '置顶')); ?></span><?php endif; ?>
                             <?php if ($post['is_essence']): ?><span class="badge badge-success"><?php echo e(t('forum_badge_essence', '精华')); ?></span><?php endif; ?>
                             <?php if ($post['is_locked']): ?><span class="badge badge-danger"><?php echo e(t('forum_badge_locked', '锁定')); ?></span><?php endif; ?>
+                            <?php if (($post['post_type'] ?? 'normal') === 'vote'): ?><span class="badge badge-info"><?php echo e(t('newpost_type_vote', '投票')); ?></span><?php endif; ?>
+                            <?php if (($post['post_type'] ?? 'normal') === 'debate'): ?><span class="badge badge-info"><?php echo e(t('newpost_type_debate', '辩论')); ?></span><?php endif; ?>
+                            <?php if (($post['post_type'] ?? 'normal') === 'bounty'): ?><span class="badge badge-warning"><?php echo e(t('newpost_type_bounty', '悬赏')); ?></span><?php endif; ?>
+                            <?php if (($post['read_permission'] ?? 'public') !== 'public'): ?><span class="badge badge-secondary"><?php echo e(t('forum_badge_restricted', '限阅')); ?></span><?php endif; ?>
                         </span>
                     </h3>
                     <div class="thread-author">

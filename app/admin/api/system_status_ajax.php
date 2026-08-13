@@ -101,7 +101,7 @@ function ss_get_static_cache(string $key, callable $callback, int $ttl = 3600) {
     if ($value === null || $value === '' || $value === 0) return $value;
 
     if (!is_dir($cacheDir)) {
-        @mkdir($cacheDir, 0777, true);
+        @mkdir($cacheDir, 0755, true);
     }
     if (is_dir($cacheDir)) {
         @file_put_contents($cacheFile, json_encode(['expires' => time() + $ttl, 'value' => $value], JSON_UNESCAPED_UNICODE));
@@ -196,7 +196,7 @@ function ss_get_realtime_cache(): array {
                     $cache['last_sample_time'] = $now;
 
                     if (!is_dir($cacheDir)) {
-                        @mkdir($cacheDir, 0777, true);
+                        @mkdir($cacheDir, 0755, true);
                     }
                     if (is_dir($cacheDir)) {
                         @file_put_contents($cacheFile, json_encode($cache, JSON_UNESCAPED_UNICODE));
@@ -699,7 +699,7 @@ function ss_ps_batch_collect(): ?array {
     $GLOBALS['ss_ps_batch'] = $d;
 
     // 写入磁盘缓存
-    if (!is_dir($cacheDir)) @mkdir($cacheDir, 0777, true);
+    if (!is_dir($cacheDir)) @mkdir($cacheDir, 0755, true);
     if (is_dir($cacheDir)) {
         @file_put_contents($cacheFile, json_encode(['expires' => time() + 3600, 'value' => $d], JSON_UNESCAPED_UNICODE));
     }

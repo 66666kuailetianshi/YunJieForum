@@ -264,6 +264,10 @@ if (is_logged_in() && $currentUser) {
                                         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
                                         <span><?php echo e(t('my_favorites', '我的收藏')); ?></span>
                                     </a>
+                                    <a href="<?php echo site_url('subscriptions'); ?>" class="user-dropdown-menu-item">
+                                        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                                        <span><?php echo e(t('nav_subscriptions', '我的订阅')); ?></span>
+                                    </a>
                                     <a href="<?php echo site_url('pm'); ?>" class="user-dropdown-menu-item" id="pm-menu-anchor">
                                         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
                                         <span><?php echo e(t('pm_messages', '站内消息')); ?></span>

@@ -248,7 +248,7 @@ function mark_migration_done(): void {
  */
 function ensure_schema_patch(PDO $db): void {
     $patchFile = DATA_PATH . 'db_patch_version.lock';
-    if ((int)@file_get_contents($patchFile) >= 10) {
+    if ((int)@file_get_contents($patchFile) >= 11) {
         return;
     }
     ensure_mail_logs_table($db);
@@ -286,7 +286,17 @@ function ensure_schema_patch(PDO $db): void {
     migrate_column($db, 'users', 'last_visit', 'DATETIME DEFAULT NULL');
     migrate_column($db, 'users', 'timezone', "VARCHAR(64) DEFAULT 'Asia/Shanghai'");
     migrate_column($db, 'users', 'online_time', 'INTEGER DEFAULT 0');
-    @file_put_contents($patchFile, '10', LOCK_EX);
+    // v11：功能增强（标签 / 订阅 / 投票 / 辩论 / 悬赏 / 编辑历史 / 阅读权限）
+    ensure_feature_tables($db);
+    migrate_column($db, 'posts', 'post_type', "VARCHAR(20) DEFAULT 'normal'");
+    migrate_column($db, 'posts', 'read_permission', "VARCHAR(20) DEFAULT 'public'");
+    migrate_column($db, 'posts', 'min_points', 'INTEGER DEFAULT 0');
+    migrate_column($db, 'posts', 'bounty_points', 'INTEGER DEFAULT 0');
+    migrate_column($db, 'posts', 'bounty_status', "VARCHAR(20) DEFAULT ''");
+    migrate_column($db, 'posts', 'bounty_expire', 'DATETIME DEFAULT NULL');
+    migrate_column($db, 'replies', 'debate_side', "VARCHAR(10) DEFAULT 'neutral'");
+    migrate_column($db, 'forums', 'default_read_permission', "VARCHAR(20) DEFAULT 'public'");
+    @file_put_contents($patchFile, '11', LOCK_EX);
 }
 
 /**
@@ -392,6 +402,16 @@ function auto_migrate(): void {
             ensure_pm_tables();
             // 兜底：创建安装流程中可能遗漏的其他表（favorites / checkins / traffic 等）
             ensure_remaining_tables($db);
+            // 功能增强表（标签 / 订阅 / 投票 / 辩论 / 悬赏 / 编辑历史 / 阅读权限）
+            ensure_feature_tables($db);
+            migrate_column($db, 'posts', 'post_type', "VARCHAR(20) DEFAULT 'normal'");
+            migrate_column($db, 'posts', 'read_permission', "VARCHAR(20) DEFAULT 'public'");
+            migrate_column($db, 'posts', 'min_points', 'INTEGER DEFAULT 0');
+            migrate_column($db, 'posts', 'bounty_points', 'INTEGER DEFAULT 0');
+            migrate_column($db, 'posts', 'bounty_status', "VARCHAR(20) DEFAULT ''");
+            migrate_column($db, 'posts', 'bounty_expire', 'DATETIME DEFAULT NULL');
+            migrate_column($db, 'replies', 'debate_side', "VARCHAR(10) DEFAULT 'neutral'");
+            migrate_column($db, 'forums', 'default_read_permission', "VARCHAR(20) DEFAULT 'public'");
             // 迁移完成，记录版本锁（避免后续请求重复执行全量 DDL）
             mark_migration_done();
 }
@@ -601,6 +621,96 @@ function ensure_notifications_table(PDO $db): void {
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     )");
     ddl_exec("CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, is_read, created_at DESC)");
+}
+
+/**
+ * 确保功能增强相关表存在（标签 / 板块订阅 / 投票 / 辩论 / 悬赏 / 编辑历史 / 阅读权限）
+ * 用于自动迁移、全新安装与历史版本补丁三处统一调用。
+ */
+function ensure_feature_tables(PDO $db): void {
+    // 帖子标签表
+    ddl_exec("CREATE TABLE IF NOT EXISTS post_tags (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name VARCHAR(50) NOT NULL,
+        slug VARCHAR(60) NOT NULL DEFAULT '',
+        usage_count INTEGER DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(name)
+    )");
+    ddl_exec("CREATE INDEX IF NOT EXISTS idx_post_tags_name ON post_tags(name)");
+
+    // 帖子-标签映射
+    ddl_exec("CREATE TABLE IF NOT EXISTS post_tag_map (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        post_id INTEGER NOT NULL,
+        tag_id INTEGER NOT NULL,
+        UNIQUE(post_id, tag_id),
+        FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE,
+        FOREIGN KEY (tag_id) REFERENCES post_tags(id) ON DELETE CASCADE
+    )");
+    ddl_exec("CREATE INDEX IF NOT EXISTS idx_post_tag_map_post ON post_tag_map(post_id)");
+    ddl_exec("CREATE INDEX IF NOT EXISTS idx_post_tag_map_tag ON post_tag_map(tag_id)");
+
+    // 板块订阅表
+    ddl_exec("CREATE TABLE IF NOT EXISTS forum_subscriptions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        forum_id INTEGER NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, forum_id),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (forum_id) REFERENCES forums(id) ON DELETE CASCADE
+    )");
+    ddl_exec("CREATE INDEX IF NOT EXISTS idx_forum_sub_user ON forum_subscriptions(user_id)");
+    ddl_exec("CREATE INDEX IF NOT EXISTS idx_forum_sub_forum ON forum_subscriptions(forum_id)");
+
+    // 帖子编辑历史
+    ddl_exec("CREATE TABLE IF NOT EXISTS post_edits (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        post_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        old_title TEXT DEFAULT '',
+        old_content TEXT DEFAULT '',
+        edit_reason VARCHAR(200) DEFAULT '',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
+    )");
+    ddl_exec("CREATE INDEX IF NOT EXISTS idx_post_edits_post ON post_edits(post_id)");
+
+    // 投票帖：投票主体
+    ddl_exec("CREATE TABLE IF NOT EXISTS polls (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        post_id INTEGER NOT NULL,
+        question TEXT DEFAULT '',
+        multi_choice INTEGER DEFAULT 0,
+        end_time DATETIME DEFAULT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(post_id),
+        FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
+    )");
+
+    // 投票选项
+    ddl_exec("CREATE TABLE IF NOT EXISTS poll_options (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        poll_id INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        sort_order INTEGER DEFAULT 0,
+        FOREIGN KEY (poll_id) REFERENCES polls(id) ON DELETE CASCADE
+    )");
+
+    // 投票记录
+    ddl_exec("CREATE TABLE IF NOT EXISTS poll_votes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        poll_id INTEGER NOT NULL,
+        option_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(poll_id, user_id, option_id),
+        FOREIGN KEY (poll_id) REFERENCES polls(id) ON DELETE CASCADE,
+        FOREIGN KEY (option_id) REFERENCES poll_options(id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )");
+    ddl_exec("CREATE INDEX IF NOT EXISTS idx_poll_votes_poll ON poll_votes(poll_id, user_id)");
 }
 
 /**
@@ -2084,6 +2194,17 @@ function init_db(): void {
     ddl_exec("CREATE INDEX IF NOT EXISTS idx_mail_logs_created ON mail_logs(created_at DESC)");
     ddl_exec("CREATE INDEX IF NOT EXISTS idx_mail_logs_status ON mail_logs(status, created_at DESC)");
     ddl_exec("CREATE INDEX IF NOT EXISTS idx_mail_logs_type ON mail_logs(type, created_at DESC)");
+
+    // 功能增强表（标签 / 订阅 / 投票 / 辩论 / 悬赏 / 编辑历史 / 阅读权限）
+    ensure_feature_tables($db);
+    migrate_column($db, 'posts', 'post_type', "VARCHAR(20) DEFAULT 'normal'");
+    migrate_column($db, 'posts', 'read_permission', "VARCHAR(20) DEFAULT 'public'");
+    migrate_column($db, 'posts', 'min_points', 'INTEGER DEFAULT 0');
+    migrate_column($db, 'posts', 'bounty_points', 'INTEGER DEFAULT 0');
+    migrate_column($db, 'posts', 'bounty_status', "VARCHAR(20) DEFAULT ''");
+    migrate_column($db, 'posts', 'bounty_expire', 'DATETIME DEFAULT NULL');
+    migrate_column($db, 'replies', 'debate_side', "VARCHAR(10) DEFAULT 'neutral'");
+    migrate_column($db, 'forums', 'default_read_permission', "VARCHAR(20) DEFAULT 'public'");
 
     // 初始化默认积分等级组
     $defaultGroups = [

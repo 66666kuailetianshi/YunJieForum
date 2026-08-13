@@ -53,6 +53,11 @@
 | Themes | Light/dark dual themes based on CSS variables (light / dark), customizable colors and skins |
 | CAPTCHA | Supports "slider jigsaw", "click text", and "reasoning swap" challenge modes with one-click switching or smart mixing; display modes include inline embedding and popup; behavioral scoring allows seamless verification for legitimate users |
 | Ticket System | Front-end "Feedback" lets users submit issue tickets; the admin ticket center handles both user feedback and internal admin tickets (source filter: user / admin), with a status workflow (pending → in progress → resolved / closed) and follow-up replies; new submissions notify admins automatically |
+| Post Tags | Add tags when posting; tags are shown on the post detail page; filter posts by tag and browse a tag cloud; duplicates are removed and usage counts are updated automatically |
+| Forum Subscriptions | Users can subscribe/unsubscribe forums; subscribers receive a notification when a new post is published in the subscribed forum; a "My Subscriptions" entry is added to the user dropdown menu |
+| Post Editing | Authors or admins with the `manage_posts` permission can edit published posts; edit history is preserved automatically (editor, time, reason) |
+| Read Permission | Posts can be set to public / members-only / points threshold; visitors without permission see the appropriate prompt (login / insufficient points) |
+| Special Posts | Poll posts (single/multiple choice with live results), debate posts (replies choose pro/con/neutral with dual-column tally), and bounty posts (points are deducted on publish and awarded to the author of the accepted answer) |
 | Email Disclosure | Admins cannot see user emails by default (privacy protection); they can submit a disclosure request (reason required) in User Management, visible only after super-admin approval; pending/unconsumed requests lock the apply entry to prevent duplicates |
 
 ---
@@ -214,6 +219,8 @@ Cloud Forum/
 ```
 
 > `data/` and `uploads/` are created on first installation. **They must be writable by the web server process.** Verify permissions (e.g. `chmod 755 data uploads`). `app/`, `public/`, `index.php`, `install.php` need no write access.
+>
+> **Security note**: **Never use `777` (world-writable) permissions.** `755` is sufficient — simply set the directory owner to the web server user to grant write access, without loosening it to globally writable. Example: `chown -R www-data:www-data data uploads` (the default Apache/Nginx user is usually `www-data`; adjust to your environment).
 
 ---
 
@@ -376,10 +383,17 @@ Core tables (SQLite dialect; PostgreSQL/MySQL are translated by the installer). 
 
 ## 9. Frontend Features
 
-- **Browsing**: home aggregation (stats, announcements, forums, hot/latest), forum topic lists, topic detail (with quoted replies, pagination), search.
+- **Browsing**: home aggregation (stats, announcements, forums, hot/latest), forum topic lists, topic detail (with quoted replies, pagination), search, tag filtering, tag cloud.
 - **Posting**: new posts, replies (supports BBCode, emoji, quotes, image uploads), profile editing, favorites, post sharing (one-click copy of the full link on the current access domain).
+- **Post Enhancements**:
+  - **Tags**: Add up to 10 tags when posting or editing, separated by spaces or commas; tags are shown on the detail page and a tag cloud is available.
+  - **Post Editing**: Authors or admins with the `manage_posts` permission can edit published posts; the old title and content are saved to the edit history before updating.
+  - **Read Permission**: Posts can be set to public / members only / points threshold; visitors without permission see a login or insufficient-points prompt.
+  - **Poll Posts**: Set a poll question and multiple options, single or multiple choice; live results show vote counts and percentages.
+  - **Debate Posts**: Replies can choose pro / con / neutral stance; the detail page shows a dual-column tally by stance.
+  - **Bounty Posts**: Deducts bounty points on publish; the author can accept the best answer, awarding the bounty points to the reply author and locking the post.
 - **Account**: registration (optional email verification), login (remember me), forgot/reset password, forced password change, ban appeal; the profile "Account Info" card shows online time, registration time, last visit, last activity, last post and timezone (timezone can be set in profile editing).
-- **Interaction**: private messages (real-time unread via polling), system notifications, daily check-in, points/coins and level display, medal wall.
+- **Interaction**: private messages (real-time unread via polling), system notifications, daily check-in, points/coins and level display, medal wall, forum subscriptions (new posts notify subscribers, managed in "My Subscriptions").
 - **Feedback**: feedback tickets (submit issues, track progress, follow-up replies); new tickets notify admins automatically.
 
 ---
@@ -653,7 +667,7 @@ Both the admin User Management and Post Management lists now include an **IP Loc
 ## 16. FAQ
 
 **Q1. The installer says "data directory is not writable"?**
-Create it and grant write permission: `mkdir data && chmod 755 data` (on Windows, give the web process write permission under the directory's "Security" tab).
+Create it and grant write permission: `mkdir data && chmod 755 data` (**do not use `777`**; if the directory already exists, use `chown -R www-data:www-data data` to set the owner to the web server user. On Windows, give the web process write permission under the directory's "Security" tab).
 
 **Q2. Want to switch database types (e.g. SQLite → MySQL)?**
 Currently the installer determines the database type at first installation. To switch to a remote database, it is recommended to: back up data → modify the `DB_*` constants in `data/site_config.php` → create the database on the target server → re-import the data. Always back up first in production.

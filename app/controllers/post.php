@@ -34,6 +34,28 @@ if (!$post) {
     exit;
 }
 
+// 阅读权限拦截（管理员始终可查看）
+if (!can_view_post($post)) {
+    $pageTitle = t('post_locked_title', '无权限查看');
+    include APP_ROOT . 'app/includes/header.php';
+    $lockReason = '';
+    if (!is_logged_in()) {
+        $lockReason = t('post_read_login', '该帖子需要登录后才能查看。');
+    } elseif (($post['read_permission'] ?? 'public') === 'points') {
+        $lockReason = t('post_read_points', '该帖子需要达到 {min} 积分才能查看，你当前积分不足。', ['min' => (int)$post['min_points']]);
+    } else {
+        $lockReason = t('post_read_denied', '你没有权限查看该帖子。');
+    }
+    echo '<div class="card empty-state"><div class="empty-state-icon"><svg viewBox="0 0 24 24" width="64" height="64" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>'
+        . '<p>' . e($lockReason) . '</p>';
+    if (!is_logged_in()) {
+        echo '<a href="' . site_url('login') . '" class="btn btn-primary">' . e(t('post_login_now', '立即登录')) . '</a>';
+    }
+    echo '</div>';
+    include APP_ROOT . 'app/includes/footer.php';
+    exit;
+}
+
 // 管理操作 / 收藏操作参数（提前取出，用于判断本次请求是否为“真实浏览”）
 // 写操作统一走 POST（GET 分支仅作旧链接兼容提示，不执行任何写入）
 $action = isset($_REQUEST['action']) ? $_REQUEST['action'] : '';
@@ -152,6 +174,57 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && is_logged_in() && in_array($favActi
     redirect('/post?id=' . $postId);
 }
 
+// 投票帖：提交投票（POST + csrf_token）
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && is_logged_in() && $action === 'vote_poll') {
+    if (!validate_csrf(isset($_POST['csrf_token']) ? $_POST['csrf_token'] : '')) {
+        set_flash(t('post_flash_csrf_expired', '安全校验失败，请刷新页面后重新操作。'), 'error');
+        redirect('/post?id=' . $postId);
+    }
+    $poll = get_poll_by_post($postId);
+    if (!$poll) {
+        redirect('/post?id=' . $postId);
+    }
+    if (has_user_voted_poll((int)$poll['id'], (int)$_SESSION['user_id'])) {
+        set_flash(t('poll_already_voted', '你已经投过票了。'), 'error');
+    } else {
+        $optionIds = isset($_POST['poll_option']) ? array_map('intval', (array)$_POST['poll_option']) : [];
+        if (empty($optionIds)) {
+            set_flash(t('poll_select_option', '请选择一个选项。'), 'error');
+        } else {
+            vote_poll((int)$poll['id'], $optionIds, (int)$_SESSION['user_id'], (int)$poll['multi_choice'] === 1);
+            set_flash(t('poll_voted', '投票成功！'), 'success');
+        }
+    }
+    redirect('/post?id=' . $postId);
+}
+
+// 悬赏帖：楼主采纳答案（POST + csrf_token）
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && is_logged_in() && $action === 'accept_bounty') {
+    if (!validate_csrf(isset($_POST['csrf_token']) ? $_POST['csrf_token'] : '')) {
+        set_flash(t('post_flash_csrf_expired', '安全校验失败，请刷新页面后重新操作。'), 'error');
+        redirect('/post?id=' . $postId);
+    }
+    if ((int)$post['user_id'] !== (int)$_SESSION['user_id']) {
+        set_flash(t('bounty_only_author', '只有楼主可以采纳答案。'), 'error');
+    } elseif (($post['post_type'] ?? '') !== 'bounty' || ($post['bounty_status'] ?? '') !== 'open') {
+        set_flash(t('bounty_not_open', '该悬赏帖当前不可采纳。'), 'error');
+    } else {
+        $replyId = (int)($_POST['reply_id'] ?? 0);
+        if ($replyId > 0 && award_bounty($postId, $replyId)) {
+            set_flash(t('bounty_accepted', '已采纳答案，悬赏积分已发放。'), 'success');
+            $stmt = $db->prepare("SELECT user_id FROM replies WHERE id = :id");
+            $stmt->execute([':id' => $replyId]);
+            $winner = (int)$stmt->fetchColumn();
+            if ($winner > 0) {
+                send_notification($winner, 'bounty_won', t('bounty_won_title', '你的回答被采纳为最佳答案'), mb_substr($post['title'], 0, 60, 'UTF-8'), site_url('post', ['id' => $postId]));
+            }
+        } else {
+            set_flash(t('bounty_accept_failed', '采纳失败，请重试。'), 'error');
+        }
+    }
+    redirect('/post?id=' . $postId);
+}
+
 // 处理回复提交
 $errors = [];
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && is_logged_in()) {
@@ -171,6 +244,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && is_logged_in()) {
             $replyTo = null;
         }
         $quoteContent = isset($_POST['quote_content']) ? trim($_POST['quote_content']) : '';
+        // 辩论帖：记录回复立场
+        $debateSide = 'neutral';
+        if (($post['post_type'] ?? 'normal') === 'debate') {
+            $ds = isset($_POST['debate_side']) ? trim($_POST['debate_side']) : 'neutral';
+            if (in_array($ds, ['pro', 'con', 'neutral'], true)) {
+                $debateSide = $ds;
+            }
+        }
         // 校验可视化引用内容格式，防止脏数据入库
         if ($quoteContent !== '') {
             $quoteData = json_decode($quoteContent, true);
@@ -202,7 +283,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && is_logged_in()) {
                 $repliesCount = (int)$stmt->fetchColumn();
                 $floor = $repliesCount + 2;
 
-                $stmt = $db->prepare("INSERT INTO replies (post_id, user_id, content, floor, reply_to, quote_content) VALUES (:post_id, :user_id, :content, :floor, :reply_to, :quote_content)");
+                $stmt = $db->prepare("INSERT INTO replies (post_id, user_id, content, floor, reply_to, quote_content, debate_side) VALUES (:post_id, :user_id, :content, :floor, :reply_to, :quote_content, :debate_side)");
                 $stmt->execute([
                     ':post_id' => $postId,
                     ':user_id' => $_SESSION['user_id'],
@@ -210,6 +291,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && is_logged_in()) {
                     ':floor' => $floor,
                     ':reply_to' => $replyTo,
                     ':quote_content' => $quoteContent !== '' ? $quoteContent : null,
+                    ':debate_side' => $debateSide,
                 ]);
                 $stmt = $db->prepare("UPDATE posts SET replies_count = replies_count + 1, updated_at = CURRENT_TIMESTAMP WHERE id = :id");
                 $stmt->execute([':id' => $postId]);
@@ -349,6 +431,15 @@ $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
 $stmt->execute();
 $replies = $stmt->fetchAll();
 
+// 辩论帖立场统计
+$debateTally = ['pro' => 0, 'con' => 0, 'neutral' => 0];
+if (($post['post_type'] ?? 'normal') === 'debate') {
+    foreach ($replies as $r) {
+        $s = $r['debate_side'] ?? 'neutral';
+        if (isset($debateTally[$s])) $debateTally[$s]++;
+    }
+}
+
 // 批量获取被引用回复的信息（用于显示引用块）
 $quotedReplies = [];
 $quoteIds = [];
@@ -375,11 +466,59 @@ if (!empty($post['forum_id'])) {
 // 是否已收藏
 $favorited = is_favorited($postId);
 
+// 功能增强数据：标签 / 投票
+$postTags = get_post_tags($postId);
+$poll = null; $pollOptions = []; $pollVotes = []; $userVoted = false;
+if (($post['post_type'] ?? 'normal') === 'vote') {
+    $poll = get_poll_by_post($postId);
+    if ($poll) {
+        $pollOptions = get_poll_options((int)$poll['id']);
+        $pollVotes = count_poll_votes((int)$poll['id']);
+        $userVoted = has_user_voted_poll((int)$poll['id'], is_logged_in() ? (int)$_SESSION['user_id'] : 0);
+    }
+}
+
 // 楼主等级头衔
 $authorTitle = user_title((int)$post['posts_count'], (int)$post['points']);
 
 $pageTitle = strip_bbcode($post['title']);
 include APP_ROOT . 'app/includes/header.php';
+?>
+<style>
+.post-tags { display:flex; flex-wrap:wrap; gap:.4rem; align-items:center; margin:1rem 0 0; }
+.post-tags-label { display:inline-flex; align-items:center; gap:.25rem; color:var(--text-muted,#6b7280); font-size:.85rem; }
+.tag-chip { display:inline-block; padding:.15rem .6rem; background:var(--tag-bg,#eef2ff); color:var(--tag-color,#4f46e5); border-radius:999px; font-size:.8rem; text-decoration:none; }
+.tag-chip:hover { background:var(--tag-bg-hover,#e0e7ff); }
+.poll-card, .bounty-card, .debate-card { margin-top:1.25rem; }
+.poll-question { font-weight:600; margin:.25rem 0 .75rem; }
+.poll-options { list-style:none; padding:0; margin:0 0 .75rem; }
+.poll-options li { margin-bottom:.4rem; }
+.poll-results { list-style:none; padding:0; margin:0; }
+.poll-result-item { margin-bottom:.6rem; }
+.poll-result-head { display:flex; justify-content:space-between; font-size:.85rem; margin-bottom:.2rem; }
+.poll-bar { height:8px; background:#e5e7eb; border-radius:4px; overflow:hidden; }
+.poll-bar-fill { height:100%; background:var(--primary,#6366f1); }
+.poll-total { font-size:.85rem; color:var(--text-muted,#6b7280); margin:.5rem 0 0; }
+.bounty-head { display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; }
+.bounty-points { color:var(--warning,#d97706); font-weight:700; }
+.bounty-status { padding:.1rem .5rem; border-radius:999px; font-size:.75rem; }
+.bounty-status-open { background:#dcfce7; color:#16a34a; }
+.bounty-status-paid { background:#e5e7eb; color:#6b7280; }
+.bounty-tip { font-size:.85rem; color:var(--text-muted,#6b7280); margin:.5rem 0 0; }
+.debate-tally { display:flex; gap:1rem; flex-wrap:wrap; margin-top:.5rem; }
+.debate-side { flex:1; min-width:120px; text-align:center; padding:.6rem; border-radius:8px; background:#f8fafc; }
+.debate-side.pro { border:1px solid #bbf7d0; }
+.debate-side.con { border:1px solid #fecaca; }
+.debate-side.neutral { border:1px solid #e5e7eb; }
+.debate-side span { display:block; font-size:.8rem; color:var(--text-muted,#6b7280); }
+.debate-side strong { font-size:1.4rem; }
+.debate-badge { display:inline-block; padding:.05rem .4rem; border-radius:4px; font-size:.7rem; margin-left:.3rem; }
+.debate-badge-pro { background:#dcfce7; color:#16a34a; }
+.debate-badge-con { background:#fee2e2; color:#dc2626; }
+.post-edited-note { font-size:.8rem; color:var(--text-muted,#6b7280); margin-left:.5rem; }
+.poll-option-row { display:flex; gap:.5rem; margin-bottom:.4rem; align-items:center; }
+</style>
+<?php
 ?>
 
 <nav class="breadcrumb" aria-label="<?php echo e(t('post_breadcrumb', '面包屑导航')); ?>">
@@ -422,6 +561,9 @@ include APP_ROOT . 'app/includes/header.php';
                     <button type="submit" class="btn btn-sm btn-secondary"><?php echo e(t('post_favorite', '收藏')); ?></button>
                 <?php endif; ?>
             </form>
+        <?php endif; ?>
+        <?php if (is_logged_in() && ((int)$_SESSION['user_id'] === (int)$post['user_id'] || has_permission('manage_posts'))): ?>
+            <a href="<?php echo site_url('edit_post', ['id' => $postId]); ?>" class="btn btn-sm btn-secondary"><?php echo e(t('post_edit', '编辑')); ?></a>
         <?php endif; ?>
         <?php if (has_permission('manage_posts')): ?>
             <form method="post" action="<?php echo e(site_url('post', ['id' => $postId])); ?>" class="inline-form">
@@ -484,6 +626,7 @@ include APP_ROOT . 'app/includes/header.php';
                     <span class="floor-header-stat" title="<?php echo e(t('post_views_title', '浏览次数')); ?>"><?php echo ui_icon('eye', 14); ?> <?php echo (int)$post['views']; ?></span>
                     <span class="floor-header-stat" title="<?php echo e(t('post_replies_title', '回复数量')); ?>"><?php echo ui_icon('message-circle', 14); ?> <?php echo (int)$post['replies_count']; ?></span>
                     <span><?php echo e(t('post_posted_at', '发表于')); ?> <?php echo e(date('Y-m-d H:i', db_time($post['created_at']))); ?></span>
+                    <?php if (isset($post['updated_at']) && $post['updated_at'] !== $post['created_at']): ?><span class="post-edited-note"><?php echo e(t('post_edited_at', '编辑于')); ?> <?php echo e(date('Y-m-d H:i', db_time($post['updated_at']))); ?></span><?php endif; ?>
                     <a href="<?php echo site_url('post', ['id' => $postId, 'author' => (int)$post['user_id']]); ?>" class="floor-header-link"><?php echo e(t('post_only_author', '只看该作者')); ?></a>
                 </div>
                 <span class="floor-badge floor-badge-op"><?php echo floor_label(1); ?></span>
@@ -493,6 +636,80 @@ include APP_ROOT . 'app/includes/header.php';
             </div>
             <?php if (!empty($post['signature'])): ?>
                 <div class="floor-signature"><?php echo e($post['signature']); ?></div>
+            <?php endif; ?>
+
+            <?php if (!empty($postTags)): ?>
+            <div class="post-tags">
+                <span class="post-tags-label"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41 11 3.83A2 2 0 0 0 9.59 3H4v5.59A2 2 0 0 0 4.59 10l9.59 9.59a2 2 0 0 0 2.82 0l4.59-4.59a2 2 0 0 0 0-2.59z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg> <?php echo e(t('post_tags', '标签')); ?>:</span>
+                <?php foreach ($postTags as $tag): ?>
+                    <a class="tag-chip" href="<?php echo site_url('tag', ['name' => urlencode($tag['name'])]); ?>"><?php echo e($tag['name']); ?></a>
+                <?php endforeach; ?>
+            </div>
+            <?php endif; ?>
+
+            <?php if (($post['post_type'] ?? 'normal') === 'vote' && $poll): ?>
+            <div class="card poll-card">
+                <h3 class="card-title"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> <?php echo e(t('poll_title', '投票')); ?></h3>
+                <p class="poll-question"><?php echo e($poll['question']); ?></p>
+                <?php if ($userVoted || !is_logged_in()): ?>
+                    <?php $totalVotes = array_sum($pollVotes); ?>
+                    <ul class="poll-results">
+                        <?php foreach ($pollOptions as $opt): ?>
+                            <?php $cnt = (int)($pollVotes[$opt['id']] ?? 0); $pct = $totalVotes > 0 ? round($cnt / $totalVotes * 100) : 0; ?>
+                            <li class="poll-result-item">
+                                <div class="poll-result-head"><span><?php echo e($opt['title']); ?></span><span><?php echo $cnt; ?> (<?php echo $pct; ?>%)</span></div>
+                                <div class="poll-bar"><div class="poll-bar-fill" style="width:<?php echo $pct; ?>%"></div></div>
+                            </li>
+                        <?php endforeach; ?>
+                    </ul>
+                    <p class="poll-total"><?php echo e(t('poll_total_votes', '共 {n} 人参与投票', ['n' => $totalVotes])); ?><?php if ($userVoted) echo ' · ' . e(t('poll_you_voted', '你已投票')); ?></p>
+                <?php else: ?>
+                    <form method="post" action="<?php echo site_url('post', ['id' => $postId]); ?>">
+                        <input type="hidden" name="csrf_token" value="<?php echo e(csrf_token()); ?>">
+                        <input type="hidden" name="action" value="vote_poll">
+                        <ul class="poll-options">
+                            <?php foreach ($pollOptions as $opt): ?>
+                                <li>
+                                    <label>
+                                        <?php if ((int)$poll['multi_choice'] === 1): ?>
+                                            <input type="checkbox" name="poll_option[]" value="<?php echo (int)$opt['id']; ?>">
+                                        <?php else: ?>
+                                            <input type="radio" name="poll_option[]" value="<?php echo (int)$opt['id']; ?>">
+                                        <?php endif; ?>
+                                        <?php echo e($opt['title']); ?>
+                                    </label>
+                                </li>
+                            <?php endforeach; ?>
+                        </ul>
+                        <button type="submit" class="btn btn-primary"><?php echo e(t('poll_submit', '提交投票')); ?></button>
+                    </form>
+                <?php endif; ?>
+            </div>
+            <?php endif; ?>
+
+            <?php if (($post['post_type'] ?? 'normal') === 'bounty'): ?>
+            <div class="card bounty-card">
+                <div class="bounty-head">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13"/><path d="M19 12v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-6"/><path d="M7.5 8a4.5 4.5 0 0 1 9 0"/></svg>
+                    <strong><?php echo e(t('bounty_title', '悬赏帖')); ?></strong>
+                    <span class="bounty-points"><?php echo (int)$post['bounty_points']; ?> <?php echo e(t('bounty_points_unit', '积分')); ?></span>
+                    <span class="bounty-status bounty-status-<?php echo e($post['bounty_status'] ?? 'open'); ?>">
+                        <?php if (($post['bounty_status'] ?? '') === 'paid') echo e(t('bounty_status_paid', '已采纳')); else echo e(t('bounty_status_open', '进行中')); ?>
+                    </span>
+                </div>
+                <p class="bounty-tip"><?php echo e(t('bounty_tip', '在下方回复中，楼主可采纳最佳答案并发放悬赏积分。')); ?></p>
+            </div>
+            <?php endif; ?>
+
+            <?php if (($post['post_type'] ?? 'normal') === 'debate'): ?>
+            <div class="card debate-card">
+                <h3 class="card-title"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 17.5 3 11l11.5-6.5L22 11l-7.5 6.5z"/><path d="m22 11-7.5 6.5L3 11"/></svg> <?php echo e(t('debate_title', '辩论帖')); ?></h3>
+                <div class="debate-tally">
+                    <div class="debate-side pro"><span><?php echo e(t('post_debate_pro', '正方（支持）')); ?></span><strong><?php echo (int)$debateTally['pro']; ?></strong></div>
+                    <div class="debate-side con"><span><?php echo e(t('post_debate_con', '反方（反对）')); ?></span><strong><?php echo (int)$debateTally['con']; ?></strong></div>
+                    <div class="debate-side neutral"><span><?php echo e(t('post_debate_neutral', '中立')); ?></span><strong><?php echo (int)$debateTally['neutral']; ?></strong></div>
+                </div>
+            </div>
             <?php endif; ?>
 
             <div class="floor-actions">
@@ -556,6 +773,7 @@ include APP_ROOT . 'app/includes/header.php';
                             <a href="<?php echo site_url('post', ['id' => $postId, 'author' => (int)$reply['user_id']]); ?>" class="floor-header-link"><?php echo e(t('post_only_author', '只看该作者')); ?></a>
                         </div>
                         <span class="floor-badge"><?php echo floor_label($displayFloor); ?></span>
+                        <?php if (($post['post_type'] ?? 'normal') === 'debate' && !empty($reply['debate_side']) && $reply['debate_side'] !== 'neutral'): ?><span class="debate-badge debate-badge-<?php echo e($reply['debate_side']); ?>"><?php echo $reply['debate_side'] === 'pro' ? e(t('post_debate_pro_short', '正方')) : e(t('post_debate_con_short', '反方')); ?></span><?php endif; ?>
                     </div>
 
                     <?php
@@ -598,6 +816,14 @@ include APP_ROOT . 'app/includes/header.php';
                         <div class="floor-actions-left"><?php if (is_logged_in()): ?><button type="button" class="btn btn-sm btn-secondary" onclick="replyTo(<?php echo (int)$reply['id']; ?>, <?php echo $displayFloor; ?>, <?php echo htmlspecialchars(json_encode($reply['username'], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT), ENT_QUOTES, 'UTF-8'); ?>, <?php echo htmlspecialchars(json_encode(mb_substr(strip_tags(bbcode($reply['content'])), 0, 120, 'UTF-8'), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT), ENT_QUOTES, 'UTF-8'); ?>)" aria-label="<?php echo e(t('post_reply_to_user', '回复 {name}', ['name' => $reply['username']])); ?>"><?php echo e(t('post_reply_btn', '回复')); ?></button><?php endif; ?>
                         <?php if (is_logged_in() && (int)$_SESSION['user_id'] !== (int)$reply['user_id']): ?>
                             <a href="<?php echo site_url('pm', ['action' => 'new', 'to' => (int)$reply['user_id']]); ?>" class="btn btn-sm btn-secondary" title="<?php echo e(t('post_send_pm_to', '给 {name} 发私信', ['name' => $reply['username']])); ?>"><?php echo e(t('post_send_pm', '发私信')); ?></a>
+                        <?php endif; ?>
+                        <?php if (($post['post_type'] ?? '') === 'bounty' && ($post['bounty_status'] ?? '') === 'open' && is_logged_in() && (int)$_SESSION['user_id'] === (int)$post['user_id'] && (int)$reply['user_id'] !== (int)$post['user_id']): ?>
+                            <form method="post" action="<?php echo site_url('post', ['id' => $postId]); ?>" class="inline-form">
+                                <input type="hidden" name="csrf_token" value="<?php echo e(csrf_token()); ?>">
+                                <input type="hidden" name="action" value="accept_bounty">
+                                <input type="hidden" name="reply_id" value="<?php echo (int)$reply['id']; ?>">
+                                <button type="submit" class="btn btn-sm btn-primary" data-confirm="<?php echo e(t('bounty_accept_confirm', '确定采纳该回答并发放悬赏积分？')); ?>"><?php echo e(t('bounty_accept', '采纳答案')); ?></button>
+                            </form>
                         <?php endif; ?>
                         </div>
                         <div class="floor-actions-right">
@@ -720,6 +946,17 @@ include APP_ROOT . 'app/includes/header.php';
                     <?php endforeach; ?>
                 </div>
             </div>
+
+            <?php if (($post['post_type'] ?? 'normal') === 'debate'): ?>
+            <div class="form-group">
+                <label class="form-label"><?php echo e(t('post_debate_side', '你的立场')); ?></label>
+                <select class="form-control" name="debate_side">
+                    <option value="pro"><?php echo e(t('post_debate_pro', '正方（支持）')); ?></option>
+                    <option value="con"><?php echo e(t('post_debate_con', '反方（反对）')); ?></option>
+                    <option value="neutral" selected><?php echo e(t('post_debate_neutral', '中立')); ?></option>
+                </select>
+            </div>
+            <?php endif; ?>
 
             <div class="form-group editor-textarea-wrap">
                 <textarea class="form-control" id="reply-content" name="content" rows="5" placeholder="<?php echo e(t('post_reply_placeholder', '写下你的回复... 支持 BBCode 语法')); ?>" required></textarea>
