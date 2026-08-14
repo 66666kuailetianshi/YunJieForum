@@ -272,26 +272,15 @@ function try_cookie_login(): void {
             } catch (Exception $e) {
                 // 记录失败不影响本次自动登录
             }
-            // 命中 remember token 后轮换 token：即使旧 token 泄漏也即刻失效。
-            // 轮换失败不阻断本次自动登录，仅记录日志。
-            try {
-                if (!headers_sent()) {
-                    $newToken = bin2hex(random_bytes(32));
-                    $newHash = hash('sha256', $newToken);
-                    $upd = $db->prepare("UPDATE users SET remember_token = :hash WHERE id = :id");
-                    $upd->execute([':hash' => $newHash, ':id' => (int)$userId]);
-                    // 沿用 login.php 下发 cookie 的参数（expires/secure/httponly/samesite）
-                    setcookie('forum_remember', $newToken, [
-                        'expires'  => time() + COOKIE_REMEMBER_DAYS * 86400,
-                        'path'     => '/',
-                        'secure'   => COOKIE_SECURE,
-                        'httponly' => true,
-                        'samesite' => 'Lax',
-                    ]);
-                }
-            } catch (\Throwable $e) {
-                error_log('[remember] token 轮换失败: ' . $e->getMessage());
-            }
+            // 注意：此处【不再轮换】remember_token。
+            // 旧逻辑在每次 cookie 恢复登录时都轮换 token，但前台存在多个并发 AJAX 轮询
+            // （check_ban_status 30s / pm_unread 15s / home_realtime 等），当 session 过期后
+            // 这些请求会同时用同一个旧 token 恢复登录：
+            //   请求A 轮换 token → 数据库中旧 token 失效
+            //   请求B 用同一个旧 token → 匹配失败 → 清除 cookie → 用户被登出
+            // 即「莫名其妙掉登录」的竞态根因。remember cookie 已 HttpOnly+Secure 且 400 天有效，
+            // 不轮换的安全风险极小，远小于频繁掉登录的体验损失。token 仅在 login 重新登录、
+            // 主动 logout、管理后台强制下线时变更。
             return;
         }
         // 未匹配则清除 cookie

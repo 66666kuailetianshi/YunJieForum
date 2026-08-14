@@ -138,8 +138,18 @@ if (session_status() === PHP_SESSION_NONE) {
     // 客户端提交的未知 session id 会被丢弃并重新生成。
     ini_set('session.use_strict_mode', '1');
 
+    // 会话过期时间：默认 PHP 的 gc_maxlifetime 仅 1440 秒（24 分钟），
+    // 用户短时间离开再回来就会被垃圾回收清掉会话导致掉登录。
+    // 这里统一延长到 7 天：session cookie 与 gc_maxlifetime 保持一致，
+    // 期间任意访问都会续期；超过 7 天未访问则由「保持登录」cookie 恢复。
+    // 如需调整，可在此修改或通过 site_config.php 中定义 SESSION_LIFETIME 覆盖。
+    $sessLifetime = defined('SESSION_LIFETIME') ? (int)SESSION_LIFETIME : (86400 * 7);
+    if ($sessLifetime > 0) {
+        ini_set('session.gc_maxlifetime', (string)$sessLifetime);
+    }
+
     $sessCookieParams = [
-        'lifetime' => 0,
+        'lifetime' => $sessLifetime,
         'path'     => '/',
         'secure'   => SESSION_COOKIE_SECURE,
         'httponly' => true,
