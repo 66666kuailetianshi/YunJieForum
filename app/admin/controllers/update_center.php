@@ -1018,7 +1018,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
         // 每 800ms 轮询
         progTimer = setInterval(function () {
             fetch('/index.php?route=admin/api/update_ajax&action=progress')
-                .then(function (r) { return r.json(); })
+                .then(httpJson)
                 .then(function (p) {
                     updateProgressUI(p);
                     if (p.done) { hideProgress(); }
@@ -1041,7 +1041,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
             method: 'POST',
             body: form
         })
-            .then(function (r) { return r.json(); })
+            .then(httpJson)
             .then(function (res) {
                 // 停止轮询，确保最终状态同步
                 hideProgress();
@@ -1074,9 +1074,9 @@ require_once dirname(__DIR__) . '/layout/header.php';
                     updateBtn.disabled = false;
                 }
             })
-            .catch(function () {
+            .catch(function (err) {
                 hideProgress();
-                showStatus('<?php echo e(t('update_network_fail', '网络错误，更新失败。')); ?>', 'error');
+                showStatus(netErrHtml(err, '<?php echo e(t('update_network_fail', '网络错误，更新失败。')); ?>'), 'error');
                 updateBtn.disabled = false;
             })
             .finally(function () {
@@ -1145,15 +1145,15 @@ require_once dirname(__DIR__) . '/layout/header.php';
                     form.append('csrf_token', historyCsrf);
                     form.append('filename', filename);
                     fetch('/index.php?route=admin/api/update_ajax', { method: 'POST', body: form })
-                        .then(function (r) { return r.json(); })
+                        .then(httpJson)
                         .then(function (res) {
                             if (res.success) {
                                 refreshBackupHistory();
                             } else {
-                                showStatus('<?php echo e(t('admin_backup_js_delete_failed', '删除失败：')); ?>' + escapeHtml(res.error || <?php echo json_encode(t('admin_backup_js_unknown_error', '未知错误')); ?>), 'error');
+                                showStatus('<?php echo e(t('admin_backup_js_delete_failed', '删除失败：')); ?>' + escapeHtml(res.error || <?php echo json_encode(t('admin_backup_js_unknown_error', '未知错误')); ?>) + (res.details ? diagBlock(res.details) : ''), 'error');
                             }
                         })
-                        .catch(function () { showStatus(<?php echo json_encode(t('admin_backup_js_network_delete_fail', '网络错误，删除失败。')); ?>, 'error'); });
+                        .catch(function (err) { showStatus(netErrHtml(err, <?php echo json_encode(t('admin_backup_js_network_delete_fail', '网络错误，删除失败。')); ?>), 'error'); });
                 },
                 <?php echo json_encode(t('update_history_delete_ok', '确认删除')); ?>
             );
@@ -1217,17 +1217,17 @@ require_once dirname(__DIR__) . '/layout/header.php';
             form.append('csrf_token', historyCsrf);
             form.append('filename', filename);
             fetch('/index.php?route=admin/api/update_ajax', { method: 'POST', body: form })
-                .then(function (r) { return r.json(); })
+                .then(httpJson)
                 .then(function (res) {
                     if (res.success) {
                         shareUrlInput.value = toCurrentAccessDomain(res.url);
                         shareExpiresEl.textContent = '<?php echo e(t('update_history_share_expires_prefix', '链接有效期至：')); ?>' + new Date(res.expires * 1000).toLocaleString();
                         shareModal.style.display = 'flex';
                     } else {
-                        showStatus('<?php echo e(t('update_history_share_failed', '生成分享链接失败：')); ?>' + escapeHtml(res.error || <?php echo json_encode(t('admin_backup_js_unknown_error', '未知错误')); ?>), 'error');
+                        showStatus('<?php echo e(t('update_history_share_failed', '生成分享链接失败：')); ?>' + escapeHtml(res.error || <?php echo json_encode(t('admin_backup_js_unknown_error', '未知错误')); ?>) + (res.details ? diagBlock(res.details) : ''), 'error');
                     }
                 })
-                .catch(function () { showStatus(<?php echo json_encode(t('update_history_share_network_fail', '网络错误，生成分享链接失败。')); ?>, 'error'); })
+                .catch(function (err) { showStatus(netErrHtml(err, <?php echo json_encode(t('update_history_share_network_fail', '网络错误，生成分享链接失败。')); ?>), 'error'); })
                 .finally(function () { btn.disabled = false; });
         });
     }
@@ -1304,7 +1304,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
         upkgProgShow(upkgProgTxt.installing);
         var poll = function () {
             fetch('/index.php?route=admin/api/update_ajax&action=progress')
-                .then(function (r) { return r.json(); })
+                .then(httpJson)
                 .then(function (p) {
                     if (!p || !p.stage) return;
                     var pct = Math.min(100, Math.max(0, p.progress || 0));
@@ -1319,6 +1319,35 @@ require_once dirname(__DIR__) . '/layout/header.php';
 
     // 渲染后端返回的诊断信息（details）为可折叠块，便于排查上传/安装失败根因
     // maxLines 控制最多展示的字段行数（检查失败等场景可放宽，完整内容在独立诊断页）
+    // 统一解析接口响应：成功/业务错误（均为 JSON）正常返回；
+    // 仅当响应不是合法 JSON（PHP 500 错误页 / nginx 413 / 502 等）时，
+    // 抛出带 HTTP 状态码与原始正文的错误，交由各流程的 .catch 完整呈现，便于排查。
+    function httpJson(r) {
+        return r.text().then(function (text) {
+            try {
+                return JSON.parse(text);
+            } catch (parseErr) {
+                var e = new Error('invalid_json');
+                e.__httpStatus = r.status;
+                e.__raw = text;
+                throw e;
+            }
+        });
+    }
+    // 把网络/解析层错误格式化为可读 HTML（HTTP 状态码 + 响应原文前 800 字），供 .catch 复用
+    function netErrHtml(err, fallbackText) {
+        var msg = escapeHtml(fallbackText || '<?php echo e(t('update_network_fail', '网络错误，操作失败。')); ?>');
+        if (err && err.__httpStatus) {
+            var raw = (err.__raw || '').slice(0, 800);
+            msg += '<br><small style="color:var(--text-muted);word-break:break-all;white-space:pre-wrap">HTTP '
+                + escapeHtml(String(err.__httpStatus))
+                + (raw ? ': ' + escapeHtml(raw) : '') + '</small>';
+        } else if (err && err.message) {
+            msg += '<br><small style="color:var(--text-muted)">' + escapeHtml(err.message) + '</small>';
+        }
+        return msg;
+    }
+
     function diagBlock(d, maxLines) {
         if (!d) return '';
         if (typeof maxLines !== 'number' || maxLines < 1) maxLines = 16;
@@ -1458,7 +1487,19 @@ require_once dirname(__DIR__) . '/layout/header.php';
             try { res = JSON.parse(xhr.responseText); } catch (err) { res = null; }
             if (!res || typeof res !== 'object') {
                 upkgProgHide();
-                showUploadResult('<?php echo e(t('update_upload_parse_network_fail', '网络错误，解析失败。')); ?>', 'error');
+                // 展示实际 HTTP 状态码和响应内容（截断前 800 字符），便于定位服务端真实错误
+                var raw = (xhr.responseText || '').slice(0, 800);
+                var detail = 'HTTP ' + xhr.status + (raw ? '\n\n' + raw : '');
+                // 413 / Request Entity Too Large：Nginx 在请求到达 PHP 前就拒绝，
+                // 后端 uc_* 诊断不会生成，这里给出可操作的排查方向（Nginx + PHP 两侧限制）。
+                var is413 = xhr.status === 413 || /413\s*Request Entity Too Large/i.test(xhr.responseText);
+                if (is413) {
+                    detail += '\n\n【排查方向】这是 Nginx 在请求到达 PHP 之前就拒绝的「请求体过大」。'
+                        + '\n1) Nginx：在 http/server/location 块增加 `client_max_body_size 256m;` 后 `nginx -s reload`。'
+                        + '\n2) PHP：确认 php.ini 的 upload_max_filesize 与 post_max_size ≥ 256M（否则会触发「未收到上传文件」）。'
+                        + '\n3) 服务器运维层面问题，非论坛程序 bug，无需改代码，本次上传包大小已超过上述任一限制。';
+                }
+                showUploadResult('<?php echo e(t('update_upload_parse_network_fail', '网络错误，解析失败。')); ?>' + '\n\n' + escapeHtml(detail), 'error');
                 restoreUploadBtn();
                 return;
             }
@@ -1499,7 +1540,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
         form.append('action', 'install_upload');
         form.append('csrf_token', historyCsrf);
         fetch('/index.php?route=admin/api/update_ajax', { method: 'POST', body: form })
-            .then(function (r) { return r.json(); })
+            .then(httpJson)
             .then(function (res) {
                 if (res.success) {
                     // 安装成功：进度条定格 100% 后收起
@@ -1530,7 +1571,7 @@ require_once dirname(__DIR__) . '/layout/header.php';
                     showUploadResult(msg, 'error');
                 }
             })
-            .catch(function () { upkgProgHide(); showUploadResult('<?php echo e(t('update_upload_network_fail', '网络错误，安装失败。')); ?>', 'error'); })
+            .catch(function (err) { upkgProgHide(); showUploadResult(netErrHtml(err, '<?php echo e(t('update_upload_network_fail', '网络错误，安装失败。')); ?>'), 'error'); })
             .finally(function () {
                 installBtn.disabled = false;
                 installBtn.innerHTML = '<?php echo e(t('update_upload_install', '安装此更新包')); ?>';

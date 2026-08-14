@@ -58,6 +58,7 @@ if (!function_exists('uc_get_current_version')) {
             $sslVerify = uc_get_setting('update_ssl_verify', '1') === '1';
         }
         if (function_exists('curl_init')) {
+            $respHeaders = [];
             $ch = curl_init($url);
             curl_setopt_array($ch, [
                 CURLOPT_RETURNTRANSFER => true,
@@ -71,6 +72,11 @@ if (!function_exists('uc_get_current_version')) {
                 CURLOPT_ENCODING       => '',          // 支持压缩传输
                 CURLOPT_HTTPHEADER     => ['Accept: */*'],
                 CURLOPT_HEADER         => false,        // 不返回单独的头信息，统一从 $code/$data 中获取
+                // 通过回调收集响应头，供检查更新失败时输出诊断（替代仅 file_get_contents 才存在的 $http_response_header 超全局）
+                CURLOPT_HEADERFUNCTION => function ($ch, $headerLine) use (&$respHeaders) {
+                    $respHeaders[] = trim($headerLine);
+                    return strlen($headerLine);
+                },
             ]);
             $data = curl_exec($ch);
             $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -90,10 +96,7 @@ if (!function_exists('uc_get_current_version')) {
             }
             if ($code >= 400) {
                 // 把响应头也打出来：有些 CDN/WAF 会把错误页当成正常响应
-                $respHeaders = [];
-                foreach ($http_response_header ?? [] as $h) {
-                    if (is_string($h)) $respHeaders[] = $h;
-                }
+                // $respHeaders 由 CURLOPT_HEADERFUNCTION 在 curl 模式下填充（file_get_contents 模式则为空数组）
                 $headerStr = !empty($respHeaders) ? " headers:".json_encode($respHeaders) : '';
                 return ['ok' => false, 'error' => "http_$code$headerStr", 'code' => $code, 'body' => (string)$data, 'headers' => $respHeaders];
             }
@@ -114,8 +117,6 @@ if (!function_exists('uc_get_current_version')) {
             }
         }
         if ($data === false) {
-            $streamMeta = stream_context_get_params($ctx) ?? [];
-            $metaKey = http_response_header();
             return ['ok' => false, 'error' => 'file_get_contents_failed', 'code' => $code];
         }
         if ($code >= 400) {
@@ -138,7 +139,22 @@ if (!function_exists('uc_get_current_version')) {
         if (function_exists('curl_init')) {
             $fp = @fopen($dest, 'wb');
             if ($fp === false) {
-                return ['ok' => false, 'error' => 'cannot_create_tmp:' . $dest];
+                $lastErr = error_get_last();
+                $dir = dirname($dest);
+                return [
+                    'ok'      => false,
+                    'error'   => 'cannot_create_tmp:' . $dest,
+                    'details' => [
+                        'dest'        => $dest,
+                        'dest_dir'    => $dir,
+                        'dir_exists'  => is_dir($dir),
+                        'dir_writable' => is_dir($dir) && is_writable($dir),
+                        'last_error'  => ($lastErr['message'] ?? '') !== '' ? $lastErr['message'] : '',
+                        'disk_free'   => (($f = @disk_free_space($dir)) !== false) ? uc_format_bytes((int)$f) : 'unknown',
+                        'url'         => $url,
+                        'env'         => uc_env_snapshot(),
+                    ],
+                ];
             }
             $ch = curl_init($url);
             $opts = [
@@ -164,10 +180,22 @@ if (!function_exists('uc_get_current_version')) {
             curl_exec($ch);
             $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
             $err  = curl_error($ch);
+            $curlErrNo = curl_errno($ch);
             curl_close($ch);
             fclose($fp);
             if ($err !== '') {
-                return ['ok' => false, 'error' => $err];
+                return [
+                    'ok'      => false,
+                    'error'   => 'curl_error: ' . $err,
+                    'details' => [
+                        'url'        => $url,
+                        'timeout'    => $timeout,
+                        'ssl_verify' => $sslVerify ? 'on' : 'off',
+                        'curl_errno' => $curlErrNo,
+                        'http_code'  => $code,
+                        'env'        => uc_env_snapshot(),
+                    ],
+                ];
             }
             if ($code >= 400) {
                 // 读取失败响应正文预览（错误页/JSON 错误信息），便于诊断后清理临时文件
@@ -178,7 +206,19 @@ if (!function_exists('uc_get_current_version')) {
                     fclose($fpr);
                 }
                 @unlink($dest);
-                return ['ok' => false, 'error' => 'http_' . $code, 'code' => $code, 'body' => $body];
+                return [
+                    'ok'      => false,
+                    'error'   => 'http_' . $code,
+                    'code'    => $code,
+                    'body'    => $body,
+                    'details' => [
+                        'url'        => $url,
+                        'timeout'    => $timeout,
+                        'ssl_verify' => $sslVerify ? 'on' : 'off',
+                        'body_preview' => uc_body_preview($body, 500),
+                        'env'        => uc_env_snapshot(),
+                    ],
+                ];
             }
             return ['ok' => true, 'code' => $code];
         }
@@ -188,7 +228,21 @@ if (!function_exists('uc_get_current_version')) {
             return $res;
         }
         if (@file_put_contents($dest, $res['data']) === false) {
-            return ['ok' => false, 'error' => 'write_tmp_failed'];
+            $lastErr = error_get_last();
+            $dir = dirname($dest);
+            return [
+                'ok'      => false,
+                'error'   => 'write_tmp_failed',
+                'details' => [
+                    'dest'         => $dest,
+                    'dest_dir'     => $dir,
+                    'dir_writable' => is_dir($dir) && is_writable($dir),
+                    'last_error'   => ($lastErr['message'] ?? '') !== '' ? $lastErr['message'] : '',
+                    'data_len'     => strlen($res['data'] ?? ''),
+                    'disk_free'    => (($f = @disk_free_space($dir)) !== false) ? uc_format_bytes((int)$f) : 'unknown',
+                    'env'          => uc_env_snapshot(),
+                ],
+            ];
         }
         return ['ok' => true, 'code' => 200];
     }
@@ -253,7 +307,17 @@ if (!function_exists('uc_get_current_version')) {
     function uc_fetch_metadata(): array {
         $url = uc_metadata_url();
         if ($url === '') {
-            return ['ok' => false, 'error' => 'update_source_not_configured'];
+            return [
+                'ok'      => false,
+                'error'   => 'update_source_not_configured',
+                'details' => [
+                    'setting_update_source_url' => uc_get_setting('update_source_url', ''),
+                    'configured'                => uc_get_setting('update_source_url', '') !== '' ? 'yes' : 'no',
+                    'update_channel'            => uc_get_setting('update_channel', 'stable'),
+                    'hint'                      => '尚未配置更新源地址。请在后台「更新设置」中填写更新源（目录地址或 version.json 直链）。',
+                    'env'                       => uc_env_snapshot(),
+                ],
+            ];
         }
         $res = uc_http_get($url, 20);
         if (!$res['ok']) {
@@ -564,7 +628,7 @@ if (!function_exists('uc_get_current_version')) {
             }
             // Windows 上只读文件会导致写入失败：先解除只读再写入
             if (is_file($dest) && !is_writable($dest)) {
-                @chmod($dest, 0644);
+                @chmod($dest, 0755);
             }
             $content = $zip->getFromIndex($i);
             if ($content === false) {
@@ -838,7 +902,7 @@ if (!function_exists('uc_get_current_version')) {
             'perms'         => $perms,
             'hint'          => $writable ? '' : (uc_os_is_windows()
                 ? '目录不存在或 Web 进程（IIS 应用程序池标识 / Apache 服务账户）无写权限。可用 icacls 为 Web 用户授予修改权限，并检查文件只读属性或杀毒软件拦截。'
-                : '目录不存在或 Web 用户（如 www-data）无写权限。可执行：chown -R www-data:www-data ' . rtrim(DATA_PATH, '/\\') . ' 后再试（或 chmod -R 775）。'),
+                : '目录不存在或 Web 用户（如 www-data）无写权限。可执行：chown -R www-data:www-data ' . rtrim(DATA_PATH, '/\\') . ' 后再试（或 chmod -R 755）。'),
         ];
     }
 
@@ -959,7 +1023,7 @@ if (!function_exists('uc_get_current_version')) {
         } else {
             $hints = [
                 'Linux 上解压失败最常见原因：代码目录属主不是 Web 用户（如 www-data / nginx / nobody），Web 进程无写权限。',
-                '把安装根目录属主改为 Web 用户（以 www-data 为例）：sudo chown -R www-data:www-data "' . $root . '"，或放宽写权限：sudo chmod -R u+w "' . $root . '"。',
+                '把安装根目录属主改为 Web 用户（以 www-data 为例）：sudo chown -R www-data:www-data "' . $root . '"，或放宽写权限：sudo chmod -R 755 "' . $root . '"。',
                 '若开启了 SELinux，可能还需：sudo chcon -R -t httpd_sys_rw_t "' . $root . '"（或 setenforce 0 临时验证）。',
                 '若磁盘空间不足（当前剩余见上方环境信息），先清理磁盘再重试。',
                 '当前 Web 进程用户：' . $procUser . '。修复后重新执行更新即可，更新前已自动备份（备份：' . ($backupPath !== '' ? basename($backupPath) : '无') . '）。',
@@ -1155,7 +1219,16 @@ if (!function_exists('uc_get_current_version')) {
      */
     function uc_inspect_upload_package(string $zipPath): array {
         if (!is_file($zipPath)) {
-            return ['ok' => false, 'error' => 'pkg_not_found'];
+            return [
+                'ok'      => false,
+                'error'   => 'pkg_not_found',
+                'details' => array_merge(uc_upload_env_details('pkg_not_found'), [
+                    'zip_path'            => $zipPath,
+                    'zip_exists'          => file_exists($zipPath),
+                    'upload_input_exists' => file_exists(DATA_PATH . 'tmp' . DIRECTORY_SEPARATOR . 'upload_update_input.zip'),
+                    'hint'                => '上传的更新包未保存到 data/tmp。请重新上传，或检查 data/tmp 目录权限。',
+                ]),
+            ];
         }
         $pkgVersion = uc_package_version($zipPath);
         $fileCount  = 0;
@@ -1192,8 +1265,18 @@ if (!function_exists('uc_get_current_version')) {
         // 防呆：必须是能识别版本的云界论坛更新包
         $pkgVersion = uc_package_version($zipPath);
         if ($pkgVersion === '') {
+            $badSize = is_file($zipPath) ? (int)@filesize($zipPath) : 0;
             @unlink($zipPath);
-            return ['success' => false, 'error' => 'bad_package'];
+            return [
+                'success' => false,
+                'error'   => 'bad_package',
+                'details' => [
+                    'zip_path' => $zipPath,
+                    'zip_size' => uc_format_bytes($badSize),
+                    'hint'     => '上传的压缩包不是有效的云界论坛更新包：缺少 app/includes/config.php 或无法识别 APP_VERSION。请确认上传的是官方更新包（.zip）。',
+                    'env'      => uc_env_snapshot(),
+                ],
+            ];
         }
 
         // 阶段 1：备份当前代码
@@ -1298,14 +1381,34 @@ if (!function_exists('uc_get_current_version')) {
      */
     function uc_delete_update_backup(string $filename): array {
         if (!uc_is_update_backup_name($filename)) {
-            return ['success' => false, 'error' => 'invalid_filename'];
+            return [
+                'success' => false,
+                'error'   => 'invalid_filename',
+                'details' => ['filename' => $filename, 'hint' => '文件名不符合 update_pre_Ymd_His.zip 命名规则，已拒绝以防路径穿越。'],
+            ];
         }
         $path = uc_update_backup_dir() . $filename;
         if (!is_file($path)) {
-            return ['success' => false, 'error' => 'not_found'];
+            return [
+                'success' => false,
+                'error'   => 'not_found',
+                'details' => ['filename' => $filename, 'path' => $path, 'exists' => file_exists($path), 'hint' => '备份文件不存在，可能已被删除。'],
+            ];
         }
         if (!@unlink($path)) {
-            return ['success' => false, 'error' => 'delete_failed'];
+            $lastErr = error_get_last();
+            return [
+                'success' => false,
+                'error'   => 'delete_failed',
+                'details' => [
+                    'filename'   => $filename,
+                    'path'       => $path,
+                    'dir'        => uc_update_backup_dir(),
+                    'dir_writable'=> is_writable(uc_update_backup_dir()),
+                    'last_error' => ($lastErr['message'] ?? '') !== '' ? $lastErr['message'] : '',
+                    'env'        => uc_env_snapshot(),
+                ],
+            ];
         }
         @unlink(uc_update_backup_share_path($filename));
         return ['success' => true];
@@ -1349,11 +1452,19 @@ if (!function_exists('uc_get_current_version')) {
      */
     function uc_create_update_backup_share(string $filename, int $ttlDays = 7): array {
         if (!uc_is_update_backup_name($filename)) {
-            return ['success' => false, 'error' => 'invalid_filename'];
+            return [
+                'success' => false,
+                'error'   => 'invalid_filename',
+                'details' => ['filename' => $filename, 'hint' => '文件名不符合命名规则，已拒绝以防路径穿越。'],
+            ];
         }
         $path = uc_update_backup_dir() . $filename;
         if (!is_file($path)) {
-            return ['success' => false, 'error' => 'not_found'];
+            return [
+                'success' => false,
+                'error'   => 'not_found',
+                'details' => ['filename' => $filename, 'path' => $path, 'exists' => file_exists($path)],
+            ];
         }
         $meta = uc_get_update_backup_share($filename);
         if ($meta === null) {
@@ -1363,7 +1474,18 @@ if (!function_exists('uc_get_current_version')) {
                 'expires' => time() + $ttlDays * 86400,
             ];
             if (@file_put_contents(uc_update_backup_share_path($filename), json_encode($meta, JSON_UNESCAPED_UNICODE)) === false) {
-                return ['success' => false, 'error' => 'share_write_failed'];
+                $lastErr = error_get_last();
+                return [
+                    'success' => false,
+                    'error'   => 'share_write_failed',
+                    'details' => [
+                        'filename'    => $filename,
+                        'share_path'  => uc_update_backup_share_path($filename),
+                        'dir_writable'=> is_writable(uc_update_backup_dir()),
+                        'last_error'  => ($lastErr['message'] ?? '') !== '' ? $lastErr['message'] : '',
+                        'env'         => uc_env_snapshot(),
+                    ],
+                ];
             }
         }
         // 生成完整绝对链接：优先用「当前访问域名」推导（多域名/镜像部署也能点开即用），
@@ -1408,8 +1530,20 @@ if (!function_exists('uc_get_current_version')) {
         try {
             $res = uc_perform_update();
             return ['ran' => true, 'result' => $res];
-        } catch (\Throwable $e) {
-            return ['ran' => true, 'result' => ['success' => false, 'error' => 'exception: ' . $e->getMessage()]];
-        }
+    } catch (\Throwable $e) {
+        return [
+            'ran'    => true,
+            'result' => [
+                'success' => false,
+                'error'   => 'exception: ' . $e->getMessage(),
+                'details' => [
+                    'exception' => $e->getMessage(),
+                    'file'      => $e->getFile(),
+                    'line'      => $e->getLine(),
+                    'trace'     => $e->getTraceAsString(),
+                ],
+            ],
+        ];
+    }
     }
 }

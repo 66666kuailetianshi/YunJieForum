@@ -116,37 +116,71 @@ if ($action === 'upload_inspect') {
         echo json_encode(['success' => false, 'error' => 'csrf'], JSON_UNESCAPED_UNICODE);
         exit;
     }
-    set_time_limit(120);
-    $saved = uc_save_upload_package($_FILES['file'] ?? []);
-    if (!$saved['ok']) {
+    // 预检：当 post_max_size / upload_max_filesize 被超出时，PHP 会清空 $_POST 和 $_FILES，
+    // 此时 $_FILES['file'] 不存在或 error 为 UPLOAD_ERR_NO_FILE，但更关键的是需要尽早给前端一个明确提示。
+    if (empty($_FILES) || !isset($_FILES['file'])) {
         ob_end_clean();
         header('Content-Type: application/json; charset=utf-8');
         echo json_encode([
             'success' => false,
-            'error'   => $saved['error'],
-            'details' => $saved['details'] ?? null,
+            'error'   => 'upload_err_no_file',
+            'details' => array_merge(uc_upload_env_details('upload_err_no_file', []), [
+                'hint'     => '未收到上传文件。可能原因：文件超过 PHP 的 post_max_size 或 upload_max_filesize 限制（请检查 php.ini），或表单字段名不匹配。',
+                'php_post_max'   => ini_get('post_max_size'),
+                'php_upload_max' => ini_get('upload_max_filesize'),
+                'php_files_empty' => empty($_FILES),
+                '_files_keys'     => array_keys($_FILES ?? []),
+            ]),
         ], JSON_UNESCAPED_UNICODE);
         exit;
     }
-    $info = uc_inspect_upload_package($saved['path']);
-    if (!$info['ok']) {
+    set_time_limit(120);
+    try {
+        $saved = uc_save_upload_package($_FILES['file'] ?? []);
+        if (!$saved['ok']) {
+            ob_end_clean();
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode([
+                'success' => false,
+                'error'   => $saved['error'],
+                'details' => $saved['details'] ?? null,
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+        $info = uc_inspect_upload_package($saved['path']);
+        if (!$info['ok']) {
+            ob_end_clean();
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode(['success' => false, 'error' => $info['error']], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
         ob_end_clean();
         header('Content-Type: application/json; charset=utf-8');
-        echo json_encode(['success' => false, 'error' => $info['error']], JSON_UNESCAPED_UNICODE);
+        echo json_encode([
+            'success'    => true,
+            'version'    => $info['version'],
+            'current'    => $info['current'],
+            'relation'   => $info['relation'],
+            'files'      => $info['files'],
+            'size'       => $info['size'],
+            'size_text'  => uc_format_bytes($info['size']),
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    } catch (\Throwable $e) {
+        ob_end_clean();
+        http_response_code(500);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode([
+            'success' => false,
+            'error'   => 'exception: ' . $e->getMessage(),
+            'details' => [
+                'exception' => $e->getMessage(),
+                'file'      => $e->getFile(),
+                'line'      => $e->getLine(),
+            ],
+        ], JSON_UNESCAPED_UNICODE);
         exit;
     }
-    ob_end_clean();
-    header('Content-Type: application/json; charset=utf-8');
-    echo json_encode([
-        'success'    => true,
-        'version'    => $info['version'],
-        'current'    => $info['current'],
-        'relation'   => $info['relation'],
-        'files'      => $info['files'],
-        'size'       => $info['size'],
-        'size_text'  => uc_format_bytes($info['size']),
-    ], JSON_UNESCAPED_UNICODE);
-    exit;
 }
 
 if ($action === 'install_upload') {
